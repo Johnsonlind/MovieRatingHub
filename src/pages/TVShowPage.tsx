@@ -46,12 +46,6 @@ interface TraktRating {
   };
 }
 
-interface RatingResult {
-  platform: string;
-  status: FetchStatus;
-  data: any;
-}
-
 export default function TVShowPage() {
   const { id } = useParams();
   const [selectedSeason, setSelectedSeason] = useState<number | undefined>(undefined);
@@ -100,117 +94,103 @@ export default function TVShowPage() {
       setTraktStatus('loading');
 
       try {
-        // 创建所有评分请求的 Promise
-        const backendPromises = platforms.map(platform => 
-          fetch(`/api/ratings/${platform}/tv/${id}`, {
-            signal: controller.signal
-          })
-          .then(response => {
+        // 创建所有后端平台的请求
+        const backendPromises = platforms.map(async platform => {
+          try {
+            const response = await fetch(`/api/ratings/${platform}/tv/${id}`);
             if (!response.ok) throw new Error('获取评分失败');
-            return response.json();
-          })
-          .then(data => ({
-            platform,
-            status: data.status === 'Successful' ? 'successful' :  
-                    data.status === 'No Found' ? 'not_found' :
-                    data.status === 'No Rating' ? 'no_rating' :
-                    data.status === 'RateLimit' ? 'rate_limit' :
-                    data.status === 'Timeout' ? 'timeout' :
-                    data.status === 'Fail' ? 'fail' : 'error',
-            data
-          }))
-          .catch(error => {
-            if (error.name === 'AbortError') {
-              throw error;
-            }
-            return {
-              platform,
-              status: 'error',
-              data: null
-            };
-          })
-        );
-
-
-      // 等待所有请求完成并更新状态
-      const tmdbPromise = fetchTMDBRating('tv', id!)
-        .then(data => {
-          if (!data || !data.rating) {
-            setTmdbStatus('no_rating');
-            setTmdbRating(undefined);
-            return;
-          }
-          
-          // 确保类型转换正确
-          const tmdbData: TMDBRating = {
-            rating: Number(data.rating),
-            voteCount: Number(data.voteCount),
-            seasons: data.seasons?.map(s => ({
-              season_number: Number(s.season_number),
-              rating: Number(s.rating),
-              voteCount: Number(s.voteCount)
-            }))
-          };
-          
-          setTmdbRating(tmdbData);
-          setTmdbStatus('successful');
-        })
-        .catch(() => {
-          setTmdbStatus('error');
-          setTmdbRating(undefined);
-        });
-        const traktPromise = fetchTraktRating('shows', id!)
-        .then(data => {
-          if (!data || !data.rating) {
-            setTraktStatus('no_rating');
-            setTraktRating(undefined);
-            return;
-          }
-          const traktData: TraktRating = {
-            rating: Number(data.rating),
-            votes: Number(data.voteCount),
-            voteCount: Number(data.voteCount),
-            distribution: {
-              '1': Number(data.distribution['1'] || 0),
-              '2': Number(data.distribution['2'] || 0),
-              '3': Number(data.distribution['3'] || 0),
-              '4': Number(data.distribution['4'] || 0),
-              '5': Number(data.distribution['5'] || 0),
-              '6': Number(data.distribution['6'] || 0),
-              '7': Number(data.distribution['7'] || 0),
-              '8': Number(data.distribution['8'] || 0),
-              '9': Number(data.distribution['9'] || 0),
-              '10': Number(data.distribution['10'] || 0)
-            }
-          };
-          setTraktRating(traktData);
-          setTraktStatus('successful');
-        })
-        .catch(() => {
-          setTraktStatus('error');
-          setTraktRating(undefined);
-        });
-
-        const results = await Promise.allSettled([
-          ...backendPromises,
-          tmdbPromise,
-          traktPromise
-        ]);
-
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        // 处理后端平台的结果
-        results.slice(0, platforms.length).forEach((result) => {
-          if (result.status === 'fulfilled') {
-            const value = result.value as RatingResult;
+            const data = await response.json();
+            
+            // 获取到数据后立即更新状态
             setPlatformStatuses(prev => ({
               ...prev,
-              [value.platform]: { status: value.status, data: value.data }
+              [platform]: {
+                status: data.status === 'Successful' ? 'successful' :  
+                        data.status === 'No Found' ? 'not_found' :
+                        data.status === 'No Rating' ? 'no_rating' :
+                        data.status === 'RateLimit' ? 'rate_limit' :
+                        data.status === 'Timeout' ? 'timeout' :
+                        data.status === 'Fail' ? 'fail' : 'error',
+                data
+              }
             }));
+
+            return { platform, status: 'successful', data };
+          } catch (error) {
+            setPlatformStatuses(prev => ({
+              ...prev,
+              [platform]: { status: 'error', data: null }
+            }));
+            return { platform, status: 'error', data: null };
           }
         });
+
+        // 获取 TMDB 和 Trakt 评分
+        const tmdbPromise = fetchTMDBRating('tv', id!)
+          .then(data => {
+            if (!data || !data.rating) {
+              setTmdbStatus('no_rating');
+              setTmdbRating(undefined);
+              return;
+            }
+            const tmdbData: TMDBRating = {
+              rating: Number(data.rating),
+              voteCount: Number(data.voteCount),
+              seasons: data.seasons?.map(s => ({
+                season_number: Number(s.season_number),
+                rating: Number(s.rating),
+                voteCount: Number(s.voteCount)
+              }))
+            };
+            setTmdbRating(tmdbData);
+            setTmdbStatus('successful');
+          })
+          .catch(() => {
+            setTmdbStatus('error');
+            setTmdbRating(undefined);
+          });
+
+        const traktPromise = fetchTraktRating('shows', id!)
+          .then(data => {
+            if (!data || !data.rating) {
+              setTraktStatus('no_rating');
+              setTraktRating(undefined);
+              return;
+            }
+            setTraktRating({
+              rating: Number(data.rating),
+              votes: Number(data.voteCount),
+              voteCount: Number(data.voteCount),
+              distribution: {
+                '1': Number(data.distribution['1'] || 0),
+                '2': Number(data.distribution['2'] || 0),
+                '3': Number(data.distribution['3'] || 0),
+                '4': Number(data.distribution['4'] || 0),
+                '5': Number(data.distribution['5'] || 0),
+                '6': Number(data.distribution['6'] || 0),
+                '7': Number(data.distribution['7'] || 0),
+                '8': Number(data.distribution['8'] || 0),
+                '9': Number(data.distribution['9'] || 0),
+                '10': Number(data.distribution['10'] || 0)
+              }
+            });
+            setTraktStatus('successful');
+          })
+          .catch(() => {
+            setTraktStatus('error');
+            setTraktRating(undefined);
+          });
+
+        // 等待所有请求完成，但状态已经在每个请求完成时更新了
+        await Promise.all([...backendPromises, tmdbPromise, traktPromise]);
+
+        // 组件卸载时关闭 EventSource
+        return () => {
+          if (controller.signal.aborted) {
+            return;
+          }
+        };
+
       } catch (err: unknown) {
         const error = err as Error;
         if (error.name !== 'AbortError') {
