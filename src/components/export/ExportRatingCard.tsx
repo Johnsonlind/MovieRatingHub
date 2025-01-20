@@ -159,7 +159,7 @@ export function ExportRatingCard({ media, ratingData }: ExportRatingCardProps) {
 
   return (
     <div 
-      className="bg-[url('/background.png')] bg-cover bg-center p-8 w-[1200px] min-h-[800px] flex relative"
+      className="bg-[url('/background.png')] bg-cover bg-center p-8 w-[1200px] min-h-[902px] flex relative"
     >
       {/* Home Logo */}
       <div className="mt-auto ml-[-10px]">
