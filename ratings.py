@@ -22,7 +22,13 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/89.0.2 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/89.0.2 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/89.0.2 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:45.0) Gecko/20100101 Firefox/45.0",
+    "Mozilla/5.0 (Windows NT 6.1; rv:54.0) Gecko/20100101 Firefox/54.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/91.0.864.67 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36 Edge/91.0.864.48"
 ]
 
 # 在文件开头添加状态枚举
@@ -354,9 +360,14 @@ def chinese_to_arabic(chinese_num):
             
     return result
 
+async def random_delay():
+    delay = random.uniform(2, 5)
+    await asyncio.sleep(delay)
+    
 async def search_douban(page, tmdb_info):
     """在豆瓣搜索影视信息"""
     try:
+        await random_delay()
         # 构建搜索URL
         search_url = f"https://search.douban.com/movie/subject_search?search_text={quote(tmdb_info['zh_title'])}"
         print(f"访问豆瓣搜索页面: {search_url}")
@@ -468,6 +479,7 @@ async def search_douban(page, tmdb_info):
 async def search_imdb(page, tmdb_info):
     """在IMDB搜索影视信息"""
     try:
+        await random_delay()  # 添加随机延时
         # 如果有IMDB ID，直接使用
         if tmdb_info.get("imdb_id"):
             imdb_id = tmdb_info["imdb_id"]
@@ -537,6 +549,7 @@ async def search_imdb(page, tmdb_info):
 async def search_rottentomatoes(page, tmdb_info):
     """在Rotten Tomatoes搜索影视信息"""
     try:
+        await random_delay()  # 添加随机延时
         # 构建搜索URL
         search_url = f"https://www.rottentomatoes.com/search?search={quote(tmdb_info['title'])}"
         print(f"访问Rotten Tomatoes搜索页面: {search_url}")
@@ -605,6 +618,7 @@ async def search_rottentomatoes(page, tmdb_info):
 async def search_metacritic(page, tmdb_info):
     """在Metacritic搜索影视信息"""
     try:
+        await random_delay()  # 添加随机延时
         # 构建搜索URL
         search_url = f"https://www.metacritic.com/search/{quote(tmdb_info['title'])}/"
         print(f"访问Metacritic搜索页面: {search_url}")
@@ -679,6 +693,7 @@ async def search_metacritic(page, tmdb_info):
 async def search_letterboxd(page, tmdb_info):
     """在Letterboxd搜索影视信息"""
     try:
+        await random_delay()  # 添加随机延时
         # 构建搜索URL
         search_url = f"https://letterboxd.com/search/{quote(tmdb_info['title'])}/"
         print(f"访问Letterboxd搜索页面: {search_url}")
@@ -926,6 +941,17 @@ async def search_platform(platform, tmdb_info, request=None):
         if request and await request.is_disconnected():
             return {"status": "cancelled"}
             
+        # 对于IMDB,如果有IMDB ID则直接返回详情页URL
+        if platform == "imdb" and tmdb_info.get("imdb_id"):
+            imdb_id = tmdb_info["imdb_id"]
+            return [{
+                "title": tmdb_info["title"],
+                "year": tmdb_info.get("year", ""),
+                "url": f"https://www.imdb.com/title/{imdb_id}/",
+                "imdb_id": imdb_id,
+                "direct_match": True
+            }]
+            
         if platform == "douban":
             search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
         else:
@@ -935,6 +961,9 @@ async def search_platform(platform, tmdb_info, request=None):
         search_url = construct_search_url(search_title, media_type, platform)
         
         async with async_playwright() as p:
+            # 先选择一个固定的 User-Agent
+            selected_user_agent = random.choice(USER_AGENTS)
+            
             # 1. 优化浏览器启动配置
             browser_args = [
                 '--disable-dev-shm-usage',
@@ -955,7 +984,9 @@ async def search_platform(platform, tmdb_info, request=None):
                 '--disable-extensions',
                 '--disable-component-extensions-with-background-pages',
                 '--disable-default-apps',
-                '--mute-audio'
+                '--mute-audio',
+                '--disable-blink-features=AutomationControlled',
+                '--disable-infobars'
             ]
             
             browser = await p.chromium.launch(
@@ -973,7 +1004,7 @@ async def search_platform(platform, tmdb_info, request=None):
             # 2. 优化上下文配置
             context_options = {
                 'viewport': {'width': 1920, 'height': 1080},
-                'user_agent': random.choice(USER_AGENTS),
+                'user_agent': selected_user_agent,
                 'bypass_csp': True,
                 'ignore_https_errors': True,
                 'java_script_enabled': True,
@@ -1192,6 +1223,7 @@ async def check_rate_limit(page, platform: str) -> dict | None:
 async def handle_douban_search(page, search_url):
     """处理豆瓣搜索"""
     try:
+        await random_delay()
         print(f"访问豆瓣搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
         await asyncio.sleep(2)
@@ -1258,6 +1290,7 @@ async def handle_douban_search(page, search_url):
 async def handle_imdb_search(page, search_url):
     """处理IMDB搜索"""
     try:
+        await random_delay()
         print(f"访问 IMDB 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
         await asyncio.sleep(2)
@@ -1318,6 +1351,7 @@ async def handle_imdb_search(page, search_url):
 async def handle_rt_search(page, search_url, tmdb_info):
     """处理Rotten Tomatoes搜索"""
     try:
+        await random_delay()  # 添加随机延时
         print(f"访问 Rotten Tomatoes 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
         await asyncio.sleep(2)
@@ -1398,6 +1432,7 @@ async def handle_rt_search(page, search_url, tmdb_info):
 async def handle_metacritic_search(page, search_url):
     """处理Metacritic搜索"""
     try:
+        await random_delay()
         print(f"访问 Metacritic 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
         await asyncio.sleep(2)
@@ -1455,6 +1490,7 @@ async def handle_metacritic_search(page, search_url):
 async def handle_letterboxd_search(page, search_url):
     """处理Letterboxd搜索"""
     try:
+        await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
         await asyncio.sleep(2)
@@ -2101,6 +2137,7 @@ def create_empty_rating_data(platform, media_type, status):
 async def extract_rating_info(media_type, platform, tmdb_info, request=None):
     """从各平台详情页HTML中提取对应评分数据"""
     try:
+        await random_delay()  # 添加随机延时
         # 检查请求是否已被取消
         if request and await request.is_disconnected():
             print("请求已被取消,停止执行")
@@ -2211,7 +2248,12 @@ async def extract_rating_info(media_type, platform, tmdb_info, request=None):
                             '--no-sandbox',
                             '--disable-setuid-sandbox',
                             '--disable-gpu',
-                            '--disable-web-security'
+                            '--disable-web-security',
+                            '--disable-features=IsolateOrigins,site-per-process',
+                            '--disable-blink-features=AutomationControlled',  # 隐藏自动化特征
+                            '--disable-infobars',
+                            '--window-size=1920,1080',
+                            f'--user-agent={random.choice(USER_AGENTS)}'
                         ]
                     )
                     context = await browser.new_context(
