@@ -209,6 +209,26 @@ export default function TVShowPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (tvShow) {
+      // 预加载所有需要的图片
+      preloadImages([
+        tvShow.poster,
+        '/background.png',
+        '/rating-template.png',
+        '/logos/douban.png',
+        '/logos/imdb.png',
+        '/logos/letterboxd.png',
+        '/logos/rottentomatoes_critics.png',
+        '/logos/metacritic.png',
+        '/logos/tmdb.png',
+        '/logos/trakt.png'
+      ]).catch(error => {
+        console.warn('图片预加载失败:', error);
+      });
+    }
+  }, [tvShow]);
+
   // 组合所有评分数据
   const allRatings: TVShowRatingData = {
     type: 'tv',
@@ -352,19 +372,6 @@ export default function TVShowPage() {
     setIsExporting(true);
     
     try {
-      // 预加载图片
-      await preloadImages([
-        tvShow.poster,
-        '/rating-template.png',
-        '/logos/douban.png',
-        '/logos/imdb.png',
-        '/logos/letterboxd.png',
-        '/logos/rottentomatoes_critics.png',
-        '/logos/metacritic.png',
-        '/logos/tmdb.png',
-        '/logos/trakt.png'
-      ]);
-      
       const element = document.getElementById('export-content');
       if (!element) throw new Error('导出元素不存在');
       
