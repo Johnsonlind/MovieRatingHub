@@ -35,7 +35,7 @@ export function Credits({ cast, crew, className }: CreditsProps) {
             {crew.map((member, index) => (
               <div key={index} className="p-3 rounded-lg">
                 <h3 className="font-medium text-gray-900 dark:text-white">{member.name}</h3>
-                <p className="text-sm text-gray-500 dark:text-white">{getChineseJobTitle(member.job || '')}</p>
+                <p className="text-sm text-gray-500">{getChineseJobTitle(member.job || '')}</p>
               </div>
             ))}
           </div>
@@ -64,7 +64,7 @@ export function Credits({ cast, crew, className }: CreditsProps) {
                     />
                   </div>
                   <div className="w-full">
-                    <h3 className="font-medium text-gray-900 text-sm truncate">
+                    <h3 className="font-medium text-gray-900 text-sm truncate dark:text-white">
                       {member.name}
                     </h3>
                     {member.character && (
