@@ -185,6 +185,25 @@ export default function MoviePage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (movie) {
+      preloadImages([
+        movie.poster,
+        '/background.png',
+        '/rating-template.png',
+        '/logos/douban.png',
+        '/logos/imdb.png',
+        '/logos/letterboxd.png',
+        '/logos/rottentomatoes_critics.png',
+        '/logos/metacritic.png',
+        '/logos/tmdb.png',
+        '/logos/trakt.png'
+      ]).catch(error => {
+        console.warn('图片预加载失败:', error);
+      });
+    }
+  }, [movie]);
+
   // 组合所有评分数据
   const allRatings: MovieRatingData = {
     type: 'movie',
@@ -303,19 +322,6 @@ export default function MoviePage() {
     setIsExporting(true);
     
     try {
-      // 预加载图片
-      await preloadImages([
-        movie.poster,
-        '/rating-template.png',
-        '/logos/douban.png',
-        '/logos/imdb.png',
-        '/logos/letterboxd.png',
-        '/logos/rottentomatoes_critics.png',
-        '/logos/metacritic.png',
-        '/logos/tmdb.png',
-        '/logos/trakt.png'
-      ]);
-      
       const element = document.getElementById('export-content');
       if (!element) throw new Error('导出元素不存在');
       
