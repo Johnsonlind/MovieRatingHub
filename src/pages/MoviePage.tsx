@@ -75,38 +75,38 @@ export default function MoviePage() {
       setTraktStatus('loading');
 
       try {
-        // 创建所有评分请求的 Promise
-        const backendPromises = platforms.map(platform => 
-          fetch(`/api/ratings/${platform}/movie/${id}`, {
-            signal: controller.signal
-          })
-          .then(response => {
+        // 创建所有后端平台的请求
+        const backendPromises = platforms.map(async platform => {
+          try {
+            const response = await fetch(`/api/ratings/${platform}/movie/${id}`);
             if (!response.ok) throw new Error('获取评分失败');
-            return response.json();
-          })
-          .then(data => ({
-            platform,
-            status: data.status === 'Successful' ? 'successful' :  
-                    data.status === 'No Found' ? 'not_found' :
-                    data.status === 'No Rating' ? 'no_rating' :
-                    data.status === 'RateLimit' ? 'rate_limit' :
-                    data.status === 'Timeout' ? 'timeout' :
-                    data.status === 'Fail' ? 'fail' : 'error',
-            data
-          }))
-          .catch(error => {
-            if (error.name === 'AbortError') {
-              throw error;
-            }
-            return {
-              platform,
-              status: 'error',
-              data: null
-            };
-          })
-        );
+            const data = await response.json();
+            
+            // 获取到数据后立即更新状态
+            setPlatformStatuses(prev => ({
+              ...prev,
+              [platform]: {
+                status: data.status === 'Successful' ? 'successful' :  
+                        data.status === 'No Found' ? 'not_found' :
+                        data.status === 'No Rating' ? 'no_rating' :
+                        data.status === 'RateLimit' ? 'rate_limit' :
+                        data.status === 'Timeout' ? 'timeout' :
+                        data.status === 'Fail' ? 'fail' : 'error',
+                data
+              }
+            }));
 
-        // 等待所有请求完成并更新状态
+            return { platform, status: 'successful', data };
+          } catch (error) {
+            setPlatformStatuses(prev => ({
+              ...prev,
+              [platform]: { status: 'error', data: null }
+            }));
+            return { platform, status: 'error', data: null };
+          }
+        });
+
+        // TMDB 和 Trakt 的获取逻辑保持不变
         const tmdbPromise = fetchTMDBRating('movie', id!)
           .then(data => {
             if (!data || !data.rating) {
@@ -126,7 +126,7 @@ export default function MoviePage() {
             setTmdbRating(null);
           });
 
-          const traktPromise = fetchTraktRating('movies', id!)
+        const traktPromise = fetchTraktRating('movies', id!)
           .then(data => {
             if (!data || !data.rating) {
               setTraktStatus('no_rating');
@@ -157,43 +157,20 @@ export default function MoviePage() {
             setTraktRating(null);
           });
 
-        const results = await Promise.allSettled([
-          ...backendPromises,
-          tmdbPromise,
-          traktPromise
-        ]);
+        // 等待所有请求完成，但状态已经在每个请求完成时更新了
+        await Promise.all([...backendPromises, tmdbPromise, traktPromise]);
 
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        // 处理后端平台的结果
-        results.slice(0, platforms.length).forEach((result) => {
-          if (result.status === 'fulfilled' && result.value) {
-            const { platform, status, data } = result.value as {
-              platform: string;
-              status: string;
-              data: any;
-            };
-            setPlatformStatuses(prev => ({
-              ...prev,
-              [platform]: { 
-                status: status as FetchStatus, 
-                data 
-              }
-            }));
+        // 组件卸载时关闭 EventSource
+        return () => {
+          if (controller.signal.aborted) {
+            return;
           }
-        });
+        };
+
       } catch (err: unknown) {
         const error = err as Error;
         if (error.name !== 'AbortError') {
           console.error('获取评分失败:', error);
-          platforms.forEach(platform => {
-            setPlatformStatuses(prev => ({
-              ...prev,
-              [platform]: { status: 'error', data: null }
-            }));
-          });
         }
       }
     };
