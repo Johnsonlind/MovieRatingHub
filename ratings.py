@@ -475,7 +475,8 @@ async def search_imdb(page, tmdb_info):
                 "title": tmdb_info["title"],
                 "year": tmdb_info["year"],
                 "url": f"https://www.imdb.com/title/{imdb_id}/",
-                "imdb_id": imdb_id
+                "imdb_id": imdb_id,
+                "direct_match": True
             }]
             
         # 如果没有IMDB ID，才进行搜索
@@ -2174,19 +2175,24 @@ async def extract_rating_info(media_type, platform, tmdb_info, request=None):
                 print(f"获取豆瓣评分数据时出错: {e}")
                 return create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
         else:   
-            # 计算最佳匹配
-            best_match = None
-            highest_score = 0
-            for result in search_results:
-                # 检查请求状态
-                if request and await request.is_disconnected():
-                    print("请求已被取消,停止执行")
-                    return {"status": "cancelled"}
-                    
-                score = calculate_match_degree(tmdb_info, result)
-                if score > highest_score:
-                    highest_score = score
-                    best_match = result
+            # 对于IMDB的直接匹配结果，跳过匹配度计算
+            if platform == "imdb" and len(search_results) == 1 and search_results[0].get("direct_match"):
+                best_match = search_results[0]
+                print(f"使用IMDB ID直接匹配: {best_match['title']} ({best_match.get('year', '')})")
+            else:
+                # 计算最佳匹配
+                best_match = None
+                highest_score = 0
+                for result in search_results:
+                    # 检查请求状态
+                    if request and await request.is_disconnected():
+                        print("请求已被取消,停止执行")
+                        return {"status": "cancelled"}
+                        
+                    score = calculate_match_degree(tmdb_info, result)
+                    if score > highest_score:
+                        highest_score = score
+                        best_match = result
         
             if not best_match:
                 print(f"在{platform}平台未找到匹配的结果")
