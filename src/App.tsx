@@ -6,10 +6,18 @@ import TVShowPage from './pages/TVShowPage';
 
 const queryClient = new QueryClient();
 
+// 配置 Router 的未来特性
+const routerOptions = {
+  future: {
+    v7_startTransition: true,
+    v7_relativeSplatPath: true
+  }
+};
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router>
+      <Router {...routerOptions}>
         <div className="min-h-screen bg-gray-50">
           <Routes>
             <Route path="/" element={<HomePage />} />
