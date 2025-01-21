@@ -84,7 +84,7 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     
     const dataUrl = await toPng(element, {
       quality: 1.0,
-      pixelRatio: 2,  // 提高像素比以获得更清晰的文字
+      pixelRatio: 1.5,  // 降低像素比以提高性能
       skipAutoScale: true,
       cacheBust: true,
       onclone: (clonedNode) => {
@@ -95,13 +95,15 @@ export async function exportToPng(element: HTMLElement, filename: string) {
         Array.from(elements).forEach(el => {
           if (el instanceof HTMLElement && el.textContent?.trim()) {
             const style = window.getComputedStyle(el);
-            // 保持原有样式，但使用系统字体
+            // 使用更简单的系统字体设置
             el.style.cssText = `
               ${el.style.cssText};
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+              font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
               font-size: ${style.fontSize} !important;
               font-weight: ${style.fontWeight} !important;
               color: ${style.color} !important;
+              -webkit-font-smoothing: antialiased !important;
+              text-rendering: optimizeLegibility !important;
             `;
           }
         });
