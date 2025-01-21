@@ -7,7 +7,10 @@ export function getImageUrl(path: string | null, size: ImageSize, type: ImageTyp
   if (!path) {
     return type === 'profile' ? '/placeholder-avatar.png' : '/placeholder-poster.png';
   }
-  return `${TMDB.imageBaseUrl}/${TMDB.posterSizes[size]}${path}`;
+  
+  // 使用代理服务器转发请求
+  const imageUrl = `${TMDB.posterSizes[size]}${path}`;
+  return `/api/proxy/image?url=${encodeURIComponent(imageUrl)}`;
 }
 
 export async function getBase64Image(imgUrl: string): Promise<string> {
