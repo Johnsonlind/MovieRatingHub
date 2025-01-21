@@ -15,9 +15,28 @@ export const preloadImages = async (imageUrls: string[]) => {
 };
 
 // 添加新的工具函数
-async function convertImageToBase64(url: string): Promise<string> {
+async function loadAndConvertImage(url: string): Promise<string> {
   try {
-    const response = await fetch(url);
+    if (url.startsWith('data:image')) {
+      return url;
+    }
+
+    const absoluteUrl = url.startsWith('http') 
+      ? url 
+      : new URL(url, window.location.origin).href;
+
+    const response = await fetch(absoluteUrl, {
+      mode: 'cors',
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'image/*'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -26,7 +45,7 @@ async function convertImageToBase64(url: string): Promise<string> {
       reader.readAsDataURL(blob);
     });
   } catch (error) {
-    console.error('转换图片失败:', url, error);
+    console.error('图片加载转换失败:', url, error);
     throw error;
   }
 }
@@ -38,28 +57,47 @@ export async function exportToPng(element: HTMLElement, filename: string) {
   }
 
   try {
-    // 预处理所有图片
+    console.time('total-export');
+    console.log('开始导出处理...');
+
+    // 预处理所有图片元素
     const images = element.getElementsByTagName('img');
-    const imageLoadPromises = Array.from(images).map(async (img) => {
+    console.log(`找到 ${images.length} 个图片需要处理`);
+
+    // 获取所有需要处理的图片URL
+    const imageUrls = [
+      '/background.png',
+      '/rating-template.png',
+      '/logos/home.png',
+      ...Array.from(images).map(img => img.src)
+    ];
+
+    // 预加载并转换所有图片
+    const imageLoadPromises = imageUrls.map(async (url) => {
       try {
-        // 转换图片为 base64
-        const base64 = await convertImageToBase64(img.src);
-        img.src = base64;
-        return new Promise<void>((resolve) => {
-          img.onload = () => resolve();
-          img.onerror = () => {
-            console.warn(`图片加载失败: ${img.src}`);
-            resolve();
-          };
-        });
+        const base64 = await loadAndConvertImage(url);
+        // 如果是背景图片，更新元素的背景
+        if (url.includes('background.png')) {
+          element.style.backgroundImage = `url("${base64}")`;
+        }
+        // 如果是其他图片，更新对应的img元素
+        else {
+          const imgElement = Array.from(images).find(img => img.src.includes(url));
+          if (imgElement) {
+            imgElement.src = base64;
+          }
+        }
+        return base64;
       } catch (error) {
-        console.warn(`图片处理失败: ${img.src}`, error);
+        console.error(`图片处理失败: ${url}`, error);
+        return null;
       }
     });
 
-    // 等待所有图片加载完成
+    console.time('images-loading');
     await Promise.all(imageLoadPromises);
-    console.log('所有图片加载完成,开始导出...');
+    console.timeEnd('images-loading');
+    console.log('所有图片加载完成');
 
     // 使用 html-to-image 导出
     const dataUrl = await toPng(element, {
@@ -67,6 +105,13 @@ export async function exportToPng(element: HTMLElement, filename: string) {
       pixelRatio: 2,
       skipAutoScale: true,
       cacheBust: true,
+      filter: (node) => {
+        if (!(node instanceof Element)) return false;
+        const style = window.getComputedStyle(node as HTMLElement);
+        return style.display !== 'none' && 
+               style.visibility !== 'hidden' && 
+               style.opacity !== '0';
+      }
     });
 
     // 下载图片
@@ -77,9 +122,11 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     link.click();
     document.body.removeChild(link);
 
+    console.timeEnd('total-export');
     console.log('导出成功完成');
+    return dataUrl;
   } catch (error) {
-    console.error('导出失败:', error);
+    console.error('导出过程中出错:', error);
     throw new Error('导出图片失败');
   }
 }
