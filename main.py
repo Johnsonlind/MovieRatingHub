@@ -1,8 +1,15 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from ratings import extract_rating_info, get_tmdb_info
+from ratings import extract_rating_info, get_tmdb_info, TMDB_API_BASE_URL as TMDB_BASE_URL
 import asyncio
 from starlette.background import BackgroundTask
+from fastapi.responses import Response
+import aiohttp
+
+# 定义TMDB常量
+class TMDB:
+        imageBaseUrl = "https://image.tmdb.org/t/p"
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -11,8 +18,7 @@ app.add_middleware(
         "http://ratefuse.cn",     # 生产环境
         "https://ratefuse.cn",    # HTTPS
         "http://www.ratefuse.cn", # www 子域名
-        "https://www.ratefuse.cn",
-        "https://image.tmdb.org"  # 添加 TMDB 图片域名
+        "https://www.ratefuse.cn"
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -22,6 +28,18 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "RateFuse API is running"}
+
+@app.get("/proxy/image")
+async def proxy_image(url: str):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{TMDB.imageBaseUrl}/{url}") as response:
+            if response.status == 200:
+                content = await response.read()
+                return Response(
+                    content=content,
+                    media_type=response.headers.get('content-type', 'image/jpeg')
+                )
+            return Response(status_code=response.status)
 
 @app.get("/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(platform: str, type: str, id: str, request: Request):
