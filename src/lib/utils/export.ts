@@ -49,8 +49,16 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     console.time('html-to-image-clone');
     console.log('开始 DOM 克隆...');
     
-    // 先记录原始节点数量
-    console.log('原始 DOM 节点数量:', element.getElementsByTagName('*').length);
+    // 先记录原始节点数量和元素信息
+    const originalNodes = element.getElementsByTagName('*');
+    console.log('原始 DOM 节点数量:', originalNodes.length);
+    console.log('原始元素信息:', {
+      width: element.offsetWidth,
+      height: element.offsetHeight,
+      images: element.getElementsByTagName('img').length,
+      svgs: element.getElementsByTagName('svg').length,
+      canvases: element.getElementsByTagName('canvas').length
+    });
     
     const dataUrl = await toPng(element, {
       quality: 1.0,
@@ -62,24 +70,34 @@ export async function exportToPng(element: HTMLElement, filename: string) {
         const nodeCount = clonedNode.getElementsByTagName('*').length;
         console.log('DOM 克隆完成，节点数量:', nodeCount);
         
-        // 输出一些关键节点的信息
-        const images = clonedNode.getElementsByTagName('img');
-        console.log('图片元素数量:', images.length);
-        
-        const canvases = clonedNode.getElementsByTagName('canvas');
-        console.log('Canvas元素数量:', canvases.length);
+        // 输出克隆后的关键信息
+        console.log('克隆后元素信息:', {
+          width: clonedNode.offsetWidth,
+          height: clonedNode.offsetHeight,
+          images: clonedNode.getElementsByTagName('img').length,
+          svgs: clonedNode.getElementsByTagName('svg').length,
+          canvases: clonedNode.getElementsByTagName('canvas').length
+        });
         
         console.time('html-to-image-process');
         console.log('开始图片处理...');
       },
       filter: (node) => {
-        const element = node as HTMLElement;
-        const display = element.style?.display;
-        const result = display !== 'none';
-        if (!result) {
-          console.log('过滤掉隐藏节点:', element.tagName);
+        try {
+          const element = node as HTMLElement;
+          // 只保留可见元素
+          const isVisible = element.style?.display !== 'none' && 
+                          element.style?.visibility !== 'hidden' &&
+                          element.style?.opacity !== '0';
+          
+          if (!isVisible) {
+            console.log('过滤掉不可见节点:', element.tagName);
+          }
+          return isVisible;
+        } catch (err) {
+          console.warn('节点过滤出错:', err);
+          return true; // 如果出错就保留该节点
         }
-        return result;
       }
     });
     
