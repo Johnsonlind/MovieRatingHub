@@ -5,6 +5,7 @@ export const preloadImages = async (imageUrls: string[]) => {
   const promises = imageUrls.map(url => {
     return new Promise((resolve, reject) => {
       const img = new Image();
+      img.crossOrigin = 'anonymous';  // 添加跨域支持
       img.onload = resolve;
       img.onerror = reject;
       img.src = url;
@@ -16,25 +17,40 @@ export const preloadImages = async (imageUrls: string[]) => {
 
 // 添加新的工具函数
 async function convertImageToBase64(url: string): Promise<string> {
-  try {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
+        
+        ctx.drawImage(img, 0, 0);
+        const base64 = canvas.toDataURL('image/png', 1.0);
+        resolve(base64);
+      } catch (error) {
+        console.error('转换图片失败:', error);
+        reject(error);
+      }
+    };
+    
+    img.onerror = () => {
+      console.error('加载图片失败:', url);
+      reject(new Error(`Failed to load image: ${url}`));
+    };
+
     // 如果不是完整URL，添加当前域名
     const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
-    
-    const response = await fetch(fullUrl, {
-      mode: 'cors',
-      credentials: 'same-origin'
-    });
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch (error) {
-    console.error('转换图片失败:', url, error);
-    throw error;
-  }
+    img.src = fullUrl;
+  });
 }
 
 // 修改导出函数
@@ -49,22 +65,30 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     const images = element.getElementsByTagName('img');
     const imageLoadPromises = Array.from(images).map(async (img) => {
       try {
-        console.log('处理图片:', img.src);
-        // 转换图片为 base64
-        const base64 = await convertImageToBase64(img.src);
+        // 保存原始src
+        const originalSrc = img.src;
+        // 设置跨域属性
+        img.crossOrigin = 'anonymous';
+        // 转换图片为base64
+        const base64 = await convertImageToBase64(originalSrc);
         img.src = base64;
+        
         return new Promise<void>((resolve) => {
-          img.onload = () => {
-            console.log('图片加载成功:', img.src.substring(0, 50) + '...');
+          const newImg = new Image();
+          newImg.onload = () => {
+            console.log('图片加载成功:', originalSrc);
             resolve();
           };
-          img.onerror = () => {
-            console.warn(`图片加载失败: ${img.src.substring(0, 50)}...`);
+          newImg.onerror = () => {
+            console.warn('图片加载失败:', originalSrc);
+            img.src = originalSrc; // 失败时恢复原始src
             resolve();
           };
+          newImg.src = base64;
         });
       } catch (error) {
         console.warn(`图片处理失败: ${img.src}`, error);
+        return Promise.resolve(); // 继续处理其他图片
       }
     });
 
@@ -78,7 +102,18 @@ export async function exportToPng(element: HTMLElement, filename: string) {
       pixelRatio: 2,
       skipAutoScale: true,
       cacheBust: true,
-      imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+      filter: (node) => {
+        // 保留所有图片节点
+        if (node.tagName === 'IMG') {
+          return true;
+        }
+        // 其他节点的默认过滤逻辑
+        const element = node as HTMLElement;
+        const style = window.getComputedStyle(element);
+        return style.display !== 'none' && 
+               style.visibility !== 'hidden' && 
+               style.opacity !== '0';
+      }
     });
 
     // 下载图片
