@@ -30,9 +30,19 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     console.time('total-export');
     console.log('开始导出过程...');
     
-    // 等待所有图片加载完成
-    console.time('images-loading');
+    // 预处理图片
     const images = element.getElementsByTagName('img');
+    console.log('需要处理的图片数量:', images.length);
+    
+    // 确保所有图片都有 crossOrigin 属性
+    Array.from(images).forEach(img => {
+      if (!img.crossOrigin) {
+        img.crossOrigin = 'anonymous';
+      }
+    });
+
+    // 等待所有图片加载
+    console.time('images-loading');
     await Promise.all(
       Array.from(images).map(
         img => img.complete || new Promise(resolve => {
@@ -49,7 +59,7 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     console.time('html-to-image-clone');
     console.log('开始 DOM 克隆...');
     
-    // 先记录原始节点数量和元素信息
+    // 记录原始信息
     const originalNodes = element.getElementsByTagName('*');
     console.log('原始 DOM 节点数量:', originalNodes.length);
     console.log('原始元素信息:', {
@@ -62,42 +72,33 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     
     const dataUrl = await toPng(element, {
       quality: 1.0,
-      pixelRatio: 2,
+      pixelRatio: 1, // 降低像素比
       skipAutoScale: true,
       cacheBust: true,
       onclone: (clonedNode) => {
         console.timeEnd('html-to-image-clone');
-        const nodeCount = clonedNode.getElementsByTagName('*').length;
-        console.log('DOM 克隆完成，节点数量:', nodeCount);
         
-        // 输出克隆后的关键信息
-        console.log('克隆后元素信息:', {
-          width: clonedNode.offsetWidth,
-          height: clonedNode.offsetHeight,
-          images: clonedNode.getElementsByTagName('img').length,
-          svgs: clonedNode.getElementsByTagName('svg').length,
-          canvases: clonedNode.getElementsByTagName('canvas').length
+        // 确保克隆节点中的图片也有 crossOrigin 属性
+        const clonedImages = clonedNode.getElementsByTagName('img');
+        Array.from(clonedImages).forEach(img => {
+          img.crossOrigin = 'anonymous';
         });
-        
+
+        console.log('DOM 克隆完成，开始处理图片...');
         console.time('html-to-image-process');
-        console.log('开始图片处理...');
       },
       filter: (node) => {
-        try {
-          const element = node as HTMLElement;
-          // 只保留可见元素
-          const isVisible = element.style?.display !== 'none' && 
-                          element.style?.visibility !== 'hidden' &&
-                          element.style?.opacity !== '0';
-          
-          if (!isVisible) {
-            console.log('过滤掉不可见节点:', element.tagName);
-          }
-          return isVisible;
-        } catch (err) {
-          console.warn('节点过滤出错:', err);
-          return true; // 如果出错就保留该节点
-        }
+        const element = node as HTMLElement;
+        // 只保留可见且非空的元素
+        const isVisible = element.style?.display !== 'none' && 
+                        element.style?.visibility !== 'hidden' &&
+                        element.style?.opacity !== '0';
+        
+        // 过滤掉空的装饰性元素
+        const isEmpty = element.children.length === 0 && !element.textContent?.trim();
+        const isDecorative = element.tagName === 'DIV' && isEmpty;
+        
+        return isVisible && !isDecorative;
       }
     });
     
