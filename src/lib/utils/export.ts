@@ -14,24 +14,51 @@ export const preloadImages = async (imageUrls: string[]) => {
   await Promise.all(promises);
 };
 
-// 导出为PNG图片
+// 添加新的工具函数
+async function convertImageToBase64(url: string): Promise<string> {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('转换图片失败:', url, error);
+    throw error;
+  }
+}
+
+// 修改导出函数
 export async function exportToPng(element: HTMLElement, filename: string) {
   if (!element) {
     throw new Error('导出元素不存在');
   }
 
   try {
-    // 等待所有图片加载完成
+    // 预处理所有图片
     const images = element.getElementsByTagName('img');
-    await Promise.all(
-      Array.from(images).map(
-        img => img.complete || new Promise(resolve => {
-          img.onload = resolve;
-          img.onerror = resolve;
-        })
-      )
-    );
+    const imageLoadPromises = Array.from(images).map(async (img) => {
+      try {
+        // 转换图片为 base64
+        const base64 = await convertImageToBase64(img.src);
+        img.src = base64;
+        return new Promise<void>((resolve) => {
+          img.onload = () => resolve();
+          img.onerror = () => {
+            console.warn(`图片加载失败: ${img.src}`);
+            resolve();
+          };
+        });
+      } catch (error) {
+        console.warn(`图片处理失败: ${img.src}`, error);
+      }
+    });
 
+    // 等待所有图片加载完成
+    await Promise.all(imageLoadPromises);
     console.log('所有图片加载完成,开始导出...');
 
     // 使用 html-to-image 导出
@@ -39,7 +66,7 @@ export async function exportToPng(element: HTMLElement, filename: string) {
       quality: 1.0,
       pixelRatio: 2,
       skipAutoScale: true,
-      cacheBust: true
+      cacheBust: true,
     });
 
     // 下载图片
