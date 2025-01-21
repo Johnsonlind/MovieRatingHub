@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from douban_api import DoubanAPI
 import aiohttp
 from urllib.parse import quote
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 TMDB_API_KEY = "4f681fa7b5ab7346a4e184bbf2d41715"
@@ -103,14 +103,14 @@ class RetryConfig:
     max_retries: int
     base_delay: float
     platform: str
-    error_types: dict = {
+    error_types: dict = field(default_factory=lambda: {
         'rate_limit': {'max_retries': 3, 'delay': 60},  # 访问频率限制
         'timeout': {'max_retries': 3, 'delay': 5},      # 超时
         'network_error': {'max_retries': 3, 'delay': 2}, # 网络错误
         'parse_error': {'max_retries': 2, 'delay': 1},   # 解析错误
         'fail': {'max_retries': 2, 'delay': 3},          # 获取失败
         'error': {'max_retries': 2, 'delay': 2}          # 其他错误
-    }
+    })
 
 def smart_retry(retry_config: RetryConfig):
     """智能重试装饰器"""
