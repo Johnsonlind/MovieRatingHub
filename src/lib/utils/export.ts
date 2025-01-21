@@ -5,7 +5,7 @@ export const preloadImages = async (imageUrls: string[]) => {
   const promises = imageUrls.map(url => {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';  // 添加跨域支持
+      img.crossOrigin = 'anonymous';
       img.onload = resolve;
       img.onerror = reject;
       img.src = url;
@@ -102,14 +102,19 @@ export async function exportToPng(element: HTMLElement, filename: string) {
       pixelRatio: 2,
       skipAutoScale: true,
       cacheBust: true,
-      filter: (node) => {
+      filter: (node: Node) => {
+        // 确保节点是 Element 类型
+        if (!(node instanceof Element)) {
+          return false;
+        }
+        
         // 保留所有图片节点
         if (node.tagName === 'IMG') {
           return true;
         }
-        // 其他节点的默认过滤逻辑
-        const element = node as HTMLElement;
-        const style = window.getComputedStyle(element);
+        
+        // 其他节点的过滤逻辑
+        const style = window.getComputedStyle(node as Element);
         return style.display !== 'none' && 
                style.visibility !== 'hidden' && 
                style.opacity !== '0';
