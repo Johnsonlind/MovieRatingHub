@@ -84,38 +84,77 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     
     const dataUrl = await toPng(element, {
       quality: 1.0,
-      pixelRatio: 1.5,  // 降低像素比以提高性能
+      pixelRatio: 1.5,
       skipAutoScale: true,
       cacheBust: true,
-      onclone: (clonedNode) => {
+      fetchRequestInit: {
+        // 添加跨域请求配置
+        mode: 'cors',
+        credentials: 'same-origin'
+      },
+      onclone: async (clonedNode) => {
         console.timeEnd('html-to-image-clone');
         
-        // 处理克隆节点中的文本元素
-        const elements = clonedNode.getElementsByTagName('*');
-        Array.from(elements).forEach(el => {
-          if (el instanceof HTMLElement && el.textContent?.trim()) {
-            const style = window.getComputedStyle(el);
-            // 使用更简单的系统字体设置
-            el.style.cssText = `
-              ${el.style.cssText};
-              font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-              font-size: ${style.fontSize} !important;
-              font-weight: ${style.fontWeight} !important;
-              color: ${style.color} !important;
-              -webkit-font-smoothing: antialiased !important;
-              text-rendering: optimizeLegibility !important;
-            `;
-          }
-        });
+        try {
+          // 预加载所有图片
+          const images = clonedNode.getElementsByTagName('img');
+          const imageLoadPromises = Array.from(images).map(img => 
+            new Promise<void>((resolve) => {
+              const originalSrc = img.src;
+              img.crossOrigin = 'anonymous';
+              
+              // 为图片URL添加时间戳，避免缓存
+              const timestamp = Date.now();
+              img.src = originalSrc.includes('?') 
+                ? `${originalSrc}&_t=${timestamp}` 
+                : `${originalSrc}?_t=${timestamp}`;
+              
+              img.onload = () => resolve();
+              img.onerror = () => {
+                console.warn(`图片加载失败: ${originalSrc}`);
+                img.src = originalSrc; // 失败时尝试原始URL
+                resolve();
+              };
+            })
+          );
+          
+          await Promise.all(imageLoadPromises);
+          
+          // 处理文本元素
+          const elements = clonedNode.getElementsByTagName('*');
+          Array.from(elements).forEach(el => {
+            if (el instanceof HTMLElement && el.textContent?.trim()) {
+              const style = window.getComputedStyle(el);
+              // 使用内联样式确保文本渲染
+              el.style.cssText = `
+                ${el.style.cssText};
+                font-family: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif !important;
+                font-size: ${style.fontSize} !important;
+                font-weight: ${style.fontWeight} !important;
+                line-height: ${style.lineHeight} !important;
+                color: ${style.color} !important;
+                text-align: ${style.textAlign} !important;
+                -webkit-font-smoothing: antialiased !important;
+                -moz-osx-font-smoothing: grayscale !important;
+                text-rendering: optimizeLegibility !important;
+                letter-spacing: ${style.letterSpacing} !important;
+              `;
+              
+              // 确保背景色和边框也被保留
+              if (style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+                el.style.backgroundColor = style.backgroundColor;
+              }
+              if (style.border !== 'none') {
+                el.style.border = style.border;
+              }
+            }
+          });
 
-        // 确保克隆节点中的图片也有 crossOrigin 属性
-        const clonedImages = clonedNode.getElementsByTagName('img');
-        Array.from(clonedImages).forEach(img => {
-          img.crossOrigin = 'anonymous';
-        });
-
-        console.log('DOM 克隆完成，开始处理图片...');
-        console.time('html-to-image-process');
+          console.log('DOM 克隆和样式处理完成');
+          console.time('html-to-image-process');
+        } catch (error) {
+          console.error('克隆处理过程出错:', error);
+        }
       },
       filter: (node) => {
         try {
@@ -126,8 +165,10 @@ export async function exportToPng(element: HTMLElement, filename: string) {
           const element = node as HTMLElement;
           const computedStyle = window.getComputedStyle(element);
           const isVisible = computedStyle.display !== 'none' && 
-                          computedStyle.visibility !== 'hidden' &&
-                          computedStyle.opacity !== '0';
+                           computedStyle.visibility !== 'hidden' &&
+                           computedStyle.opacity !== '0' &&
+                           element.offsetWidth > 0 &&
+                           element.offsetHeight > 0;
           
           return isVisible;
         } catch (err) {
