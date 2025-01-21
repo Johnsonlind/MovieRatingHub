@@ -1,5 +1,11 @@
 import { toPng } from 'html-to-image';
 
+interface ExportError extends Error {
+  name: string;
+  message: string;
+  stack?: string;
+}
+
 // 预加载图片函数
 export const preloadImages = async (imageUrls: string[]) => {
   const promises = imageUrls.map(url => {
@@ -43,6 +49,9 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     console.time('html-to-image-clone');
     console.log('开始 DOM 克隆...');
     
+    // 先记录原始节点数量
+    console.log('原始 DOM 节点数量:', element.getElementsByTagName('*').length);
+    
     const dataUrl = await toPng(element, {
       quality: 1.0,
       pixelRatio: 2,
@@ -50,7 +59,16 @@ export async function exportToPng(element: HTMLElement, filename: string) {
       cacheBust: true,
       onclone: (clonedNode) => {
         console.timeEnd('html-to-image-clone');
-        console.log('DOM 克隆完成，节点数量:', clonedNode.getElementsByTagName('*').length);
+        const nodeCount = clonedNode.getElementsByTagName('*').length;
+        console.log('DOM 克隆完成，节点数量:', nodeCount);
+        
+        // 输出一些关键节点的信息
+        const images = clonedNode.getElementsByTagName('img');
+        console.log('图片元素数量:', images.length);
+        
+        const canvases = clonedNode.getElementsByTagName('canvas');
+        console.log('Canvas元素数量:', canvases.length);
+        
         console.time('html-to-image-process');
         console.log('开始图片处理...');
       },
@@ -58,6 +76,9 @@ export async function exportToPng(element: HTMLElement, filename: string) {
         const element = node as HTMLElement;
         const display = element.style?.display;
         const result = display !== 'none';
+        if (!result) {
+          console.log('过滤掉隐藏节点:', element.tagName);
+        }
         return result;
       }
     });
@@ -79,7 +100,13 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     console.timeEnd('total-export');
     console.log('导出成功完成');
   } catch (error) {
-    console.error('导出过程中出错:', error);
-    throw error;
+    const exportError = error as ExportError;
+    console.error('导出过程中出错:', exportError);
+    console.error('错误详情:', {
+      name: exportError.name,
+      message: exportError.message,
+      stack: exportError.stack
+    });
+    throw exportError;
   }
 }
