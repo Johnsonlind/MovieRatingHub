@@ -21,26 +21,32 @@ export async function exportToPng(element: HTMLElement, filename: string) {
   }
 
   try {
-    // 等待所有图片加载完成
+    console.time('图片加载时间');
     const images = element.getElementsByTagName('img');
-    await Promise.all(
-      Array.from(images).map(
-        img => img.complete || new Promise(resolve => {
-          img.onload = resolve;
-          img.onerror = resolve;
-        })
-      )
-    );
+    console.log(`需要加载的图片数量: ${images.length}`);
+    
+    for(let i = 0; i < images.length; i++) {
+      console.time(`图片${i+1}加载时间`);
+      await new Promise(resolve => {
+        if(images[i].complete) {
+          resolve(null);
+        } else {
+          images[i].onload = () => resolve(null);
+          images[i].onerror = () => resolve(null);
+        }
+      });
+      console.timeEnd(`图片${i+1}加载时间`);
+    }
+    console.timeEnd('图片加载时间');
 
-    console.log('所有图片加载完成,开始导出...');
-
-    // 使用 html-to-image 导出
+    console.time('导出时间');
     const dataUrl = await toPng(element, {
       quality: 1.0,
       pixelRatio: 2,
       skipAutoScale: true,
       cacheBust: true
     });
+    console.timeEnd('导出时间');
 
     // 下载图片
     const link = document.createElement('a');
@@ -49,8 +55,6 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
-    console.log('导出成功完成');
   } catch (error) {
     console.error('导出失败:', error);
     throw new Error('导出图片失败');
