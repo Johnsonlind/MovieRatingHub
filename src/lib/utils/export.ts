@@ -33,14 +33,40 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     );
 
     console.log('所有图片加载完成,开始导出...');
+    console.time('export-timing');
+
+    // 在导出前优化图片
+    const imageElements = element.getElementsByTagName('img');
+    for (const img of Array.from(imageElements)) {
+      if (img.complete && img.naturalWidth > 0) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0);
+          img.src = canvas.toDataURL('image/jpeg', 0.95);
+        }
+      }
+    }
 
     // 使用 html-to-image 导出
     const dataUrl = await toPng(element, {
-      quality: 1.0,
+      quality: 0.95,
       pixelRatio: 2,
       skipAutoScale: true,
-      cacheBust: true
+      cacheBust: true,
+      filter: (node) => {
+        return node.tagName !== 'i';
+      },
+      backgroundColor: '#ffffff',
+      canvasWidth: 1200,
+      canvasHeight: 902
     });
+
+    console.timeEnd('export-timing');
 
     // 下载图片
     const link = document.createElement('a');
