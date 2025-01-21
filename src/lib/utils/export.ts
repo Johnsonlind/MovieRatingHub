@@ -1,18 +1,12 @@
 import { toPng } from 'html-to-image';
 
-interface ExportError extends Error {
-  name: string;
-  message: string;
-  stack?: string;
-}
-
 // 预加载图片函数
 export const preloadImages = async (imageUrls: string[]) => {
   const promises = imageUrls.map(url => {
-    return new Promise((resolve, reject) => {
+    return new Promise<void>((resolve, reject) => {
       const img = new Image();
-      img.onload = resolve;
-      img.onerror = reject;
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
       img.src = url;
     });
   });
@@ -34,23 +28,41 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     const images = element.getElementsByTagName('img');
     console.log('需要处理的图片数量:', images.length);
     
-    // 确保所有图片都有 crossOrigin 属性
-    Array.from(images).forEach(img => {
-      if (!img.crossOrigin) {
-        img.crossOrigin = 'anonymous';
+    // 并行预加载所有图片
+    console.time('images-loading');
+    const imageLoadPromises = Array.from(images).map(img => {
+      // 如果图片已经加载完成，直接返回
+      if (img.complete && img.naturalHeight !== 0) {
+        return Promise.resolve();
       }
+
+      // 否则创建加载Promise
+      return new Promise<void>((resolve) => {
+        img.crossOrigin = 'anonymous';
+        
+        const originalSrc = img.src;
+        // 添加时间戳避免缓存
+        img.src = `${originalSrc}${originalSrc.includes('?') ? '&' : '?'}_t=${Date.now()}`;
+        
+        img.onload = () => {
+          console.log(`图片加载成功: ${img.src}`);
+          resolve();
+        };
+        img.onerror = () => {
+          console.warn(`图片加载失败: ${img.src}, 尝试不带时间戳重新加载`);
+          // 如果带时间戳加载失败，尝试使用原始URL
+          img.src = originalSrc;
+          img.onload = () => resolve();
+          img.onerror = () => {
+            console.error(`图片加载失败: ${originalSrc}`);
+            resolve(); // 即使失败也resolve，避免整个过程卡住
+          };
+        };
+      });
     });
 
-    // 等待所有图片加载
-    console.time('images-loading');
-    await Promise.all(
-      Array.from(images).map(
-        img => img.complete || new Promise(resolve => {
-          img.onload = resolve;
-          img.onerror = resolve;
-        })
-      )
-    );
+    // 等待所有图片加载完成
+    await Promise.all(imageLoadPromises);
     console.timeEnd('images-loading');
     console.log('所有图片加载完成,开始导出...');
 
@@ -72,7 +84,7 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     
     const dataUrl = await toPng(element, {
       quality: 1.0,
-      pixelRatio: 1, // 降低像素比
+      pixelRatio: 1,
       skipAutoScale: true,
       cacheBust: true,
       onclone: (clonedNode) => {
@@ -89,28 +101,24 @@ export async function exportToPng(element: HTMLElement, filename: string) {
       },
       filter: (node) => {
         try {
-          // 首先检查节点是否是 Element
           if (!(node instanceof Element)) {
             return false;
           }
 
           const element = node as HTMLElement;
-          
-          // 检查样式属性是否存在
           const computedStyle = window.getComputedStyle(element);
+          
+          // 检查元素是否可见
           const isVisible = computedStyle.display !== 'none' && 
-                           computedStyle.visibility !== 'hidden' &&
-                           computedStyle.opacity !== '0';
+                          computedStyle.visibility !== 'hidden' &&
+                          computedStyle.opacity !== '0' &&
+                          element.getBoundingClientRect().width > 0 &&
+                          element.getBoundingClientRect().height > 0;
           
-          // 检查是否是空的装饰性元素
-          const hasChildren = element.children.length > 0;
-          const hasText = element.textContent ? element.textContent.trim().length > 0 : false;
-          const isDecorative = element.tagName === 'DIV' && !hasChildren && !hasText;
-          
-          return isVisible && !isDecorative;
+          return isVisible;
         } catch (err) {
           console.warn('节点过滤出错:', err);
-          return true; // 如果出错就保留该节点
+          return true;
         }
       }
     });
@@ -132,9 +140,8 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     console.timeEnd('total-export');
     console.log('导出成功完成');
   } catch (error) {
-    const exportError = error as ExportError;
-    console.error('导出过程中出错:', exportError);
-    console.error('错误详情:', {
+    const exportError = error as Error;
+    console.error('导出过程中出错:', {
       name: exportError.name,
       message: exportError.message,
       stack: exportError.stack
