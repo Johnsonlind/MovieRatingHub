@@ -22,6 +22,7 @@ export async function exportToPng(element: HTMLElement, filename: string) {
 
   try {
     console.time('total-export');
+    console.log('开始导出过程...');
     
     // 等待所有图片加载完成
     console.time('images-loading');
@@ -40,22 +41,29 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     // 使用 html-to-image 导出
     console.time('html-to-image');
     console.time('html-to-image-clone');
+    console.log('开始 DOM 克隆...');
+    
     const dataUrl = await toPng(element, {
       quality: 1.0,
       pixelRatio: 2,
       skipAutoScale: true,
       cacheBust: true,
-      onclone: () => {
+      onclone: (clonedNode) => {
         console.timeEnd('html-to-image-clone');
+        console.log('DOM 克隆完成，节点数量:', clonedNode.getElementsByTagName('*').length);
         console.time('html-to-image-process');
+        console.log('开始图片处理...');
       },
       filter: (node) => {
-        // 过滤掉不需要的节点，如隐藏元素
         const element = node as HTMLElement;
-        return element.style?.display !== 'none';
+        const display = element.style?.display;
+        const result = display !== 'none';
+        return result;
       }
     });
+    
     console.timeEnd('html-to-image-process');
+    console.log('图片处理完成');
     console.timeEnd('html-to-image');
 
     // 下载图片
@@ -71,7 +79,7 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     console.timeEnd('total-export');
     console.log('导出成功完成');
   } catch (error) {
-    console.error('导出失败:', error);
-    throw new Error('导出图片失败');
+    console.error('导出过程中出错:', error);
+    throw error;
   }
 }
