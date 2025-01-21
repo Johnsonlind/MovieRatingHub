@@ -21,6 +21,9 @@ export async function exportToPng(element: HTMLElement, filename: string) {
   }
 
   try {
+    // 检测是否为Safari浏览器
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    
     // 等待所有图片加载完成
     const images = element.getElementsByTagName('img');
     await Promise.all(
@@ -34,21 +37,55 @@ export async function exportToPng(element: HTMLElement, filename: string) {
 
     console.log('所有图片加载完成,开始导出...');
 
-    // 使用 html-to-image 导出
-    const dataUrl = await toPng(element, {
-      quality: 1.0,
-      pixelRatio: 2,
-      skipAutoScale: true,
-      cacheBust: true
-    });
+    // Safari需要多次尝试
+    if (isSafari) {
+      console.log('检测到Safari浏览器,将进行多次导出尝试...');
+      const attempts = 3;
+      
+      for (let i = 0; i < attempts; i++) {
+        try {
+          const dataUrl = await toPng(element, {
+            quality: 1.0,
+            pixelRatio: 2,
+            skipAutoScale: true,
+            cacheBust: true
+          });
+          
+          // 最后一次尝试才真正下载
+          if (i === attempts - 1) {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = dataUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+          
+          // 添加短暂延迟
+          if (i < attempts - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        } catch (error) {
+          console.error(`第${i + 1}次导出尝试失败:`, error);
+          if (i === attempts - 1) throw error;
+        }
+      }
+    } else {
+      // 其他浏览器保持原有逻辑
+      const dataUrl = await toPng(element, {
+        quality: 1.0,
+        pixelRatio: 2,
+        skipAutoScale: true,
+        cacheBust: true
+      });
 
-    // 下载图片
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = dataUrl;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = dataUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
 
     console.log('导出成功完成');
   } catch (error) {
