@@ -5,13 +5,42 @@ export const preloadImages = async (imageUrls: string[]) => {
   const promises = imageUrls.map(url => {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.onload = resolve;
-      img.onerror = reject;
-      img.src = url;
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        // 转换为 base64 并缓存
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0);
+            const base64 = canvas.toDataURL('image/png', 1.0);
+            // 将 base64 数据存储到 sessionStorage
+            sessionStorage.setItem(url, base64);
+          }
+        } catch (error) {
+          console.warn('图片预处理失败:', error);
+        }
+        resolve(img);
+      };
+      img.onerror = () => {
+        console.warn(`预加载图片失败: ${url}`);
+        reject(new Error(`Failed to load image: ${url}`));
+      };
+      
+      // 使用完整URL
+      const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+      img.src = `${fullUrl}?t=${Date.now()}`;
     });
   });
   
-  await Promise.all(promises);
+  try {
+    await Promise.all(promises);
+    console.log('所有图片预加载完成');
+  } catch (error) {
+    console.warn('部分图片预加载失败:', error);
+  }
 };
 
 // 添加新的工具函数来获取完整的资源URL
@@ -69,22 +98,23 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     const images = element.getElementsByTagName('img');
     const imageLoadPromises = Array.from(images).map(async (img) => {
       try {
-        // 保存原始src
         const originalSrc = img.src;
-        // 转换图片为base64
-        const base64 = await convertImageToBase64(originalSrc);
+        // 尝试从 sessionStorage 获取缓存的 base64 数据
+        const cachedBase64 = sessionStorage.getItem(originalSrc);
+        if (cachedBase64) {
+          img.src = cachedBase64;
+        } else {
+          // 如果没有缓存，则重新转换
+          const base64 = await convertImageToBase64(originalSrc);
+          img.src = base64;
+        }
         
         return new Promise<void>((resolve) => {
-          const newImg = new Image();
-          newImg.onload = () => {
-            img.src = base64;
-            resolve();
-          };
-          newImg.onerror = () => {
+          img.onload = () => resolve();
+          img.onerror = () => {
             console.warn(`图片加载失败: ${originalSrc}`);
             resolve();
           };
-          newImg.src = base64;
         });
       } catch (error) {
         console.warn(`图片处理失败: ${img.src}`, error);
