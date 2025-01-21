@@ -88,17 +88,30 @@ export async function exportToPng(element: HTMLElement, filename: string) {
         console.time('html-to-image-process');
       },
       filter: (node) => {
-        const element = node as HTMLElement;
-        // 只保留可见且非空的元素
-        const isVisible = element.style?.display !== 'none' && 
-                        element.style?.visibility !== 'hidden' &&
-                        element.style?.opacity !== '0';
-        
-        // 过滤掉空的装饰性元素
-        const isEmpty = element.children.length === 0 && !element.textContent?.trim();
-        const isDecorative = element.tagName === 'DIV' && isEmpty;
-        
-        return isVisible && !isDecorative;
+        try {
+          // 首先检查节点是否是 Element
+          if (!(node instanceof Element)) {
+            return false;
+          }
+
+          const element = node as HTMLElement;
+          
+          // 检查样式属性是否存在
+          const computedStyle = window.getComputedStyle(element);
+          const isVisible = computedStyle.display !== 'none' && 
+                           computedStyle.visibility !== 'hidden' &&
+                           computedStyle.opacity !== '0';
+          
+          // 检查是否是空的装饰性元素
+          const hasChildren = element.children.length > 0;
+          const hasText = element.textContent ? element.textContent.trim().length > 0 : false;
+          const isDecorative = element.tagName === 'DIV' && !hasChildren && !hasText;
+          
+          return isVisible && !isDecorative;
+        } catch (err) {
+          console.warn('节点过滤出错:', err);
+          return true; // 如果出错就保留该节点
+        }
       }
     });
     
