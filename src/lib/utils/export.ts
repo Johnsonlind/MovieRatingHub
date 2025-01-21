@@ -33,14 +33,22 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     );
 
     console.log('所有图片加载完成,开始导出...');
+    console.time('toPng-conversion');
 
     // 使用 html-to-image 导出
     const dataUrl = await toPng(element, {
       quality: 1.0,
       pixelRatio: 2,
       skipAutoScale: true,
-      cacheBust: true
+      cacheBust: false,  // 使用缓存
+      filter: (node) => {
+        // 过滤掉不需要的节点
+        return node.tagName !== 'BUTTON' && 
+               !node.classList?.contains('pointer-events-none');
+      },
     });
+
+    console.timeEnd('toPng-conversion');
 
     // 下载图片
     const link = document.createElement('a');
