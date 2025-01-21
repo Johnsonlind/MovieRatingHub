@@ -22,6 +22,17 @@ export async function exportToPng(element: HTMLElement, filename: string) {
   }
 
   try {
+    console.log('开始导出过程');
+    console.log('DOM元素大小:', {
+      width: element.offsetWidth,
+      height: element.offsetHeight
+    });
+    console.log('DOM元素内容:', {
+      childNodes: element.childNodes.length,
+      images: element.getElementsByTagName('img').length,
+      totalElements: element.getElementsByTagName('*').length
+    });
+
     // 等待所有图片加载完成
     const images = element.getElementsByTagName('img');
     console.log(`需要加载的图片数量: ${images.length}`);
@@ -44,13 +55,16 @@ export async function exportToPng(element: HTMLElement, filename: string) {
 
     console.log('所有图片加载完成,开始导出...');
 
-    // 使用 html-to-image 导出
+    console.time('toPng执行时间');
     const dataUrl = await toPng(element, {
       quality: 1.0,
       pixelRatio: 2,
       skipAutoScale: true,
       cacheBust: true
     });
+    console.timeEnd('toPng执行时间');
+    
+    console.log('生成的dataUrl长度:', dataUrl.length);
 
     // 下载图片
     const link = document.createElement('a');
