@@ -17,7 +17,13 @@ export const preloadImages = async (imageUrls: string[]) => {
 // 添加新的工具函数
 async function convertImageToBase64(url: string): Promise<string> {
   try {
-    const response = await fetch(url);
+    // 如果不是完整URL，添加当前域名
+    const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    
+    const response = await fetch(fullUrl, {
+      mode: 'cors',
+      credentials: 'same-origin'
+    });
     const blob = await response.blob();
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -38,17 +44,22 @@ export async function exportToPng(element: HTMLElement, filename: string) {
   }
 
   try {
+    console.log('开始处理图片...');
     // 预处理所有图片
     const images = element.getElementsByTagName('img');
     const imageLoadPromises = Array.from(images).map(async (img) => {
       try {
+        console.log('处理图片:', img.src);
         // 转换图片为 base64
         const base64 = await convertImageToBase64(img.src);
         img.src = base64;
         return new Promise<void>((resolve) => {
-          img.onload = () => resolve();
+          img.onload = () => {
+            console.log('图片加载成功:', img.src.substring(0, 50) + '...');
+            resolve();
+          };
           img.onerror = () => {
-            console.warn(`图片加载失败: ${img.src}`);
+            console.warn(`图片加载失败: ${img.src.substring(0, 50)}...`);
             resolve();
           };
         });
@@ -67,6 +78,7 @@ export async function exportToPng(element: HTMLElement, filename: string) {
       pixelRatio: 2,
       skipAutoScale: true,
       cacheBust: true,
+      imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
     });
 
     // 下载图片
