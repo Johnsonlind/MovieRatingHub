@@ -71,7 +71,7 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     console.time('html-to-image-clone');
     console.log('开始 DOM 克隆...');
     
-    // 记录原始信息
+    // 先记录原始节点数量和元素信息
     const originalNodes = element.getElementsByTagName('*');
     console.log('原始 DOM 节点数量:', originalNodes.length);
     console.log('原始元素信息:', {
@@ -84,12 +84,28 @@ export async function exportToPng(element: HTMLElement, filename: string) {
     
     const dataUrl = await toPng(element, {
       quality: 1.0,
-      pixelRatio: 1,
+      pixelRatio: 2,  // 提高像素比以获得更清晰的文字
       skipAutoScale: true,
       cacheBust: true,
       onclone: (clonedNode) => {
         console.timeEnd('html-to-image-clone');
         
+        // 处理克隆节点中的文本元素
+        const elements = clonedNode.getElementsByTagName('*');
+        Array.from(elements).forEach(el => {
+          if (el instanceof HTMLElement && el.textContent?.trim()) {
+            const style = window.getComputedStyle(el);
+            // 保持原有样式，但使用系统字体
+            el.style.cssText = `
+              ${el.style.cssText};
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+              font-size: ${style.fontSize} !important;
+              font-weight: ${style.fontWeight} !important;
+              color: ${style.color} !important;
+            `;
+          }
+        });
+
         // 确保克隆节点中的图片也有 crossOrigin 属性
         const clonedImages = clonedNode.getElementsByTagName('img');
         Array.from(clonedImages).forEach(img => {
@@ -107,13 +123,9 @@ export async function exportToPng(element: HTMLElement, filename: string) {
 
           const element = node as HTMLElement;
           const computedStyle = window.getComputedStyle(element);
-          
-          // 检查元素是否可见
           const isVisible = computedStyle.display !== 'none' && 
                           computedStyle.visibility !== 'hidden' &&
-                          computedStyle.opacity !== '0' &&
-                          element.getBoundingClientRect().width > 0 &&
-                          element.getBoundingClientRect().height > 0;
+                          computedStyle.opacity !== '0';
           
           return isVisible;
         } catch (err) {
