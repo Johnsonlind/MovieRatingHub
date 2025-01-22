@@ -5,6 +5,7 @@ import { OverallRatingCard } from '../ratings/OverallRatingCard';
 import { formatRating } from '../../utils/formatRating';
 import type { RatingData } from '../../types/ratings';
 import { calculateOverallRating } from '../ratings/calculateOverallrating';
+import { CDN_URL } from '../../lib/config';
 
 interface ExportRatingCardProps {
   media: {
@@ -39,7 +40,7 @@ export function ExportRatingCard({ media, ratingData }: ExportRatingCardProps) {
     ratingCards.push(
       <div key="douban" className="w-full">
         <RatingCard
-          logo="/logos/douban.png"
+          logo={`${CDN_URL}/logos/douban.png`}
           rating={Number(ratingData.douban.rating)}
           maxRating={10}
           label={`${formatRating.count(ratingData.douban.rating_people)} 人评分`}
@@ -55,7 +56,7 @@ export function ExportRatingCard({ media, ratingData }: ExportRatingCardProps) {
     ratingCards.push(
       <div key="imdb" className="w-full">
         <RatingCard
-          logo="/logos/imdb.png"
+          logo={`${CDN_URL}/logos/imdb.png`}
           rating={Number(ratingData.imdb.rating)}
           maxRating={10}
           label={`${formatRating.count(ratingData.imdb.rating_people)} 人评分`}
@@ -113,7 +114,7 @@ export function ExportRatingCard({ media, ratingData }: ExportRatingCardProps) {
     ratingCards.push(
       <div key="letterboxd" className="w-full">
         <RatingCard
-          logo="/logos/letterboxd.png"
+          logo={`${CDN_URL}/logos/letterboxd.png`}
           rating={Number(ratingData.letterboxd.rating)}
           maxRating={5}
           label={`${formatRating.count(ratingData.letterboxd.rating_count)} 人评分`}
@@ -129,7 +130,7 @@ export function ExportRatingCard({ media, ratingData }: ExportRatingCardProps) {
     ratingCards.push(
       <div key="tmdb" className="w-full">
         <RatingCard
-          logo="/logos/tmdb.png"
+          logo={`${CDN_URL}/logos/tmdb.png`}
           rating={Number((ratingData.tmdb.rating).toFixed(1))}
           maxRating={10}
           label={`${formatRating.count(ratingData.tmdb.voteCount)} 人评分`}
@@ -145,7 +146,7 @@ export function ExportRatingCard({ media, ratingData }: ExportRatingCardProps) {
     ratingCards.push(
       <div key="trakt" className="w-full">
         <RatingCard
-          logo="/logos/trakt.png"
+          logo={`${CDN_URL}/logos/trakt.png`}
           rating={Number((ratingData.trakt.rating).toFixed(1))}
           maxRating={10}
           label={`${formatRating.count(ratingData.trakt.voteCount)} 人评分`}
@@ -158,13 +159,18 @@ export function ExportRatingCard({ media, ratingData }: ExportRatingCardProps) {
   }
 
   return (
-    <div 
-      className="bg-[url('/background.png')] bg-cover bg-center p-8 w-[1200px] min-h-[902px] flex relative"
+    <div
+      style={{
+        backgroundImage: `url('${CDN_URL}/background.png')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+      className="p-8 w-[1200px] min-h-[902px] flex relative"
     >
       {/* Home Logo */}
       <div className="mt-auto ml-[-10px]">
         <img
-          src="/logos/home.png"
+          src={`${CDN_URL}/logos/home.png`}
           alt="Home"
           className="w-8 h-8 object-contain"
           crossOrigin="anonymous"
