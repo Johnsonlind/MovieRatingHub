@@ -6,6 +6,7 @@ import { formatRating } from '../../utils/formatRating';
 import { calculateOverallRating } from '../ratings/calculateOverallrating';
 import type { TVShow } from '../../types/media';
 import type { TVShowRatingData } from '../../types/ratings';
+import { CDN_URL } from '../../lib/config';
 import type {
   DoubanRating,
   IMDBRating,
@@ -64,7 +65,7 @@ export function ExportTVShowRatingCard({
     ratingCards.push(
       <div key="douban" className="w-full">
         <RatingCard
-          logo="/logos/douban.png"
+          logo={`${CDN_URL}/logos/douban.png`}
           rating={Number(ratings.douban.rating)}
           maxRating={10}
           label={`${formatRating.count(ratings.douban.rating_people)} 人评分`}
@@ -80,7 +81,7 @@ export function ExportTVShowRatingCard({
     ratingCards.push(
       <div key="imdb" className="w-full">
         <RatingCard
-          logo="/logos/imdb.png"
+          logo={`${CDN_URL}/logos/imdb.png`}
           rating={Number(ratings.imdb.rating)}
           maxRating={10}
           label={`${formatRating.count(ratings.imdb.rating_people)} 人评分`}
@@ -132,7 +133,7 @@ export function ExportTVShowRatingCard({
     ratingCards.push(
       <div key="letterboxd" className="w-full">
         <RatingCard
-          logo="/logos/letterboxd.png"
+          logo={`${CDN_URL}/logos/letterboxd.png`}
           rating={Number(ratingData.letterboxd.rating)}
           maxRating={5}
           label={`${formatRating.count(ratingData.letterboxd.rating_count)} 人评分`}
@@ -148,7 +149,7 @@ export function ExportTVShowRatingCard({
     ratingCards.push(
       <div key="tmdb" className="w-full">
         <RatingCard
-          logo="/logos/tmdb.png"
+          logo={`${CDN_URL}/logos/tmdb.png`}
           rating={Number((ratings.tmdb.rating).toFixed(1))}
           maxRating={10}
           label={selectedSeason ? undefined : `${formatRating.count(ratings.tmdb.voteCount)} 人评分`}
@@ -164,7 +165,7 @@ export function ExportTVShowRatingCard({
     ratingCards.push(
       <div key="trakt" className="w-full">
         <RatingCard
-          logo="/logos/trakt.png"
+          logo={`${CDN_URL}/logos/trakt.png`}
           rating={Number((ratingData.trakt.rating).toFixed(1))}
           maxRating={10}
           label={`${formatRating.count(ratingData.trakt?.votes)} 人评分`}
@@ -180,13 +181,18 @@ export function ExportTVShowRatingCard({
   const validPlatformsCount = ratingCards.length;
 
   return (
-    <div 
-      className="bg-[url('/background.png')] bg-cover bg-center p-8 w-[1200px] min-h-[902px] flex relative"
+    <div
+      style={{
+        backgroundImage: `url('${CDN_URL}/background.png')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+      className="p-8 w-[1200px] min-h-[902px] flex relative"
     >
       {/* Home Logo */}
       <div className="mt-auto ml-[-10px]">
         <img
-          src="/logos/home.png"
+          src={`${CDN_URL}/logos/home.png`}
           alt="Home"
           className="w-8 h-8 object-contain"
           crossOrigin="anonymous"
