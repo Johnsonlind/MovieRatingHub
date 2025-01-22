@@ -7,6 +7,8 @@ from redis import asyncio as aioredis
 import json
 import time
 from celery_app import celery_app
+from prometheus_client import Counter, Histogram, Gauge, start_http_server
+import psutil
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -29,6 +31,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 定义监控指标
+SCRAPE_REQUESTS = Counter(
+    'rating_scrape_requests_total', 
+    'Total rating scrape requests', 
+    ['platform', 'media_type']
+)
+
+SCRAPE_ERRORS = Counter(
+    'rating_scrape_errors_total', 
+    'Total rating scrape errors', 
+    ['platform', 'media_type', 'error_type']
+)
+
+SCRAPE_DURATION = Histogram(
+    'rating_scrape_duration_seconds', 
+    'Time spent scraping ratings',
+    ['platform', 'media_type']
+)
+
+CACHE_HITS = Counter(
+    'rating_cache_hits_total', 
+    'Total cache hits', 
+    ['platform', 'media_type']
+)
+
+# 系统资源指标
+CPU_USAGE = Gauge('system_cpu_usage_percent', 'CPU usage in percent')
+MEMORY_USAGE = Gauge('system_memory_usage_bytes', 'Memory usage in bytes')
+DISK_USAGE = Gauge('system_disk_usage_percent', 'Disk usage in percent')
+
 # 生命周期事件
 @app.on_event("startup")
 async def startup_event():
@@ -44,6 +76,11 @@ async def startup_event():
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
+
+    # 启动 Prometheus 客户端
+    start_http_server(8001)
+    # 启动系统指标收集
+    asyncio.create_task(update_system_metrics())
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -153,3 +190,13 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
             return None
         print(f"获取 {platform} 评分时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# 更新系统指标的异步任务
+async def update_system_metrics():
+    while True:
+        CPU_USAGE.set(psutil.cpu_percent())
+        memory = psutil.virtual_memory()
+        MEMORY_USAGE.set(memory.used)
+        disk = psutil.disk_usage('/')
+        DISK_USAGE.set(disk.percent)
+        await asyncio.sleep(15)
