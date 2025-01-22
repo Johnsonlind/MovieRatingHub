@@ -140,7 +140,6 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
         await set_cache(cache_key, rating_info)
         return rating_info
         
-            
     except Exception as e:
         if await request.is_disconnected():
             print(f"{platform} 请求在发生错误时被取消")
