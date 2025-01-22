@@ -60,6 +60,10 @@ CACHE_HITS = Counter(
 CPU_USAGE = Gauge('system_cpu_usage_percent', 'CPU usage in percent')
 MEMORY_USAGE = Gauge('system_memory_usage_bytes', 'Memory usage in bytes')
 DISK_USAGE = Gauge('system_disk_usage_percent', 'Disk usage in percent')
+MEMORY_PERCENT = Gauge('system_memory_usage_percent', 'Memory usage in percent')
+DISK_PERCENT = Gauge('system_disk_usage_percent', 'Disk usage in percent')
+NETWORK_SENT = Gauge('system_network_bytes_sent', 'Network bytes sent')
+NETWORK_RECV = Gauge('system_network_bytes_recv', 'Network bytes received')
 
 # 生命周期事件
 @app.on_event("startup")
@@ -134,69 +138,80 @@ def fetch_rating_task(type: str, platform: str, tmdb_info: dict):
 async def root():
     return {"status": "ok", "message": "RateFuse API is running"}
 
-@app.get("/ratings/{platform}/{type}/{id}")
-async def get_platform_rating(platform: str, type: str, id: str, request: Request):
+@app.get("/api/ratings/{platform}/{type}/{id}")
+async def get_rating(platform: str, type: str, id: str, request: Request):
+    """获取评分的API端点"""
+    # 增加请求计数
+    SCRAPE_REQUESTS.labels(platform=platform, media_type=type).inc()
+    
     try:
-        # 构建缓存键
+        # 检查缓存
         cache_key = f"rating:{platform}:{type}:{id}"
         
-        # 检查缓存
-        cached_data = await get_cache(cache_key)
-        if cached_data:
-            print(f"从缓存获取 {platform} 评分数据")
-            return cached_data
-
-        # 检查请求是否已被取消
-        if await request.is_disconnected():
-            print(f"{platform} 请求已在开始时被取消")
-            return None
+        # 使用 Histogram 记录请求处理时间
+        with SCRAPE_DURATION.labels(platform=platform, media_type=type).time():
+            cached_data = await get_cache(cache_key)
             
-        # 获取 TMDB 信息
-        tmdb_info = await get_tmdb_info(id, request)
-        if not tmdb_info:
-            if await request.is_disconnected():
-                print(f"{platform} 请求在获取TMDB信息时被取消")
-                return None
-            raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
+            if cached_data:
+                # 记录缓存命中
+                CACHE_HITS.labels(platform=platform, media_type=type).inc()
+                return cached_data
+                
+            # 获取TMDB信息
+            tmdb_info = await get_tmdb_info(id, request)
+            if not tmdb_info:
+                SCRAPE_ERRORS.labels(
+                    platform=platform, 
+                    media_type=type, 
+                    error_type='tmdb_info_missing'
+                ).inc()
+                raise HTTPException(status_code=404, detail="无法获取TMDB信息")
+                
+            rating_info = await extract_rating_info(type, platform, tmdb_info, request)
             
-        # 获取单个平台的评分
-        rating_info = await extract_rating_info(type, platform, tmdb_info, request)
-        
-        # 使用 Celery 任务处理评分信息
-        task = fetch_rating_task.delay(type, platform, tmdb_info, request)
-        rating_info = task.get(timeout=60)  # 60秒超时
-        
-        # 再次检查请求是否已被取消
-        if await request.is_disconnected():
-            print(f"{platform} 请求在获取评分信息后被取消")
-            return None
-            
-        if not rating_info:
-            if await request.is_disconnected():
-                print(f"{platform} 请求在处理评分信息时被取消")
-                return None
-            raise HTTPException(
-                status_code=404, 
-                detail=f"未找到 {platform} 的评分信息"
-            )
-            
-        # 存入缓存
-        await set_cache(cache_key, rating_info)
-        return rating_info
-            
+            if rating_info:
+                await set_cache(cache_key, rating_info)
+                return rating_info
+            else:
+                SCRAPE_ERRORS.labels(
+                    platform=platform, 
+                    media_type=type, 
+                    error_type='rating_fetch_failed'
+                ).inc()
+                raise HTTPException(status_code=404, detail="未找到评分信息")
+                
     except Exception as e:
-        if await request.is_disconnected():
-            print(f"{platform} 请求在发生错误时被取消")
-            return None
-        print(f"获取 {platform} 评分时出错: {str(e)}")
+        SCRAPE_ERRORS.labels(
+            platform=platform, 
+            media_type=type, 
+            error_type=type(e).__name__
+        ).inc()
         raise HTTPException(status_code=500, detail=str(e))
 
 # 更新系统指标的异步任务
 async def update_system_metrics():
+    """定期更新系统资源指标"""
     while True:
-        CPU_USAGE.set(psutil.cpu_percent())
-        memory = psutil.virtual_memory()
-        MEMORY_USAGE.set(memory.used)
-        disk = psutil.disk_usage('/')
-        DISK_USAGE.set(disk.percent)
-        await asyncio.sleep(15)
+        try:
+            # CPU 使用率
+            CPU_USAGE.set(psutil.cpu_percent())
+            
+            # 内存使用情况
+            memory = psutil.virtual_memory()
+            MEMORY_USAGE.set(memory.used)
+            MEMORY_PERCENT.set(memory.percent)
+            
+            # 磁盘使用情况
+            disk = psutil.disk_usage('/')
+            DISK_USAGE.set(disk.used)
+            DISK_PERCENT.set(disk.percent)
+            
+            # 网络使用情况
+            network = psutil.net_io_counters()
+            NETWORK_SENT.set(network.bytes_sent)
+            NETWORK_RECV.set(network.bytes_recv)
+            
+        except Exception as e:
+            print(f"更新系统指标时出错: {e}")
+            
+        await asyncio.sleep(15)  # 每15秒更新一次
