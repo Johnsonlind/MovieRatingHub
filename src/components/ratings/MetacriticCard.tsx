@@ -1,3 +1,5 @@
+import { CDN_URL } from '../../lib/config';
+
 interface MetacriticCardProps {
   metascore: number;
   userScore: number;
@@ -30,7 +32,7 @@ export function MetacriticCard({
         {/* 专业评分 */}
         <div className="flex items-start gap-4">
           <img 
-            src="/logos/metacritic.png" 
+            src={`${CDN_URL}/logos/metacritic.png`}
             alt="" 
             className="w-10 h-10 object-contain flex-shrink-0" 
           />
@@ -54,7 +56,7 @@ export function MetacriticCard({
         {/* 用户评分 */}
         <div className="flex items-start gap-4">
           <img 
-            src="/logos/metacritic.png" 
+            src={`${CDN_URL}/logos/metacritic.png`}
             alt="" 
             className="w-10 h-10 object-contain flex-shrink-0" 
           />
