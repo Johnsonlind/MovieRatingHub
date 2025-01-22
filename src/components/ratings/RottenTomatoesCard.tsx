@@ -1,3 +1,5 @@
+import { CDN_URL } from '../../lib/config';
+
 export interface RottenTomatoesCardProps {
   criticScore?: number;
   audienceScore?: number;
@@ -49,7 +51,7 @@ export function RottenTomatoesCard({
         {/* 专业评分 */}
         <div className="flex items-start gap-4">
           <img 
-            src="/logos/rottentomatoes_critics.png" 
+            src={`${CDN_URL}/logos/rottentomatoes_critics.png`}
             alt="" 
             className="w-10 h-10 object-contain flex-shrink-0" 
           />
@@ -78,7 +80,7 @@ export function RottenTomatoesCard({
         {/* 观众评分 */}
         <div className="flex items-start gap-4">
           <img 
-            src="/logos/rottentomatoes_audience.png" 
+            src={`${CDN_URL}/logos/rottentomatoes_audience.png`}
             alt="" 
             className="w-10 h-10 object-contain flex-shrink-0" 
           />
