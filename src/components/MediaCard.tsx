@@ -17,6 +17,7 @@ export function MediaCard({ item }: MediaCardProps) {
             <img
               src={item.poster}
               alt={item.title}
+              crossOrigin="anonymous"
               className="w-full h-full object-cover"
               loading="lazy"
             />
