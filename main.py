@@ -7,7 +7,7 @@ from redis import asyncio as aioredis
 import json
 import time
 from celery_app import celery_app
-from prometheus_client import Counter, Histogram, Gauge, start_http_server
+from prometheus_client import Counter, Histogram, Gauge, start_http_server, CollectorRegistry
 import psutil
 import logging
 from logging.handlers import RotatingFileHandler
@@ -33,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 创建一个新的注册表
+registry = CollectorRegistry()
+
 # 定义监控指标
 SCRAPE_REQUESTS = Counter(
     'rating_scrape_requests_total', 
@@ -54,30 +57,30 @@ SCRAPE_DURATION = Histogram(
 
 CACHE_HITS = Counter(
     'rating_cache_hits_total', 
-    'Total cache hits', 
-    ['platform', 'media_type']
+    'Total cache hits',
+    registry=registry
 )
 
 # 系统资源指标
-CPU_USAGE = Gauge('system_cpu_usage_percent', 'CPU usage in percent')
-MEMORY_USAGE = Gauge('system_memory_usage_bytes', 'Memory usage in bytes')
-DISK_USAGE = Gauge('system_disk_usage_percent', 'Disk usage in percent')
-MEMORY_PERCENT = Gauge('system_memory_usage_percent', 'Memory usage in percent')
-DISK_PERCENT = Gauge('system_disk_usage_percent', 'Disk usage in percent')
+CPU_USAGE = Gauge('system_cpu_usage_percent', 'CPU usage percentage', registry=registry)
+MEMORY_USAGE = Gauge('system_memory_usage', 'Memory usage in bytes', registry=registry)
+DISK_USAGE = Gauge('system_disk_usage', 'Disk usage in bytes', registry=registry)
+MEMORY_PERCENT = Gauge('system_memory_usage_percent', 'Memory usage percentage', registry=registry)
+DISK_PERCENT = Gauge('system_disk_usage_percent', 'Disk usage percentage', registry=registry)
 NETWORK_SENT = Gauge('system_network_bytes_sent', 'Network bytes sent')
 NETWORK_RECV = Gauge('system_network_bytes_recv', 'Network bytes received')
 
 # 添加到现有的指标定义部分
-NETWORK_IN_BYTES = Counter('network_in_bytes_total', 'Total bytes received')
-NETWORK_OUT_BYTES = Counter('network_out_bytes_total', 'Total bytes sent')
-NETWORK_REQUESTS = Counter('network_requests_total', 'Total HTTP requests')
-NETWORK_ERRORS = Counter('network_errors_total', 'Total network errors')
-BANDWIDTH_USED = Gauge('network_bandwidth_used_bytes', 'Total bandwidth used in current month')
-BANDWIDTH_RATE = Gauge('network_bandwidth_rate_bytes', 'Bandwidth usage rate per second')
+NETWORK_IN_BYTES = Counter('network_in_bytes_total', 'Total bytes received', registry=registry)
+NETWORK_OUT_BYTES = Counter('network_out_bytes_total', 'Total bytes sent', registry=registry)
+NETWORK_REQUESTS = Counter('network_requests_total', 'Total HTTP requests', registry=registry)
+NETWORK_ERRORS = Counter('network_errors_total', 'Total network errors', registry=registry)
+BANDWIDTH_USED = Gauge('network_bandwidth_used_bytes', 'Total bandwidth used in current month', registry=registry)
+BANDWIDTH_RATE = Gauge('network_bandwidth_rate_bytes', 'Bandwidth usage rate per second', registry=registry)
 
 # 添加日志相关的指标
-LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'])
-ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'])
+LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'], registry=registry)
+ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'], registry=registry)
 
 # 配置日志处理
 logger = logging.getLogger('ratefuse')
@@ -111,8 +114,8 @@ async def startup_event():
         print(f"Redis 连接初始化失败: {e}")
         redis = None
 
-    # 启动 Prometheus 客户端
-    start_http_server(8001)
+    # 启动 Prometheus 客户端，使用自定义注册表
+    start_http_server(8001, registry=registry)
     # 启动系统指标收集
     asyncio.create_task(update_system_metrics())
 
