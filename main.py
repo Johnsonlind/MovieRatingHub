@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from ratings import extract_rating_info, get_tmdb_info
+from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS  # 添加 RATING_STATUS 导入
 import asyncio
 from starlette.background import BackgroundTask
 from redis import asyncio as aioredis
@@ -146,7 +146,10 @@ async def get_cache(key: str):
     try:
         data = await redis.get(key)
         if data:
-            return json.loads(data)
+            data = json.loads(data)
+            # 只返回成功获取的数据
+            if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+                return data
         return None
     except Exception as e:
         print(f"获取缓存出错: {e}")
@@ -157,11 +160,13 @@ async def set_cache(key: str, data: dict):
     if not redis:
         return
     try:
-        await redis.setex(
-            key,
-            CACHE_EXPIRE_TIME,
-            json.dumps(data)
-        )
+        # 只缓存成功获取的数据
+        if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+            await redis.setex(
+                key,
+                CACHE_EXPIRE_TIME,
+                json.dumps(data)
+            )
     except Exception as e:
         print(f"设置缓存出错: {e}")
 
