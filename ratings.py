@@ -734,10 +734,16 @@ async def handle_douban_with_client_ip(page, tmdb_info, request):
         if detail_result["status"] != "Successful":
             return detail_result
         
+        if "results" not in detail_result:  # 添加结果检查
+            return {"status": "Fail", "message": "搜索结果格式错误"}
+            
+        if not detail_result["results"]:  # 检查结果列表是否为空
+            return {"status": "NO_FOUND", "message": "未找到匹配结果"}
+        
         # 3. 提取评分
         rating_data = await extract_douban_rating(
             page, 
-            tmdb_info["media_type"], 
+            media_type, 
             tmdb_info.get('seasons', [])
         )
         
