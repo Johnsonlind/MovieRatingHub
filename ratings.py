@@ -706,54 +706,6 @@ def get_client_ip(request: Request) -> str:
     
     return request.client.host
 
-async def handle_douban_with_client_ip(page, tmdb_info, request):
-    """使用用户IP处理豆瓣请求"""
-    try:
-        client_ip = get_client_ip(request)
-        print(f"豆瓣请求使用IP: {client_ip}")
-        
-        # 设置豆瓣专用的请求头
-        await page.set_extra_http_headers({
-            'X-Forwarded-For': client_ip,
-            'X-Real-IP': client_ip
-        })
-        
-        # 构造搜索URL
-        search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
-        media_type = tmdb_info["type"]
-        search_url = construct_search_url(search_title, media_type, "douban")
-        print(f"正在搜索豆瓣: {search_url}")
-        
-        # 1. 搜索豆瓣
-        search_results = await search_douban(page, tmdb_info)
-        if search_results["status"] != RATING_STATUS["SUCCESSFUL"]:
-            return search_results
-        
-        # 2. 处理搜索结果
-        detail_result = await handle_douban_search(page, search_url)
-        # 如果返回的是列表，说明搜索成功
-        if isinstance(detail_result, list):
-            if not detail_result:  # 空列表
-                return {"status": RATING_STATUS["NO_FOUND"], "message": "未找到匹配结果"}
-                
-            # 3. 提取评分
-            rating_data = await extract_douban_rating(
-                page, 
-                media_type,
-                detail_result
-            )
-            
-            return rating_data
-            
-        else:  # 如果是字典，说明有错误状态
-            if "status" in detail_result:
-                return detail_result
-            return {"status": RATING_STATUS["FETCH_FAILED"], "message": "搜索结果格式错误"}
-            
-    except Exception as e:
-        print(f"豆瓣处理失败: {str(e)}")
-        return {"status": RATING_STATUS["FETCH_FAILED"], "message": str(e)}
-    
 async def search_platform(platform, tmdb_info, request=None):
     """在各平台搜索并返回搜索结果"""
     browser = None
@@ -861,6 +813,18 @@ async def search_platform(platform, tmdb_info, request=None):
             page = await context.new_page()
             page.set_default_timeout(30000)
             
+            # 如果是豆瓣，设置用户IP
+            if platform == "douban" and request:
+                client_ip = get_client_ip(request)
+                print(f"豆瓣请求使用IP: {client_ip}")
+                await page.set_extra_http_headers({
+                    'X-Forwarded-For': client_ip,
+                    'X-Real-IP': client_ip
+                })
+        
+            # 构造搜索URL
+            search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
+            search_url = construct_search_url(search_title, tmdb_info["type"], platform)
             print(f"正在搜索 {platform}: {search_url}")
 
             # 添加请求监控
@@ -880,7 +844,7 @@ async def search_platform(platform, tmdb_info, request=None):
                 # 获取搜索结果
                 await check_request()
                 if platform == "douban":
-                    results = await handle_douban_with_client_ip(page, tmdb_info, request)
+                    results = await retry_request(handle_douban_search, page, search_url)
                 elif platform == "imdb":
                     results = await retry_request(handle_imdb_search, page, search_url)
                 elif platform == "letterboxd":
@@ -1898,6 +1862,15 @@ async def extract_rating_info(media_type, platform, tmdb_info, request=None):
                         context = await browser.new_context(**context_options)
                         page = await context.new_page()
                         page.set_default_timeout(30000)
+
+                        # 如果是豆瓣，设置用户IP
+                        if platform == "douban" and request:
+                            client_ip = get_client_ip(request)
+                            print(f"豆瓣请求使用IP: {client_ip}")
+                            await page.set_extra_http_headers({
+                                'X-Forwarded-For': client_ip,
+                                'X-Real-IP': client_ip
+                            })
                     
                         # 检查请求状态
                         if request and await request.is_disconnected():
@@ -1932,7 +1905,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, request=None):
                 
                         try:
                             if platform == "douban":
-                                rating_data = await handle_douban_with_client_ip(page, tmdb_info, request)
+                                rating_data = await extract_douban_rating(page, media_type, matched_results)
                             elif platform == "imdb":
                                 rating_data = await extract_imdb_rating(page)
                             elif platform == "letterboxd":
@@ -2357,7 +2330,7 @@ async def extract_letterboxd_rating(page):
             "rating_count": "暂无",
             "status": "Fail"
         }
-
+        
 def check_movie_status(platform_data, platform):
     """检查电影评分数据的状态"""
     if not platform_data:
