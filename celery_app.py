@@ -18,5 +18,7 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=300,  # 5分钟超时
     worker_max_tasks_per_child=200,
-    worker_prefetch_multiplier=4
+    worker_prefetch_multiplier=4,
+    worker_max_memory_per_child=200000,  # 添加内存限制
+    broker_connection_retry_on_startup=True  # 添加这行解决警告
 ) 
