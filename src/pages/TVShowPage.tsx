@@ -16,6 +16,8 @@ import { fetchTMDBRating, fetchTraktRating } from '../lib/api/ratings';
 import type { FetchStatus, BackendPlatformStatus } from '../types/status';
 import { TVShowRatingData } from '../types/ratings';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { CDN_URL } from '../lib/config';
+import { getBase64Image } from '../lib/utils/image';
 
 // 添加 TMDB 和 Trakt 评分类型定义
 interface TMDBRating {
@@ -70,6 +72,8 @@ export default function TVShowPage() {
     enabled: !!id,
     staleTime: Infinity
   });
+
+  const [posterBase64, setPosterBase64] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAllRatings = async () => {
@@ -211,21 +215,30 @@ export default function TVShowPage() {
 
   useEffect(() => {
     if (tvShow) {
-      // 预加载所有需要的图片
-      preloadImages([
-        tvShow.poster,
-        '/background.png',
-        '/rating-template.png',
-        '/logos/douban.png',
-        '/logos/imdb.png',
-        '/logos/letterboxd.png',
-        '/logos/rottentomatoes_critics.png',
-        '/logos/metacritic.png',
-        '/logos/tmdb.png',
-        '/logos/trakt.png'
-      ]).catch(error => {
+      preloadImages({
+        poster: tvShow.poster,
+        cdnImages: [
+          `${CDN_URL}/background.png`,
+          `${CDN_URL}/rating-template.png`,
+          `${CDN_URL}/logos/douban.png`,
+          `${CDN_URL}/logos/imdb.png`,
+          `${CDN_URL}/logos/letterboxd.png`,
+          `${CDN_URL}/logos/rottentomatoes_critics.png`,
+          `${CDN_URL}/logos/metacritic.png`,
+          `${CDN_URL}/logos/tmdb.png`,
+          `${CDN_URL}/logos/trakt.png`
+        ]
+      }).catch(error => {
         console.warn('图片预加载失败:', error);
       });
+    }
+  }, [tvShow]);
+
+  useEffect(() => {
+    if (tvShow?.poster) {
+      getBase64Image(tvShow.poster)
+        .then(base64 => setPosterBase64(base64))
+        .catch(error => console.error('Failed to convert poster to base64:', error));
     }
   }, [tvShow]);
 
@@ -244,27 +257,27 @@ export default function TVShowPage() {
   const backendPlatforms: BackendPlatformStatus[] = [
     {
       platform: 'douban',
-      logo: '/logos/douban.png',
+      logo: `${CDN_URL}/logos/douban.png`,
       status: platformStatuses.douban.status
     },
     {
       platform: 'imdb',
-      logo: '/logos/imdb.png',
+      logo: `${CDN_URL}/logos/imdb.png`,
       status: platformStatuses.imdb.status
     },
     {
       platform: 'letterboxd',
-      logo: '/logos/letterboxd.png',
+      logo: `${CDN_URL}/logos/letterboxd.png`,
       status: platformStatuses.letterboxd.status
     },
     {
       platform: 'rottentomatoes',
-      logo: '/logos/rottentomatoes_critics.png',
+      logo: `${CDN_URL}/logos/rottentomatoes_critics.png`,
       status: platformStatuses.rottentomatoes.status
     },
     {
       platform: 'metacritic',
-      logo: '/logos/metacritic.png',
+      logo: `${CDN_URL}/logos/metacritic.png`,
       status: platformStatuses.metacritic.status
     }
   ];
@@ -478,7 +491,10 @@ export default function TVShowPage() {
         <div id="export-content" className="bg-white">
           {tvShow && (
             <ExportTVShowRatingCard 
-              tvShow={tvShow}
+              tvShow={{
+                ...tvShow,
+                poster: posterBase64 || tvShow.poster
+              }}
               ratingData={allRatings}
               selectedSeason={selectedSeason}
             />
