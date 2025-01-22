@@ -822,9 +822,6 @@ async def search_platform(platform, tmdb_info, request=None):
                     'X-Real-IP': client_ip
                 })
         
-            # 构造搜索URL
-            search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
-            search_url = construct_search_url(search_title, tmdb_info["type"], platform)
             print(f"正在搜索 {platform}: {search_url}")
 
             # 添加请求监控
