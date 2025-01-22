@@ -1,5 +1,6 @@
 import type { FetchStatus, BackendPlatformStatus } from '../../types/status';
 import ErrorMessage from '../common/ErrorMessage';
+import { CDN_URL } from '../../lib/config';
 
 interface PlatformStatusBarProps {
   backendStatuses: BackendPlatformStatus[];
@@ -84,7 +85,7 @@ export function PlatformStatusBar({
 
       {/* TMDB 状态卡片 */}
       <div className="inline-flex items-center gap-3 bg-[#52709d]/50 rounded-lg px-2 py-2">
-        <img src="/logos/tmdb.png" alt="TMDB" className="w-5 h-5" />
+        <img src={`${CDN_URL}/logos/tmdb.png`} alt="TMDB" className="w-5 h-5" />
         <span className={`w-2 h-2 rounded-full ${getStatusColor(tmdbStatus).color}`} />
         <span className="text-sm text-black-400">{getStatusText(tmdbStatus)}</span>
         {tmdbStatus === 'error' && (
@@ -97,7 +98,7 @@ export function PlatformStatusBar({
 
       {/* Trakt 状态卡片 */}
       <div className="inline-flex items-center gap-3 bg-[#52709d]/50 rounded-lg px-2 py-2">
-        <img src="/logos/trakt.png" alt="Trakt" className="w-5 h-5" />
+        <img src={`${CDN_URL}/logos/trakt.png`} alt="Trakt" className="w-5 h-5" />
         <span className={`w-2 h-2 rounded-full ${getStatusColor(traktStatus).color}`} />
         <span className="text-sm text-black-400">{getStatusText(traktStatus)}</span>
         {traktStatus === 'error' && (
