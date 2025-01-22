@@ -17,6 +17,8 @@ import type { FetchStatus, BackendPlatformStatus } from '../types/status';
 import { TMDBRating, TraktRating, MovieRatingData } from '../types/ratings';
 import { Movie as MediaMovie } from '../types/media';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { CDN_URL } from '../lib/config';
+import { getBase64Image } from '../lib/utils/image';
 
 interface PlatformStatus {
   status: FetchStatus;
@@ -51,6 +53,8 @@ export default function MoviePage() {
     enabled: !!id,
     staleTime: Infinity
   });
+
+  const [posterBase64, setPosterBase64] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAllRatings = async () => {
@@ -187,20 +191,30 @@ export default function MoviePage() {
 
   useEffect(() => {
     if (movie) {
-      preloadImages([
-        movie.poster,
-        '/background.png',
-        '/rating-template.png',
-        '/logos/douban.png',
-        '/logos/imdb.png',
-        '/logos/letterboxd.png',
-        '/logos/rottentomatoes_critics.png',
-        '/logos/metacritic.png',
-        '/logos/tmdb.png',
-        '/logos/trakt.png'
-      ]).catch(error => {
+      preloadImages({
+        poster: movie.poster,
+        cdnImages: [
+          `${CDN_URL}/background.png`,
+          `${CDN_URL}/rating-template.png`,
+          `${CDN_URL}/logos/douban.png`,
+          `${CDN_URL}/logos/imdb.png`,
+          `${CDN_URL}/logos/letterboxd.png`,
+          `${CDN_URL}/logos/rottentomatoes_critics.png`,
+          `${CDN_URL}/logos/metacritic.png`,
+          `${CDN_URL}/logos/tmdb.png`,
+          `${CDN_URL}/logos/trakt.png`
+        ]
+      }).catch(error => {
         console.warn('图片预加载失败:', error);
       });
+    }
+  }, [movie]);
+
+  useEffect(() => {
+    if (movie?.poster) {
+      getBase64Image(movie.poster)
+        .then(base64 => setPosterBase64(base64))
+        .catch(error => console.error('Failed to convert poster to base64:', error));
     }
   }, [movie]);
 
@@ -219,27 +233,27 @@ export default function MoviePage() {
   const backendPlatforms: BackendPlatformStatus[] = [
     {
       platform: 'douban',
-      logo: '/logos/douban.png',
+      logo: `${CDN_URL}/logos/douban.png`,
       status: platformStatuses.douban.status
     },
     {
       platform: 'imdb',
-      logo: '/logos/imdb.png',
+      logo: `${CDN_URL}/logos/imdb.png`,
       status: platformStatuses.imdb.status
     },
     {
       platform: 'letterboxd',
-      logo: '/logos/letterboxd.png',
+      logo: `${CDN_URL}/logos/letterboxd.png`,
       status: platformStatuses.letterboxd.status
     },
     {
       platform: 'rottentomatoes',
-      logo: '/logos/rottentomatoes_critics.png',
+      logo: `${CDN_URL}/logos/rottentomatoes_critics.png`,
       status: platformStatuses.rottentomatoes.status
     },
     {
       platform: 'metacritic',
-      logo: '/logos/metacritic.png',
+      logo: `${CDN_URL}/logos/metacritic.png`,
       status: platformStatuses.metacritic.status
     }
   ];
@@ -399,7 +413,7 @@ export default function MoviePage() {
               media={{
                 title: movie.title,
                 year: movie.year.toString(),
-                poster: movie.poster
+                poster: posterBase64 || movie.poster
               }}
               ratingData={allRatings}
             />
