@@ -77,8 +77,12 @@ BANDWIDTH_RATE = Gauge('network_bandwidth_rate_bytes', 'Bandwidth usage rate per
 
 # 添加日志相关的指标
 registry = CollectorRegistry()
-LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'], registry=registry)
-ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'], registry=registry)
+try:
+    LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'], registry=registry)
+    ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'], registry=registry)
+except ValueError:
+    # 如果指标已存在，就跳过
+    pass
 
 # 配置日志处理
 logger = logging.getLogger('ratefuse')
@@ -110,11 +114,15 @@ async def startup_event():
         )
         print("Redis 连接成功初始化")
         
-        # 启动 Prometheus 客户端
-        start_http_server(8001, registry=registry)
-        
+        # 启动 Prometheus 服务器
+        try:
+            start_http_server(8001, registry=registry)
+            print("Prometheus 服务器启动成功")
+        except Exception as e:
+            print(f"Prometheus 服务器启动失败: {e}")
+            
     except Exception as e:
-        print(f"启动初始化失败: {e}")
+        print(f"Redis 连接初始化失败: {e}")
         redis = None
 
     # 启动系统指标收集
