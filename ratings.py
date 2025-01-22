@@ -642,6 +642,24 @@ async def check_rate_limit(page, platform: str) -> dict | None:
                 "verify you are human"
             ]
         },
+        "letterboxd": {
+            "selectors": [
+                '.error-page',
+                '.rate-limit-message',
+                '.blocked-content',
+                '.captcha-container',
+                'h1:has-text("Access Denied")',
+                'div:has-text("You are being rate limited")'
+            ],
+            "phrases": [
+                "rate limit exceeded",
+                "too many requests",
+                "you are being rate limited",
+                "access denied",
+                "please wait and try again",
+                "temporarily blocked"
+            ]
+        },
         "metacritic": {
             "selectors": [
                 '.error-message',
@@ -1173,7 +1191,6 @@ async def search_rottentomatoes(page, tmdb_info):
         if "Timeout" in str(e):
             return {"status": RATING_STATUS["TIMEOUT"]}
         return {"status": RATING_STATUS["FETCH_FAILED"]}
-
 
 async def search_metacritic(page, tmdb_info):
     """在Metacritic搜索影视信息"""
@@ -2524,10 +2541,7 @@ def create_empty_rating_data(platform, media_type, status):
             "seasons": [],
             "status": status
         }
-
-
-
-
+    
 def create_error_rating_data(platform, media_type="movie"):
     """为出错的平台创建数据结构
     
