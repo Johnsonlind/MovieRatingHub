@@ -1,6 +1,7 @@
 import { RatingCard } from './RatingCard';
 import { RottenTomatoesCard } from './RottenTomatoesCard';
 import { MetacriticCard } from './MetacriticCard';
+import { CDN_URL } from '../../lib/config';
 import type { 
   MovieRatingData,
   FetchStatus 
@@ -75,7 +76,7 @@ export function MovieRatingGrid({
       {/* Douban */}
       {ratingData.douban && isValidScore(ratingData.douban.rating) && (
         <RatingCard
-          logo="/logos/douban.png"
+          logo={`${CDN_URL}/logos/douban.png`}
           rating={Number(ratingData.douban.rating)}
           maxRating={10}
           label={`${formatRating.count(String(ratingData.douban.rating_people))} 人评分`}
@@ -86,7 +87,7 @@ export function MovieRatingGrid({
       {/* IMDb */}
       {ratingData.imdb && isValidScore(ratingData.imdb.rating) && (
         <RatingCard
-          logo="/logos/imdb.png"
+          logo={`${CDN_URL}/logos/imdb.png`}
           rating={Number(ratingData.imdb.rating)}
           maxRating={10}
           label={`${formatRating.count(String(ratingData.imdb.rating_people))} 人评分`}
@@ -119,7 +120,7 @@ export function MovieRatingGrid({
       {/* Letterboxd */}
       {ratingData.letterboxd && isValidScore(ratingData.letterboxd.rating) && (
         <RatingCard
-          logo="/logos/letterboxd.png"
+          logo={`${CDN_URL}/logos/letterboxd.png`}
           rating={Number(ratingData.letterboxd.rating)}
           maxRating={5}
           label={`${formatRating.count(String(ratingData.letterboxd.rating_count))} 人评分`}
@@ -130,7 +131,7 @@ export function MovieRatingGrid({
       {/* TMDB */}
       {ratingData.tmdb && isValidScore(ratingData.tmdb.rating) && (
         <RatingCard
-          logo="/logos/tmdb.png"
+          logo={`${CDN_URL}/logos/tmdb.png`}
           rating={Number(ratingData.tmdb.rating)}
           maxRating={10}
           label={`${formatRating.count(String(ratingData.tmdb.voteCount))} 人评分`}
@@ -141,7 +142,7 @@ export function MovieRatingGrid({
       {/* Trakt */}
       {ratingData.trakt && isValidScore(ratingData.trakt.rating) && (
         <RatingCard
-          logo="/logos/trakt.png"
+          logo={`${CDN_URL}/logos/trakt.png`}
           rating={Number(ratingData.trakt.rating.toFixed(1))}
           maxRating={10}
           label={`${formatRating.count(String(ratingData.trakt.voteCount))} 人评分`}
