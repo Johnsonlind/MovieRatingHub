@@ -7,11 +7,12 @@ from redis import asyncio as aioredis
 import json
 import time
 from celery_app import celery_app
-from prometheus_client import CollectorRegistry, Counter, Histogram, Gauge, start_http_server
+from prometheus_client import CollectorRegistry, Counter, Histogram, Gauge, start_http_server, REGISTRY
 import psutil
 import logging
 from logging.handlers import RotatingFileHandler
 import atexit
+import prometheus_client
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -59,31 +60,29 @@ CACHE_HITS = Counter(
     ['platform', 'media_type']
 )
 
-# 系统资源指标
-CPU_USAGE = Gauge('system_cpu_usage_percent', 'CPU usage in percent')
-MEMORY_USAGE = Gauge('system_memory_usage_bytes', 'Memory usage in bytes')
-DISK_USAGE = Gauge('system_disk_usage_percent', 'Disk usage in percent')
-MEMORY_PERCENT = Gauge('system_memory_usage_percent', 'Memory usage in percent')
-DISK_PERCENT = Gauge('system_disk_usage_percent', 'Disk usage in percent')
-NETWORK_SENT = Gauge('system_network_bytes_sent', 'Network bytes sent')
-NETWORK_RECV = Gauge('system_network_bytes_recv', 'Network bytes received')
+# 清除默认注册表中的所有收集器
+for collector in list(REGISTRY._collector_to_names.keys()):
+    REGISTRY.unregister(collector)
 
-# 添加到现有的指标定义部分
-NETWORK_IN_BYTES = Counter('network_in_bytes_total', 'Total bytes received')
-NETWORK_OUT_BYTES = Counter('network_out_bytes_total', 'Total bytes sent')
-NETWORK_REQUESTS = Counter('network_requests_total', 'Total HTTP requests')
-NETWORK_ERRORS = Counter('network_errors_total', 'Total network errors')
-BANDWIDTH_USED = Gauge('network_bandwidth_used_bytes', 'Total bandwidth used in current month')
-BANDWIDTH_RATE = Gauge('network_bandwidth_rate_bytes', 'Bandwidth usage rate per second')
-
-# 添加日志相关的指标
-registry = CollectorRegistry()
+# 创建指标
 try:
-    LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'], registry=registry)
-    ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'], registry=registry)
-except ValueError:
-    # 如果指标已存在，就跳过
-    pass
+    # 系统指标
+    CPU_USAGE = Gauge('system_cpu_usage_percent', 'CPU usage percentage')
+    MEMORY_USAGE = Gauge('system_memory_usage', 'Memory usage in bytes')
+    MEMORY_PERCENT = Gauge('system_memory_usage_percent', 'Memory usage percentage')
+    DISK_USAGE = Gauge('system_disk_usage', 'Disk usage in bytes')
+    DISK_PERCENT = Gauge('system_disk_usage_percent', 'Disk usage percentage')
+
+    # 网络指标
+    NETWORK_IN_BYTES = Counter('network_in_bytes_total', 'Total bytes received')
+    NETWORK_OUT_BYTES = Counter('network_out_bytes_total', 'Total bytes sent')
+    NETWORK_REQUESTS = Counter('network_requests_total', 'Total HTTP requests')
+    NETWORK_ERRORS = Counter('network_errors_total', 'Total network errors')
+    BANDWIDTH_USED = Gauge('network_bandwidth_used_bytes', 'Total bandwidth used in current month')
+    BANDWIDTH_RATE = Gauge('network_bandwidth_rate_bytes', 'Bandwidth usage rate per second')
+
+except ValueError as e:
+    print(f"指标已存在，跳过注册: {e}")
 
 # 配置日志处理
 logger = logging.getLogger('ratefuse')
@@ -108,21 +107,14 @@ def start_prometheus_server():
     global _prometheus_server
     if _prometheus_server is None:
         try:
-            # 创建新的注册表
-            registry = CollectorRegistry()
-            
-            # 创建指标
-            log_entries = Counter('log_entries_total', 'Total log entries', 
-                                ['level', 'module'], registry=registry)
-            error_logs = Counter('error_logs_total', 'Total error logs', 
-                               ['module', 'error_type'], registry=registry)
-            
             # 启动服务器
-            start_http_server(8001, registry=registry)
+            start_http_server(8001)
             _prometheus_server = {
-                'registry': registry,
-                'log_entries': log_entries,
-                'error_logs': error_logs
+                'registry': REGISTRY,
+                'log_entries': Counter('log_entries_total', 'Total log entries', 
+                                    ['level', 'module'], registry=REGISTRY),
+                'error_logs': Counter('error_logs_total', 'Total error logs', 
+                                   ['module', 'error_type'], registry=REGISTRY)
             }
             print("Prometheus 服务器启动成功")
             return _prometheus_server
@@ -146,20 +138,22 @@ async def startup_event():
     """应用启动时初始化"""
     global redis
     try:
-        # Redis 连接初始化
         redis = await aioredis.from_url(
             REDIS_URL,
             encoding='utf-8',
             decode_responses=True
         )
         print("Redis 连接成功初始化")
-        
-        # 启动 Prometheus
-        start_prometheus_server()
-        
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
+
+    # 启动 Prometheus 客户端
+    try:
+        start_http_server(8001)
+        print("Prometheus 指标服务器启动在端口 8001")
+    except Exception as e:
+        print(f"Prometheus 服务器启动失败: {e}")
 
     # 启动系统指标收集
     asyncio.create_task(update_system_metrics())
@@ -291,7 +285,7 @@ async def monitor_requests(request: Request, call_next):
     try:
         # 记录请求
         logger.info(f"收到请求: {request.method} {request.url.path}")
-        LOG_ENTRIES.labels(level='info', module='http').inc()
+        REGISTRY.get_sample_value('log_entries_total', labels=['level', 'module'])
         
         # 记录请求大小
         content_length = request.headers.get("content-length")
@@ -307,15 +301,13 @@ async def monitor_requests(request: Request, call_next):
         
         if response.status_code >= 400:
             logger.error(f"请求失败: {request.url.path} - {response.status_code}")
-            LOG_ENTRIES.labels(level='error', module='http').inc()
+            REGISTRY.get_sample_value('error_logs_total', labels=['level', 'module'])
             NETWORK_ERRORS.inc()
-            ERROR_LOGS.labels(module='http', error_type='http_error').inc()
             
         return response
         
     except Exception as e:
         logger.error(f"请求处理错误: {str(e)}")
-        ERROR_LOGS.labels(module='http', error_type='exception').inc()
         raise
 
 # 更新系统指标的异步任务
