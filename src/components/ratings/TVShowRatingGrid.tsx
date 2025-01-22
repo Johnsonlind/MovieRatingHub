@@ -5,6 +5,7 @@ import type { TVShowRatingData } from '../../types/ratings';
 import { formatRating } from '../../utils/formatRating';
 import ErrorMessage from '../common/ErrorMessage';
 import type { FetchStatus } from '../../types/status';
+import { CDN_URL } from '../../lib/config';
 
 interface TVShowRatingGridProps {
   ratingData: TVShowRatingData;
@@ -113,7 +114,7 @@ export function TVShowRatingGrid({
     if (!ratings.tmdb?.rating) return null;
     return (
       <RatingCard
-        logo="/logos/tmdb.png"
+        logo={`${CDN_URL}/logos/tmdb.png`}
         rating={Number(formatRating.tmdb(ratings.tmdb.rating))}
         maxRating={10}
         label={selectedSeason ? undefined : ratings.tmdb.voteCount ? `${formatRating.count(ratings.tmdb.voteCount)} 人评分` : undefined}
@@ -127,7 +128,7 @@ export function TVShowRatingGrid({
     if (!selectedSeason && ratings.trakt?.rating && ratings.trakt.rating > 0) {
       return (
         <RatingCard
-          logo="/logos/trakt.png"
+          logo={`${CDN_URL}/logos/trakt.png`}
           rating={Number((ratings.trakt.rating).toFixed(1))}
           maxRating={10}
           label={ratings.trakt.voteCount ? `${formatRating.count(ratings.trakt.voteCount)} 人评分` : undefined}
@@ -143,7 +144,7 @@ export function TVShowRatingGrid({
       <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ${className}`}>
         {ratings.douban && ratings.douban.rating && ratings.douban.rating !== '暂无' && Number(ratings.douban.rating) > 0 && (
           <RatingCard
-            logo="/logos/douban.png"
+            logo={`${CDN_URL}/logos/douban.png`}
             rating={Number(ratings.douban.rating)}
             maxRating={10}
             label={`${formatRating.count(ratings.douban.rating_people)} 人评分`}
@@ -152,7 +153,7 @@ export function TVShowRatingGrid({
         )}
         {ratings.imdb && ratings.imdb.rating && ratings.imdb.rating !== '暂无' && Number(ratings.imdb.rating) > 0 && (
           <RatingCard
-            logo="/logos/imdb.png"
+            logo={`${CDN_URL}/logos/imdb.png`}
             rating={Number(ratings.imdb.rating)}
             maxRating={10}
             label={`${formatRating.count(ratings.imdb.rating_people)} 人评分`}
@@ -191,7 +192,7 @@ export function TVShowRatingGrid({
          ratingData.letterboxd.rating !== '暂无' && 
          Number(ratingData.letterboxd.rating) > 0 && (
             <RatingCard
-              logo="/logos/letterboxd.png"
+              logo={`${CDN_URL}/logos/letterboxd.png`}
               rating={Number(ratingData.letterboxd.rating)}
               maxRating={5}
               label={`${formatRating.count(ratingData.letterboxd.rating_count)} 人评分`}
