@@ -11,6 +11,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram, Gauge, star
 import psutil
 import logging
 from logging.handlers import RotatingFileHandler
+import atexit
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -100,6 +101,45 @@ file_handler.setFormatter(formatter)
 # 添加处理器到记录器
 logger.addHandler(file_handler)
 
+# 创建一个函数来管理 Prometheus 服务器
+_prometheus_server = None
+
+def start_prometheus_server():
+    global _prometheus_server
+    if _prometheus_server is None:
+        try:
+            # 创建新的注册表
+            registry = CollectorRegistry()
+            
+            # 创建指标
+            log_entries = Counter('log_entries_total', 'Total log entries', 
+                                ['level', 'module'], registry=registry)
+            error_logs = Counter('error_logs_total', 'Total error logs', 
+                               ['module', 'error_type'], registry=registry)
+            
+            # 启动服务器
+            start_http_server(8001, registry=registry)
+            _prometheus_server = {
+                'registry': registry,
+                'log_entries': log_entries,
+                'error_logs': error_logs
+            }
+            print("Prometheus 服务器启动成功")
+            return _prometheus_server
+        except Exception as e:
+            print(f"Prometheus 服务器启动失败: {e}")
+            return None
+    return _prometheus_server
+
+# 在应用退出时清理
+def cleanup_prometheus():
+    global _prometheus_server
+    if _prometheus_server:
+        _prometheus_server = None
+        print("Prometheus 服务器已关闭")
+
+atexit.register(cleanup_prometheus)
+
 # 生命周期事件
 @app.on_event("startup")
 async def startup_event():
@@ -114,13 +154,9 @@ async def startup_event():
         )
         print("Redis 连接成功初始化")
         
-        # 启动 Prometheus 服务器
-        try:
-            start_http_server(8001, registry=registry)
-            print("Prometheus 服务器启动成功")
-        except Exception as e:
-            print(f"Prometheus 服务器启动失败: {e}")
-            
+        # 启动 Prometheus
+        start_prometheus_server()
+        
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
@@ -130,11 +166,12 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """应用关闭时关闭 Redis 连接"""
+    """应用关闭时清理资源"""
     global redis
     if redis:
         await redis.close()
         print("Redis 连接已关闭")
+    cleanup_prometheus()
 
 # 辅助函数
 async def get_cache(key: str):
