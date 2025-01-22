@@ -21,6 +21,7 @@ export function MovieHeader({ movie, ratingData }: MovieHeaderProps) {
             <img
               src={movie.poster}
               alt={movie.title}
+              crossOrigin="anonymous"
               className="w-full rounded-lg shadow-lg"
             />
           </div>
