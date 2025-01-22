@@ -7,7 +7,7 @@ from redis import asyncio as aioredis
 import json
 import time
 from celery_app import celery_app
-from prometheus_client import Counter, Histogram, Gauge, start_http_server
+from prometheus_client import CollectorRegistry, Counter, Histogram, Gauge, start_http_server
 import psutil
 import logging
 from logging.handlers import RotatingFileHandler
@@ -76,8 +76,9 @@ BANDWIDTH_USED = Gauge('network_bandwidth_used_bytes', 'Total bandwidth used in 
 BANDWIDTH_RATE = Gauge('network_bandwidth_rate_bytes', 'Bandwidth usage rate per second')
 
 # 添加日志相关的指标
-LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'])
-ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'])
+registry = CollectorRegistry()
+LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'], registry=registry)
+ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'], registry=registry)
 
 # 配置日志处理
 logger = logging.getLogger('ratefuse')
@@ -98,21 +99,24 @@ logger.addHandler(file_handler)
 # 生命周期事件
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时初始化 Redis 连接"""
+    """应用启动时初始化"""
     global redis
     try:
+        # Redis 连接初始化
         redis = await aioredis.from_url(
             REDIS_URL,
             encoding='utf-8',
             decode_responses=True
         )
         print("Redis 连接成功初始化")
+        
+        # 启动 Prometheus 客户端
+        start_http_server(8001, registry=registry)
+        
     except Exception as e:
-        print(f"Redis 连接初始化失败: {e}")
+        print(f"启动初始化失败: {e}")
         redis = None
 
-    # 启动 Prometheus 客户端
-    start_http_server(8001)
     # 启动系统指标收集
     asyncio.create_task(update_system_metrics())
 
