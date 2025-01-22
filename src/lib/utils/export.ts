@@ -1,17 +1,27 @@
 import { toPng } from 'html-to-image';
+import { getBase64Image } from './image';
 
-// 预加载图片函数
-export const preloadImages = async (imageUrls: string[]) => {
-  const promises = imageUrls.map(url => {
+
+// 分别处理 TMDB 图片和 CDN 图片
+export const preloadImages = async (images: { poster: string; cdnImages: string[] }) => {
+  // CDN 图片直接预加载
+  const cdnPromises = images.cdnImages.map(url => {
     return new Promise((resolve, reject) => {
       const img = new Image();
+      img.crossOrigin = 'anonymous';
       img.onload = resolve;
       img.onerror = reject;
       img.src = url;
     });
   });
-  
-  await Promise.all(promises);
+
+  // TMDB 海报图片先转成 base64
+  const posterPromise = getBase64Image(images.poster).catch((error: Error) => {
+    console.warn('海报转换失败:', error);
+    return images.poster; // 如果转换失败，返回原始URL
+  });
+
+  await Promise.all([...cdnPromises, posterPromise]);
 };
 
 // 导出为PNG图片
