@@ -1779,15 +1779,6 @@ async def extract_rating_info(media_type, platform, tmdb_info, request=None):
                         else:
                             rating_data = create_empty_rating_data(platform, media_type, RATING_STATUS["NO_RATING"])
 
-                        # 在关闭浏览器前检查所有未完成的请求
-                        try:
-                            if context:
-                                await context.unroute_all(behavior='ignoreErrors')
-                            if page:
-                                await page.unroute_all(behavior='ignoreErrors')
-                        except Exception as e:
-                            print(f"清理路由时出错: {e}")
-
                         return rating_data
 
                 except Exception as e:
@@ -1965,23 +1956,12 @@ async def extract_rating_info(media_type, platform, tmdb_info, request=None):
                             else:
                                 rating_data = create_empty_rating_data(platform, media_type, RATING_STATUS["NO_RATING"])
 
-                            # 在关闭浏览器前检查所有未完成的请求
-                            try:
-                                if context:
-                                    await context.unroute_all(behavior='ignoreErrors')
-                                if page:
-                                    await page.unroute_all(behavior='ignoreErrors')
-                            except Exception as e:
-                                print(f"清理路由时出错: {e}")
-
-                            return rating_data
-
                         except Exception as e:
                             print(f"提取{platform}评分数据时出错: {e}")
                             print(traceback.format_exc())
                             rating_data = create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
 
-                            return rating_data
+                        return rating_data
 
                 except Exception as e:
                     print(f"访问{platform}详情页时出错: {e}")
@@ -1998,8 +1978,8 @@ async def extract_rating_info(media_type, platform, tmdb_info, request=None):
                     await context.close()
                 if browser:
                     await browser.close()
-            except Exception as e:
-                print(f"关闭浏览器时出错: {e}")
+            except Exception:
+                pass
 
     # 调用带重试的内部函数
     return await _extract_rating_with_retry()
