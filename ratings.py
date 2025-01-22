@@ -726,32 +726,33 @@ async def handle_douban_with_client_ip(page, tmdb_info, request):
         
         # 1. 搜索豆瓣
         search_results = await search_douban(page, tmdb_info)
-        if search_results["status"] != "Successful":
+        if search_results["status"] != RATING_STATUS["SUCCESSFUL"]:
             return search_results
         
         # 2. 处理搜索结果
         detail_result = await handle_douban_search(page, search_url)
-        if detail_result["status"] != "Successful":
-            return detail_result
-        
-        if "results" not in detail_result:  # 添加结果检查
-            return {"status": "Fail", "message": "搜索结果格式错误"}
+        # 如果返回的是列表，说明搜索成功
+        if isinstance(detail_result, list):
+            if not detail_result:  # 空列表
+                return {"status": RATING_STATUS["NO_FOUND"], "message": "未找到匹配结果"}
+                
+            # 3. 提取评分
+            rating_data = await extract_douban_rating(
+                page, 
+                media_type,
+                detail_result
+            )
             
-        if not detail_result["results"]:  # 检查结果列表是否为空
-            return {"status": "NO_FOUND", "message": "未找到匹配结果"}
-        
-        # 3. 提取评分
-        rating_data = await extract_douban_rating(
-            page, 
-            media_type, 
-            tmdb_info.get('seasons', [])
-        )
-        
-        return rating_data
+            return rating_data
+            
+        else:  # 如果是字典，说明有错误状态
+            if "status" in detail_result:
+                return detail_result
+            return {"status": RATING_STATUS["FETCH_FAILED"], "message": "搜索结果格式错误"}
             
     except Exception as e:
         print(f"豆瓣处理失败: {str(e)}")
-        return {"status": "Fail", "message": str(e)}
+        return {"status": RATING_STATUS["FETCH_FAILED"], "message": str(e)}
     
 async def search_platform(platform, tmdb_info, request=None):
     """在各平台搜索并返回搜索结果"""
