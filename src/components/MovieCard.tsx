@@ -28,6 +28,7 @@ export function MovieCard({ movie }: MovieCardProps) {
           <img
             src={movie.poster}
             alt={movie.title}
+            crossOrigin="anonymous"
             className="w-full h-full object-cover"
             loading="lazy"
           />
