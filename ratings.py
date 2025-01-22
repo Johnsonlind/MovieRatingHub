@@ -1905,7 +1905,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, request=None):
                 
                         try:
                             if platform == "douban":
-                                rating_data = await extract_douban_rating(page, media_type, matched_results)
+                                rating_data = await extract_douban_rating(page, media_type, tmdb_info.get('seasons', []))
                             elif platform == "imdb":
                                 rating_data = await extract_imdb_rating(page)
                             elif platform == "letterboxd":
