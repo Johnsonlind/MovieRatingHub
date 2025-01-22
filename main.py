@@ -119,7 +119,7 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
         rating_info = await extract_rating_info(type, platform, tmdb_info, request)
 
         # 使用 Celery 任务处理评分信息
-        task = fetch_rating_task.delay(type, platform, tmdb_info, request)
+        task = fetch_rating_task.delay(type, platform, tmdb_info)
         rating_info = task.get(timeout=60)  # 60秒超时
         
         # 再次检查请求是否已被取消
@@ -140,6 +140,7 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
         await set_cache(cache_key, rating_info)
         return rating_info
         
+            
     except Exception as e:
         if await request.is_disconnected():
             print(f"{platform} 请求在发生错误时被取消")
