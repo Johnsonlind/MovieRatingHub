@@ -1,3 +1,5 @@
+import { CDN_URL } from '../../lib/config';
+
 interface OverallRatingCardProps {
   rating: number;
   validPlatformsCount: number;
@@ -9,7 +11,7 @@ export function OverallRatingCard({ rating, validPlatformsCount }: OverallRating
     <div className="w-32">
       <div className="relative">
         <img 
-          src="/rating-template.png" 
+          src={`${CDN_URL}/rating-template.png`}
           alt="评分背景"
           className="w-full"
         />
