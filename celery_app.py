@@ -3,8 +3,9 @@ from celery import Celery
 # 创建 Celery 实例
 celery_app = Celery(
     'ratefuse',
-    broker='redis://:l1994z0912x@localhost:6379/1',  # 使用 Redis 数据库 1 作为消息队列
-    backend='redis://:l1994z0912x@localhost:6379/2'  # 使用 Redis 数据库 2 存储结果
+    broker='redis://:l1994z0912x@localhost:6379/1',
+    backend='redis://:l1994z0912x@localhost:6379/2',
+    include=['main']
 )
 
 # Celery 配置
