@@ -9,6 +9,8 @@ import time
 from celery_app import celery_app
 from prometheus_client import Counter, Histogram, Gauge, start_http_server
 import psutil
+import logging
+from logging.handlers import RotatingFileHandler
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -64,6 +66,34 @@ MEMORY_PERCENT = Gauge('system_memory_usage_percent', 'Memory usage in percent')
 DISK_PERCENT = Gauge('system_disk_usage_percent', 'Disk usage in percent')
 NETWORK_SENT = Gauge('system_network_bytes_sent', 'Network bytes sent')
 NETWORK_RECV = Gauge('system_network_bytes_recv', 'Network bytes received')
+
+# 添加到现有的指标定义部分
+NETWORK_IN_BYTES = Counter('network_in_bytes_total', 'Total bytes received')
+NETWORK_OUT_BYTES = Counter('network_out_bytes_total', 'Total bytes sent')
+NETWORK_REQUESTS = Counter('network_requests_total', 'Total HTTP requests')
+NETWORK_ERRORS = Counter('network_errors_total', 'Total network errors')
+BANDWIDTH_USED = Gauge('network_bandwidth_used_bytes', 'Total bandwidth used in current month')
+BANDWIDTH_RATE = Gauge('network_bandwidth_rate_bytes', 'Bandwidth usage rate per second')
+
+# 添加日志相关的指标
+LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'])
+ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'])
+
+# 配置日志处理
+logger = logging.getLogger('ratefuse')
+logger.setLevel(logging.INFO)
+
+# 创建文件处理器
+log_file = '/var/log/ratefuse/app.log'
+file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
+file_handler.setLevel(logging.INFO)
+
+# 创建格式化器
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+# 添加处理器到记录器
+logger.addHandler(file_handler)
 
 # 生命周期事件
 @app.on_event("startup")
@@ -188,6 +218,39 @@ async def get_rating(platform: str, type: str, id: str, request: Request):
         ).inc()
         raise HTTPException(status_code=500, detail=str(e))
 
+# 添加中间件来记录流量
+@app.middleware("http")
+async def monitor_requests(request: Request, call_next):
+    try:
+        # 记录请求
+        logger.info(f"收到请求: {request.method} {request.url.path}")
+        LOG_ENTRIES.labels(level='info', module='http').inc()
+        
+        # 记录请求大小
+        content_length = request.headers.get("content-length")
+        if content_length:
+            NETWORK_IN_BYTES.inc(int(content_length))
+        NETWORK_REQUESTS.inc()
+        
+        response = await call_next(request)
+        
+        # 记录响应
+        resp_size = response.headers.get("content-length", 0)
+        NETWORK_OUT_BYTES.inc(int(resp_size))
+        
+        if response.status_code >= 400:
+            logger.error(f"请求失败: {request.url.path} - {response.status_code}")
+            LOG_ENTRIES.labels(level='error', module='http').inc()
+            NETWORK_ERRORS.inc()
+            ERROR_LOGS.labels(module='http', error_type='http_error').inc()
+            
+        return response
+        
+    except Exception as e:
+        logger.error(f"请求处理错误: {str(e)}")
+        ERROR_LOGS.labels(module='http', error_type='exception').inc()
+        raise
+
 # 更新系统指标的异步任务
 async def update_system_metrics():
     """定期更新系统资源指标"""
@@ -206,12 +269,17 @@ async def update_system_metrics():
             DISK_USAGE.set(disk.used)
             DISK_PERCENT.set(disk.percent)
             
-            # 网络使用情况
-            network = psutil.net_io_counters()
-            NETWORK_SENT.set(network.bytes_sent)
-            NETWORK_RECV.set(network.bytes_recv)
+            # 带宽使用情况
+            with open('/sys/class/net/eth0/statistics/tx_bytes', 'r') as f:
+                tx_bytes = int(f.read())
+            with open('/sys/class/net/eth0/statistics/rx_bytes', 'r') as f:
+                rx_bytes = int(f.read())
+            
+            total_bytes = tx_bytes + rx_bytes
+            BANDWIDTH_USED.set(total_bytes)
+            BANDWIDTH_RATE.set(total_bytes / 60)  # 每分钟的平均速率
             
         except Exception as e:
             print(f"更新系统指标时出错: {e}")
             
-        await asyncio.sleep(15)  # 每15秒更新一次
+        await asyncio.sleep(15)
