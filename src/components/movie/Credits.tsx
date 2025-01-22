@@ -1,5 +1,6 @@
 import { cn } from '../../lib/utils';
 import { getChineseJobTitle } from '../../lib/utils/jobTitles';
+import { CDN_URL } from '../../lib/config';
 
 interface CreditMember {
   name: string;
@@ -20,7 +21,7 @@ export function Credits({ cast, crew, className }: CreditsProps) {
 
   const getActorImageUrl = (profilePath: string | null | undefined): string => {
     if (!profilePath) {
-      return '/default-avatar.png';
+      return `${CDN_URL}/default-avatar.png`;
     }
     return `https://image.tmdb.org/t/p/w185${profilePath}`;
   };
@@ -58,7 +59,7 @@ export function Credits({ cast, crew, className }: CreditsProps) {
                       loading="lazy"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        target.src = '/default-avatar.png';
+                        target.src = `${CDN_URL}/default-avatar.png`;
                         target.onerror = null;
                       }}
                     />
