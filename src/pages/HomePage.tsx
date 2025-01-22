@@ -5,6 +5,7 @@ import { SearchResults } from '../components/SearchResults';
 import { searchMedia } from '../lib/api/tmdb/index';
 import { messages } from '../lib/constants/messages';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { CDN_URL } from '../lib/config';
 
 export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,7 +26,7 @@ export default function HomePage() {
         <div className="text-center mb-6 sm:mb-8">
           <div className="flex items-center justify-center mb-3">
             <img 
-              src="/logos/home.png" 
+              src={`${CDN_URL}/logos/home.png`}
               alt="Rating Card" 
               className="w-12 h-12 object-contain"
             />
