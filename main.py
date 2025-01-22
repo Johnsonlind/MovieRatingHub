@@ -7,16 +7,11 @@ from redis import asyncio as aioredis
 import json
 import time
 from celery_app import celery_app
-from prometheus_client import Counter, Histogram, Gauge, start_http_server, CollectorRegistry
-import psutil
-import logging
-from logging.handlers import RotatingFileHandler
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
 CACHE_EXPIRE_TIME = 24 * 60 * 60  # 24小时的缓存时间（秒）
 redis = None
-
 # 创建应用实例
 app = FastAPI()
 app.add_middleware(
@@ -33,71 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 创建一个新的注册表
-registry = CollectorRegistry()
-
-# 定义监控指标
-SCRAPE_REQUESTS = Counter(
-    'rating_scrape_requests_total', 
-    'Total rating scrape requests', 
-    ['platform', 'media_type']
-)
-
-SCRAPE_ERRORS = Counter(
-    'rating_scrape_errors_total', 
-    'Total rating scrape errors', 
-    ['platform', 'media_type', 'error_type']
-)
-
-SCRAPE_DURATION = Histogram(
-    'rating_scrape_duration_seconds', 
-    'Time spent scraping ratings',
-    ['platform', 'media_type']
-)
-
-CACHE_HITS = Counter(
-    'rating_cache_hits_total', 
-    'Total cache hits',
-    registry=registry
-)
-
-# 系统资源指标
-CPU_USAGE = Gauge('system_cpu_usage_percent', 'CPU usage percentage', registry=registry)
-MEMORY_USAGE = Gauge('system_memory_usage', 'Memory usage in bytes', registry=registry)
-DISK_USAGE = Gauge('system_disk_usage', 'Disk usage in bytes', registry=registry)
-MEMORY_PERCENT = Gauge('system_memory_usage_percent', 'Memory usage percentage', registry=registry)
-DISK_PERCENT = Gauge('system_disk_usage_percent', 'Disk usage percentage', registry=registry)
-NETWORK_SENT = Gauge('system_network_bytes_sent', 'Network bytes sent')
-NETWORK_RECV = Gauge('system_network_bytes_recv', 'Network bytes received')
-
-# 添加到现有的指标定义部分
-NETWORK_IN_BYTES = Counter('network_in_bytes_total', 'Total bytes received', registry=registry)
-NETWORK_OUT_BYTES = Counter('network_out_bytes_total', 'Total bytes sent', registry=registry)
-NETWORK_REQUESTS = Counter('network_requests_total', 'Total HTTP requests', registry=registry)
-NETWORK_ERRORS = Counter('network_errors_total', 'Total network errors', registry=registry)
-BANDWIDTH_USED = Gauge('network_bandwidth_used_bytes', 'Total bandwidth used in current month', registry=registry)
-BANDWIDTH_RATE = Gauge('network_bandwidth_rate_bytes', 'Bandwidth usage rate per second', registry=registry)
-
-# 添加日志相关的指标
-LOG_ENTRIES = Counter('log_entries_total', 'Total log entries', ['level', 'module'], registry=registry)
-ERROR_LOGS = Counter('error_logs_total', 'Total error logs', ['module', 'error_type'], registry=registry)
-
-# 配置日志处理
-logger = logging.getLogger('ratefuse')
-logger.setLevel(logging.INFO)
-
-# 创建文件处理器
-log_file = '/var/log/ratefuse/app.log'
-file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
-file_handler.setLevel(logging.INFO)
-
-# 创建格式化器
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(formatter)
-
-# 添加处理器到记录器
-logger.addHandler(file_handler)
-
 # 生命周期事件
 @app.on_event("startup")
 async def startup_event():
@@ -113,12 +43,6 @@ async def startup_event():
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
-
-    # 启动 Prometheus 客户端，使用自定义注册表
-    start_http_server(8001, registry=registry)
-    # 启动系统指标收集
-    asyncio.create_task(update_system_metrics())
-
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭时关闭 Redis 连接"""
@@ -126,7 +50,6 @@ async def shutdown_event():
     if redis:
         await redis.close()
         print("Redis 连接已关闭")
-
 # 辅助函数
 async def get_cache(key: str):
     """从 Redis 获取缓存数据"""
@@ -140,7 +63,6 @@ async def get_cache(key: str):
     except Exception as e:
         print(f"获取缓存出错: {e}")
         return None
-
 async def set_cache(key: str, data: dict):
     """将数据存入 Redis 缓存"""
     if not redis:
@@ -153,7 +75,6 @@ async def set_cache(key: str, data: dict):
         )
     except Exception as e:
         print(f"设置缓存出错: {e}")
-
 # 添加 Celery 任务
 @celery_app.task(name='fetch_rating')
 def fetch_rating_task(type: str, platform: str, tmdb_info: dict):
@@ -165,124 +86,64 @@ def fetch_rating_task(type: str, platform: str, tmdb_info: dict):
     except Exception as e:
         print(f"获取 {platform} 评分时出错: {str(e)}")
         return None
-
 # 路由处理函数
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "RateFuse API is running"}
 
-@app.get("/api/ratings/{platform}/{type}/{id}")
-async def get_rating(platform: str, type: str, id: str, request: Request):
-    """获取评分的API端点"""
-    # 增加请求计数
-    SCRAPE_REQUESTS.labels(platform=platform, media_type=type).inc()
-    
+@app.get("/ratings/{platform}/{type}/{id}")
+async def get_platform_rating(platform: str, type: str, id: str, request: Request):
     try:
-        # 检查缓存
+        # 构建缓存键
         cache_key = f"rating:{platform}:{type}:{id}"
         
-        # 使用 Histogram 记录请求处理时间
-        with SCRAPE_DURATION.labels(platform=platform, media_type=type).time():
-            cached_data = await get_cache(cache_key)
+        # 检查缓存
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            print(f"从缓存获取 {platform} 评分数据")
+            return cached_data
+        # 检查请求是否已被取消
+        if await request.is_disconnected():
+            print(f"{platform} 请求已在开始时被取消")
+            return None
+
+        # 获取 TMDB 信息
+        tmdb_info = await get_tmdb_info(id, request)
+        if not tmdb_info:
+            if await request.is_disconnected():
+                print(f"{platform} 请求在获取TMDB信息时被取消")
+                return None
+            raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
+
+        # 获取单个平台的评分
+        rating_info = await extract_rating_info(type, platform, tmdb_info, request)
+
+        # 使用 Celery 任务处理评分信息
+        task = fetch_rating_task.delay(type, platform, tmdb_info, request)
+        rating_info = task.get(timeout=60)  # 60秒超时
+        
+        # 再次检查请求是否已被取消
+        if await request.is_disconnected():
+            print(f"{platform} 请求在获取评分信息后被取消")
+            return None
+
+        if not rating_info:
+            if await request.is_disconnected():
+                print(f"{platform} 请求在处理评分信息时被取消")
+                return None
+            raise HTTPException(
+                status_code=404, 
+                detail=f"未找到 {platform} 的评分信息"
+            )
+
+        # 存入缓存
+        await set_cache(cache_key, rating_info)
+        return rating_info
+        
             
-            if cached_data:
-                # 记录缓存命中
-                CACHE_HITS.labels(platform=platform, media_type=type).inc()
-                return cached_data
-                
-            # 获取TMDB信息
-            tmdb_info = await get_tmdb_info(id, request)
-            if not tmdb_info:
-                SCRAPE_ERRORS.labels(
-                    platform=platform, 
-                    media_type=type, 
-                    error_type='tmdb_info_missing'
-                ).inc()
-                raise HTTPException(status_code=404, detail="无法获取TMDB信息")
-                
-            rating_info = await extract_rating_info(type, platform, tmdb_info, request)
-            
-            if rating_info:
-                await set_cache(cache_key, rating_info)
-                return rating_info
-            else:
-                SCRAPE_ERRORS.labels(
-                    platform=platform, 
-                    media_type=type, 
-                    error_type='rating_fetch_failed'
-                ).inc()
-                raise HTTPException(status_code=404, detail="未找到评分信息")
-                
     except Exception as e:
-        SCRAPE_ERRORS.labels(
-            platform=platform, 
-            media_type=type, 
-            error_type=type(e).__name__
-        ).inc()
+        if await request.is_disconnected():
+            print(f"{platform} 请求在发生错误时被取消")
+            return None
+        print(f"获取 {platform} 评分时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# 添加中间件来记录流量
-@app.middleware("http")
-async def monitor_requests(request: Request, call_next):
-    try:
-        # 记录请求
-        logger.info(f"收到请求: {request.method} {request.url.path}")
-        LOG_ENTRIES.labels(level='info', module='http').inc()
-        
-        # 记录请求大小
-        content_length = request.headers.get("content-length")
-        if content_length:
-            NETWORK_IN_BYTES.inc(int(content_length))
-        NETWORK_REQUESTS.inc()
-        
-        response = await call_next(request)
-        
-        # 记录响应
-        resp_size = response.headers.get("content-length", 0)
-        NETWORK_OUT_BYTES.inc(int(resp_size))
-        
-        if response.status_code >= 400:
-            logger.error(f"请求失败: {request.url.path} - {response.status_code}")
-            LOG_ENTRIES.labels(level='error', module='http').inc()
-            NETWORK_ERRORS.inc()
-            ERROR_LOGS.labels(module='http', error_type='http_error').inc()
-            
-        return response
-        
-    except Exception as e:
-        logger.error(f"请求处理错误: {str(e)}")
-        ERROR_LOGS.labels(module='http', error_type='exception').inc()
-        raise
-
-# 更新系统指标的异步任务
-async def update_system_metrics():
-    """定期更新系统资源指标"""
-    while True:
-        try:
-            # CPU 使用率
-            CPU_USAGE.set(psutil.cpu_percent())
-            
-            # 内存使用情况
-            memory = psutil.virtual_memory()
-            MEMORY_USAGE.set(memory.used)
-            MEMORY_PERCENT.set(memory.percent)
-            
-            # 磁盘使用情况
-            disk = psutil.disk_usage('/')
-            DISK_USAGE.set(disk.used)
-            DISK_PERCENT.set(disk.percent)
-            
-            # 带宽使用情况
-            with open('/sys/class/net/eth0/statistics/tx_bytes', 'r') as f:
-                tx_bytes = int(f.read())
-            with open('/sys/class/net/eth0/statistics/rx_bytes', 'r') as f:
-                rx_bytes = int(f.read())
-            
-            total_bytes = tx_bytes + rx_bytes
-            BANDWIDTH_USED.set(total_bytes)
-            BANDWIDTH_RATE.set(total_bytes / 60)  # 每分钟的平均速率
-            
-        except Exception as e:
-            print(f"更新系统指标时出错: {e}")
-            
-        await asyncio.sleep(15)
