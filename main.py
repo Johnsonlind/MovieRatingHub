@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS
 from redis import asyncio as aioredis
 import json
+import dramatiq
+from dramatiq.brokers.redis import RedisBroker
 
 # 2. 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -61,44 +63,35 @@ async def set_cache(key: str, data: dict):
 # 6. 主要业务端点
 @app.get("/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(platform: str, type: str, id: str, request: Request):
-    """获取指定平台的评分信息"""
     try:
-        if await request.is_disconnected():
-            print(f"{platform} 请求已在开始时被取消")
-            return None
-
+        # 构建缓存键
         cache_key = f"rating:{platform}:{type}:{id}"
+        
+        # 检查缓存
         cached_data = await get_cache(cache_key)
         if cached_data:
-            print(f"从缓存获取 {platform} 评分信息")
+            print(f"从缓存获取 {platform} 评分数据")
             return cached_data
 
+        # 获取 TMDB 信息
         tmdb_info = await get_tmdb_info(id, request)
         if not tmdb_info:
-            if await request.is_disconnected():
-                print(f"{platform} 请求在获取TMDB信息时被取消")
-                return None
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
 
-        rating_info = await extract_rating_info(type, platform, tmdb_info, request)
+        # 将任务加入队列
+        task = fetch_platform_rating.send(type, platform, tmdb_info)
         
-        if await request.is_disconnected():
-            print(f"{platform} 请求在获取评分信息后被取消")
-            return None
-
-        if not rating_info:
-            if await request.is_disconnected():
-                print(f"{platform} 请求在处理评分信息时被取消")
-                return None
-            raise HTTPException(status_code=404, detail=f"未找到 {platform} 的评分信息")
-
-        await set_cache(cache_key, rating_info)
-        return rating_info
+        # 等待任务完成
+        rating_info = await task.get_result()
+        
+        if rating_info:
+            # 存入缓存
+            await set_cache(cache_key, rating_info)
+            return rating_info
+        else:
+            raise HTTPException(status_code=500, detail="获取评分失败")
 
     except Exception as e:
-        if await request.is_disconnected():
-            print(f"{platform} 请求在发生错误时被取消")
-            return None
         print(f"获取 {platform} 评分时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -117,3 +110,17 @@ async def startup_event():
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
+
+# 8. 创建 Dramatiq 任务
+redis_broker = RedisBroker(url="redis://:l1994z0912x@localhost:6379/0")
+dramatiq.set_broker(redis_broker)
+
+@dramatiq.actor
+async def fetch_platform_rating(media_type: str, platform: str, tmdb_info: dict):
+    """异步获取平台评分"""
+    try:
+        rating_info = await extract_rating_info(media_type, platform, tmdb_info)
+        return rating_info
+    except Exception as e:
+        print(f"获取 {platform} 评分时出错: {e}")
+        return None
