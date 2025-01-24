@@ -6,8 +6,6 @@ import traceback
 from fuzzywuzzy import fuzz
 from playwright.async_api import async_playwright
 import copy
-import requests
-from bs4 import BeautifulSoup
 from douban_api import DoubanAPI
 import aiohttp
 from urllib.parse import quote
@@ -233,7 +231,6 @@ def construct_search_url(title, media_type, platform):
         }
     }
     return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
-
 
 async def construct_detail_url(media_type, tmdb_info, platform):
     """根据TMDB信息构造各平台的详情页URL"""
@@ -640,6 +637,24 @@ async def check_rate_limit(page, platform: str) -> dict | None:
                 "rate limited",
                 "please try again later",
                 "verify you are human"
+            ]
+        },
+        "letterboxd": {
+            "selectors": [
+                '.error-page',
+                '.rate-limit-message',
+                '.blocked-content',
+                '.captcha-container',
+                'h1:has-text("Access Denied")',
+               'div:has-text("You are being rate limited")'
+            ],
+            "phrases": [
+                "rate limit exceeded",
+                "too many requests",
+                "you are being rate limited",
+                "access denied",
+                "please wait and try again",
+                "temporarily blocked"
             ]
         },
         "metacritic": {
@@ -1170,7 +1185,6 @@ async def search_rottentomatoes(page, tmdb_info):
         if "Timeout" in str(e):
             return {"status": RATING_STATUS["TIMEOUT"]}
         return {"status": RATING_STATUS["FETCH_FAILED"]}
-
 
 async def search_metacritic(page, tmdb_info):
     """在Metacritic搜索影视信息"""
@@ -2522,12 +2536,8 @@ def create_empty_rating_data(platform, media_type, status):
             "status": status
         }
 
-
-
-
 def create_error_rating_data(platform, media_type="movie"):
-    """为出错的平台创建数据结构
-    
+    """为出错的平台创建数据结构    
     Args:
         platform: 平台名称
         media_type: 媒体类型，'movie' 或 'tv'
