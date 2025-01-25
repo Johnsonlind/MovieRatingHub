@@ -3,8 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS
 from redis import asyncio as aioredis
 import json
-import dramatiq
-from dramatiq.brokers.redis import RedisBroker
+from tasks import fetch_platform_rating
 
 # 2. 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -110,17 +109,3 @@ async def startup_event():
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
-
-# 8. 创建 Dramatiq 任务
-redis_broker = RedisBroker(url="redis://:l1994z0912x@localhost:6379/0")
-dramatiq.set_broker(redis_broker)
-
-@dramatiq.actor
-async def fetch_platform_rating(media_type: str, platform: str, tmdb_info: dict):
-    """异步获取平台评分"""
-    try:
-        rating_info = await extract_rating_info(media_type, platform, tmdb_info)
-        return rating_info
-    except Exception as e:
-        print(f"获取 {platform} 评分时出错: {e}")
-        return None
