@@ -1,9 +1,14 @@
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
-from ratings import extract_rating_info, get_tmdb_info
+from ratings import extract_rating_info
 
 # Redis broker 配置
 redis_broker = RedisBroker(url="redis://:l1994z0912x@localhost:6379/0")
+
+# 禁用 Prometheus 中间件
+redis_broker.add_middleware(dramatiq.middleware.default.DefaultMiddleware())
+redis_broker.add_middleware(dramatiq.middleware.threading.ThreadingMiddleware())
+
 dramatiq.set_broker(redis_broker)
 
 @dramatiq.actor
