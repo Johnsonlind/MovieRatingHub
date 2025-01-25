@@ -77,16 +77,16 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
         if not tmdb_info:
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
 
-        # 将任务加入队列
-        task = fetch_platform_rating.send(type, platform, tmdb_info)
+        # 将任务加入队列，注意这里传递的参数顺序和类型
+        message = fetch_platform_rating.send(type, platform, tmdb_info)
         
         # 等待任务完成
-        rating_info = await task.get_result()
+        result = await message.get_result(block=True, timeout=30000)
         
-        if rating_info:
+        if result:
             # 存入缓存
-            await set_cache(cache_key, rating_info)
-            return rating_info
+            await set_cache(cache_key, result)
+            return result
         else:
             raise HTTPException(status_code=500, detail="获取评分失败")
 
