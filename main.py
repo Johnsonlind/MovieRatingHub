@@ -4,6 +4,7 @@ from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS
 from redis import asyncio as aioredis
 import json
 from tasks import fetch_platform_rating
+import dramatiq
 
 # 2. 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -77,22 +78,37 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
         if not tmdb_info:
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
 
-        # 将任务加入队列，注意这里传递的参数顺序和类型
+        # 将任务加入队列
         message = fetch_platform_rating.send(type, platform, tmdb_info)
         
-        # 等待任务完成
-        result = await message.get_result(block=True, timeout=30000)
-        
-        if result:
-            # 存入缓存
-            await set_cache(cache_key, result)
-            return result
-        else:
-            raise HTTPException(status_code=500, detail="获取评分失败")
+        # 返回任务ID，不等待结果
+        return {
+            "status": "processing",
+            "message": "任务已加入队列",
+            "task_id": message.message_id
+        }
 
     except Exception as e:
         print(f"获取 {platform} 评分时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/task/{task_id}")
+async def get_task_status(task_id: str):
+    try:
+        message = dramatiq.Message(
+            queue_name="default",
+            actor_name="fetch_platform_rating",
+            args=(),
+            kwargs={},
+            options={},
+            message_id=task_id,
+        )
+        result = message.get_result(block=False)
+        if result:
+            return {"status": "completed", "result": result}
+        return {"status": "processing"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 
 # 7. 启动事件
 @app.on_event("startup")
