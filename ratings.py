@@ -6,7 +6,6 @@ import traceback
 from fuzzywuzzy import fuzz
 from playwright.async_api import async_playwright
 import copy
-from douban_api import DoubanAPI
 import aiohttp
 from urllib.parse import quote
 from dataclasses import dataclass, field
@@ -231,101 +230,6 @@ def construct_search_url(title, media_type, platform):
         }
     }
     return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
-
-async def construct_detail_url(media_type, tmdb_info, platform):
-    """根据TMDB信息构造各平台的详情页URL"""
-    try:
-        # 打印TMDB信息以便调试
-        print(f"\nTMDB信息: {tmdb_info}")
-        
-        title = tmdb_info.get('original_title', tmdb_info.get('original_name', ''))
-        year = tmdb_info.get('year', '')
-        imdb_id = tmdb_info.get('imdb_id', '')
-        
-        if not title:
-            print(f"未能获取到标题信息")
-            return None
-        
-        if platform == "douban":
-            # 使用豆瓣API搜索
-            douban = DoubanAPI()
-            results = await douban.search(tmdb_info["zh_title"], tmdb_info)
-            if results:
-                for result in results:
-                    if abs(int(result.year) - int(year)) <= 1:
-                        return f"https://movie.douban.com/subject/{result.sid}/"
-            print(f"豆瓣搜索无结果: {title}")
-            
-        elif platform == "imdb":
-            if imdb_id:
-                return f"https://www.imdb.com/title/{imdb_id}/"
-            else:
-                encoded_title = quote(title)
-                return f"https://www.imdb.com/find/?q={encoded_title}&s=tt&ttype={'ft' if media_type == 'movie' else 'tv'}"
-                
-        elif platform == "letterboxd":
-            # Letterboxd电影和剧集都使用相同的URL格式
-            clean_title = clean_url_component(title)
-            return f"https://letterboxd.com/film/{clean_title}"
-                
-        elif platform == "rottentomatoes":
-            clean_title = clean_url_component(title)
-            if media_type == "movie":
-                return f"https://www.rottentomatoes.com/m/{clean_title}"
-            else:
-                return f"https://www.rottentomatoes.com/tv/{clean_title}"
-                
-        elif platform == "metacritic":
-            clean_title = clean_url_component(title)
-            if media_type == "movie":
-                return f"https://www.metacritic.com/movie/{clean_title}"
-            else:
-                return f"https://www.metacritic.com/tv/{clean_title}"
-                
-    except Exception as e:
-        print(f"构造{platform}平台URL时出错: {e}")
-        print(traceback.format_exc())
-        
-    return None
-
-def clean_url_component(text):
-    """清理URL组件中的特殊字符"""
-    if not text:
-        return ""
-        
-    # 移除括号及其内容
-    text = re.sub(r'\([^)]*\)', '', text)
-    
-    # 移除特殊字符，保留字母、数字和空格
-    cleaned = re.sub(r'[^a-zA-Z0-9\s-]', '', text)
-    
-    # 将空格替换为连字符
-    cleaned = cleaned.strip().replace(' ', '-')
-    
-    # 转换为小写
-    cleaned = cleaned.lower()
-    
-    # 移除多余的连字符
-    cleaned = re.sub(r'-+', '-', cleaned)
-    
-    # 移除开头和结尾的连字符
-    cleaned = cleaned.strip('-')
-    
-    return cleaned
-
-async def verify_url(url, platform):
-    """验证URL是否有效"""
-    if not url:
-        return False
-        
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.head(url, allow_redirects=True) as response:
-                is_valid = response.status == 200
-                return is_valid
-    except Exception as e:
-        print(f"验证URL时出错: {e}")
-        return False
         
 async def get_tmdb_info(tmdb_id, request=None):
     """通过TMDB API获取影视基本信息"""
@@ -445,45 +349,6 @@ async def get_tmdb_info(tmdb_id, request=None):
             print(f"详细错误信息:\n{traceback.format_exc()}")
         return None
 
-def calculate_match_score(result, tmdb_info):
-    """计算匹配度分数 总分100分"""
-    score = 0
-    
-    # 标题匹配（60分）
-    tmdb_title = tmdb_info["original_title"].lower()
-    result_title = result["title"].lower()
-    if tmdb_title == result_title:
-        score += 60  # 完全匹配
-    elif tmdb_title in result_title or result_title in tmdb_title:
-        score += 40  # 部分匹配
-        
-    # 年份匹配（30分）
-    try:
-        tmdb_year = int(tmdb_info["year"])
-        result_year = int(result["year"])
-        if tmdb_year == result_year:
-            score += 30  # 完全匹配
-        elif abs(tmdb_year - result_year) == 1:
-            score += 15  # 相差一年
-    except (ValueError, TypeError):
-        pass
-        
-    # IMDB ID匹配（10分）
-    if "imdb_id" in result and "imdb_id" in tmdb_info:
-        if result["imdb_id"] == tmdb_info["imdb_id"]:
-            score += 10
-            
-    # 导演匹配作为加分项（不计入基础100分）
-    if "director" in result and "director" in tmdb_info:
-        tmdb_director = tmdb_info["director"].lower()
-        result_director = result["director"].lower()
-        if tmdb_director == result_director:
-            score += 5  # 完全匹配加5分
-        elif tmdb_director in result_director or result_director in tmdb_director:
-            score += 3  # 部分匹配加3分
-            
-    return score
-
 def calculate_match_degree(tmdb_info, result, platform=""):
     """计算搜索结果与TMDB信息的匹配度"""
     try:
@@ -500,7 +365,7 @@ def calculate_match_degree(tmdb_info, result, platform=""):
             # 标题必须完全匹配
             if main_title != tmdb_title:
                 return 0
-            score += 60  # 标题完全匹配得60分
+            score += 60
             
             # 2. 季数和年份匹配
             season_match = re.search(r'第([一二三四五六七八九十百]+)季', result_title)
@@ -517,7 +382,7 @@ def calculate_match_degree(tmdb_info, result, platform=""):
                     
                     if season_num == result_season_number:
                         if season_year == result_year:
-                            score += 30  # 季数和年份完全匹配得30分
+                            score += 30
                             break
                         else:
                             return 0
@@ -693,14 +558,6 @@ async def check_rate_limit(page, platform: str) -> dict | None:
                 return {"status": RATING_STATUS["RATE_LIMIT"]}
     
     return None
-
-async def get_element_text(page_or_element, selector):
-    """辅助函数：获取元素文本内容"""
-    try:
-        element = await page_or_element.query_selector(selector)
-        return await element.inner_text() if element else "暂无"
-    except:
-        return "暂无"
     
 def get_client_ip(request: Request) -> str:
     """获取用户真实IP地址"""
@@ -943,400 +800,6 @@ async def search_platform(platform, tmdb_info, request=None):
             except Exception:
                 pass
 
-async def search_douban(page, tmdb_info):
-    """在豆瓣搜索影视信息"""
-    try:
-        await random_delay()
-        # 构建搜索URL
-        search_url = f"https://search.douban.com/movie/subject_search?search_text={quote(tmdb_info['zh_title'])}"
-        print(f"访问豆瓣搜索页面: {search_url}")
-
-        await page.goto(search_url, wait_until='domcontentloaded')
-        await asyncio.sleep(2)
-        
-        # 使用统一的访问限制检查函数
-        rate_limit = await check_rate_limit(page, "douban")
-        if rate_limit:
-            print("检测到豆瓣访问限制")
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
-
-        # 获取搜索结果
-        results = []
-        items = await page.query_selector_all('.title-text')
-        print(f"找到 {len(items)} 个搜索结果")
-        if not items:
-            print("未找到搜索结果")
-            return {"status": RATING_STATUS["NO_FOUND"]}
-        
-        # 根据媒体类型使用不同的匹配逻辑
-        if tmdb_info.get("type") == "tv":
-            for item in items:
-                try:
-                    # 获取标题和年份
-                    text = await item.inner_text()
-                    match = re.search(r'(.*?)\s*(?:\((\d{4})\))?$', text)
-                    if not match:
-                        continue
-                        
-                    title = match.group(1).strip()
-                    year = match.group(2) if match.group(2) else ""
-                    
-                    # 获取URL
-                    href = await item.get_attribute('href')
-                    if not href:
-                        continue
-                    
-                    # 获取季数信息（如果有）
-                    season_match = re.search(r'第([一二三四五六七八九十百]+)季', title)
-                    season_number = chinese_to_arabic(season_match.group(1)) if season_match else None
-                    
-                    result = {
-                        "title": title,
-                        "year": year,
-                        "url": href,
-                    }
-                    
-                    # 使用严格的匹配规则
-                    match_score = calculate_match_degree(tmdb_info, result, platform="douban")
-                    if match_score >= 70:  # 只保留匹配度高的结果
-                        print(f"找到匹配结果: {title} ({year}) - 第{season_number}季 - 匹配分数: {match_score}")
-                        results.append(result)
-                    
-                except Exception as e:
-                    print(f"处理豆瓣搜索结果项时出错: {e}")
-                    continue
-        else:
-            for item in items:
-                try:
-                    # 获取标题和年份
-                    text = await item.inner_text()
-                    match = re.search(r'(.*?)\s*(?:\((\d{4})\))?$', text)
-                    if not match:
-                        continue
-                        
-                    title = match.group(1).strip()
-                    year = match.group(2) if match.group(2) else ""
-                    
-                    # 获取URL
-                    href = await item.get_attribute('href')
-                    if not href:
-                        continue
-                    
-                    result = {
-                        "title": title,
-                        "year": year,
-                        "url": href
-                    }
-                    
-                    # 使用常规匹配规则
-                    match_score = calculate_match_degree(tmdb_info, result, platform="douban")
-                    if match_score > 50:
-                        print(f"找到匹配结果: {title} ({year}) - 匹配分数: {match_score}")
-                        results.append(result)
-                    
-                except Exception as e:
-                    print(f"处理豆瓣搜索结果项时出错: {e}")
-                    continue
-        
-        # 按匹配分数排序        
-        results.sort(key=lambda x: x.get('match_score', 0), reverse=True)
-        print(f"搜索完成，找到 {len(results)} 个匹配结果")
-        return results
-        
-    except Exception as e:
-        print(f"访问豆瓣搜索页面失败: {e}")
-        if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
-    
-async def search_imdb(page, tmdb_info):
-    """在IMDB搜索影视信息"""
-    try:
-        await random_delay()  # 添加随机延时
-        # 如果有IMDB ID，直接使用
-        if tmdb_info.get("imdb_id"):
-            imdb_id = tmdb_info["imdb_id"]
-            return [{
-                "title": tmdb_info["title"],
-                "year": tmdb_info["year"],
-                "url": f"https://www.imdb.com/title/{imdb_id}/",
-                "imdb_id": imdb_id,
-                "direct_match": True
-            }]
-            
-        # 如果没有IMDB ID，才进行搜索
-        search_url = f"https://www.imdb.com/find/?q={quote(tmdb_info['title'])}"
-        print(f"访问IMDB搜索页面: {search_url}")
-
-        await page.goto(search_url, wait_until='domcontentloaded')
-        await asyncio.sleep(2)
-        
-        # 使用统一的访问限制检查函数
-        rate_limit = await check_rate_limit(page, "imdb")
-        if rate_limit:
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
-        
-        # 获取搜索结果
-        results = []
-        items = await page.query_selector_all('.ipc-metadata-list-summary-item__t')
-        print(f"找到 {len(items)} 个搜索结果")
-        if not items:
-            print("未找到搜索结果")
-            return {"status": RATING_STATUS["NO_FOUND"]}
-        
-        for item in items:
-            try:
-                # 获取标题
-                title = await item.inner_text()
-                
-                # 获取年份
-                year_elem = await item.evaluate('element => element.closest(".ipc-metadata-list-summary-item").querySelector(".ipc-inline-list__item span")')
-                year = await year_elem.inner_text() if year_elem else ""
-                
-                # 获取IMDB ID
-                href = await item.get_attribute('href')
-                imdb_id = re.search(r'/title/(tt\d+)/', href).group(1) if href else ""
-                
-                if title and year and imdb_id:
-                    results.append({
-                        "title": title,
-                        "year": year,
-                        "url": f"https://www.imdb.com/title/{imdb_id}/",
-                        "imdb_id": imdb_id
-                    })
-            except Exception as e:
-                print(f"处理IMDB搜索结果项时出错: {e}")
-                continue
-                
-        # 按匹配分数排序        
-        results.sort(key=lambda x: x.get('match_score', 0), reverse=True)
-        print(f"搜索完成，找到 {len(results)} 个匹配结果")
-        return results
-        
-    except Exception as e:
-        print(f"访问IMDB搜索页面失败: {e}")
-        if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
-    
-async def search_rottentomatoes(page, tmdb_info):
-    """在Rotten Tomatoes搜索影视信息"""
-    try:
-        await random_delay()  # 添加随机延时
-        # 构建搜索URL
-        search_url = f"https://www.rottentomatoes.com/search?search={quote(tmdb_info['title'])}"
-        print(f"访问Rotten Tomatoes搜索页面: {search_url}")
-
-        await page.goto(search_url, wait_until='domcontentloaded')
-        await asyncio.sleep(2)
-        
-        # 使用统一的访问限制检查函数
-        rate_limit = await check_rate_limit(page, "rottentomatoes")
-        if rate_limit:
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
-        
-        # 直接获取所有搜索结果
-        results = []
-        items = await page.query_selector_all('search-page-media-row[data-qa="data-row"]')
-        print(f"找到 {len(items)} 个搜索结果")
-        if not items:
-            print("未找到搜索结果")
-            return {"status": RATING_STATUS["NO_FOUND"]}
-        
-        for item in items:
-            try:
-                title_elem = await item.query_selector('a[data-qa="info-name"]')
-                if title_elem:
-                    title = await title_elem.inner_text()
-                    title = title.strip()
-                    url = await title_elem.get_attribute('href')
-                    year = await item.get_attribute('startyear')
-                    
-                    print(f"找到结果: {title} ({year})")
-                    
-                    # 精确匹配标题
-                    if title.lower() == tmdb_info['title'].lower():
-                        return [{
-                            "title": title,
-                            "year": year,
-                            "url": url,
-                            "match_score": 100,
-                            "number_of_seasons": tmdb_info.get("number_of_seasons", 0)
-                        }]
-                    
-                    results.append({
-                        "title": title,
-                        "year": year,
-                        "url": url,
-                        "match_score": calculate_match_degree(tmdb_info, {"title": title, "year": year}),
-                        "number_of_seasons": tmdb_info.get("number_of_seasons", 0)
-                    })
-            except Exception as e:
-                print(f"处理Rotten Tomatoes搜索结果项时出错: {e}")
-                continue
-
-        # 按匹配分数排序        
-        results.sort(key=lambda x: x.get('match_score', 0), reverse=True)
-        print(f"搜索完成，找到 {len(results)} 个匹配结果")
-        return results
-            
-    except Exception as e:
-        print(f"访问Rotten Tomatoes搜索页面失败: {e}")
-        if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
-
-async def search_metacritic(page, tmdb_info):
-    """在Metacritic搜索影视信息"""
-    try:
-        await random_delay()  # 添加随机延时
-        # 构建搜索URL
-        search_url = f"https://www.metacritic.com/search/{quote(tmdb_info['title'])}/"
-        print(f"访问Metacritic搜索页面: {search_url}")
-
-        await page.goto(search_url, wait_until='domcontentloaded')
-        await asyncio.sleep(2)
-
-        # 使用统一的访问限制检查函数
-        rate_limit = await check_rate_limit(page, "metacritic")
-        if rate_limit:
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
-        
-        # 获取搜索结果
-        results = []
-        items = await page.query_selector_all('a[class*="c-pageSiteSearch-results-item"]')
-        print(f"找到 {len(items)} 个搜索结果")
-        if not items:
-            print("未找到搜索结果")
-            return {"status": RATING_STATUS["NO_FOUND"]}
-        
-        for item in items:
-            try:
-                # 获取标题
-                title_elem = await item.query_selector('p.g-text-medium-fluid')
-                if not title_elem:
-                    continue
-                    
-                title = await title_elem.inner_text()
-                title = title.strip()
-                
-                # 获取年份
-                year_elem = await item.query_selector('span.u-text-uppercase')
-                year = await year_elem.inner_text() if year_elem else ""
-                year = year.strip()
-                
-                # 获取URL
-                href = await item.get_attribute('href')
-                if href:
-                    url = f"https://www.metacritic.com{href}"
-                    
-                    # 检查标题和年份是否匹配
-                    if (title.lower() == tmdb_info['title'].lower() and 
-                        year == tmdb_info['year']):
-                        return [{
-                            "title": title,
-                            "year": year,
-                            "url": url,
-                            "match_score": 100
-                        }]
-                    
-                    results.append({
-                        "title": title,
-                        "year": year,
-                        "url": url,
-                        "match_score": calculate_match_degree(tmdb_info, {"title": title, "year": year})
-                    })
-            except Exception as e:
-                print(f"处理Metacritic搜索结果项时出错: {e}")
-                continue
-
-        # 按匹配分数排序        
-        results.sort(key=lambda x: x.get('match_score', 0), reverse=True)
-        print(f"搜索完成，找到 {len(results)} 个匹配结果")
-        return results
-        
-    except Exception as e:
-        print(f"访问Metacritic搜索页面失败: {e}")
-        if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
-
-async def search_letterboxd(page, tmdb_info):
-    """在Letterboxd搜索影视信息"""
-    try:
-        await random_delay()  # 添加随机延时
-        # 构建搜索URL
-        search_url = f"https://letterboxd.com/search/{quote(tmdb_info['title'])}/"
-        print(f"访问Letterboxd搜索页面: {search_url}")
-        
-        await page.goto(search_url, wait_until='domcontentloaded')
-        await asyncio.sleep(2)
-
-       # 使用统一的访问限制检查函数
-        rate_limit = await check_rate_limit(page, "letterboxd")
-        if rate_limit:
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
-        
-        # 获取搜索结果
-        results = []
-        items = await page.query_selector_all('.results .film-detail')
-        print(f"找到 {len(items)} 个搜索结果")
-        if not items:
-            print("未找到搜索结果")
-            return {"status": RATING_STATUS["NO_FOUND"]}
-
-        for item in items:
-            try:
-                # 获取标题
-                title_elem = await item.query_selector('a')
-                if not title_elem:
-                    continue
-                    
-                title = await title_elem.inner_text()
-                # 移除 <small> 标签中的内容
-                title = title.split(' <small')[0].strip()
-                
-                # 获取年份
-                year_elem = await item.query_selector('a[href*="/films/year/"]')
-                year = await year_elem.inner_text() if year_elem else ""
-                
-                # 获取URL
-                href = await title_elem.get_attribute('href')
-                if href:
-                    url = f"https://letterboxd.com{href}"
-                    
-                    # 检查标题和年份是否匹配
-                    if (title.lower() == tmdb_info['title'].lower() and 
-                        year == tmdb_info['year']):
-                        # 如果完全匹配，直接返回这个结果
-                        return [{
-                            "title": title,
-                            "year": year,
-                            "url": url,
-                            "match_score": 100
-                        }]
-                    
-                    results.append({
-                        "title": title,
-                        "year": year,
-                        "url": url,
-                        "match_score": calculate_match_degree(tmdb_info, {"title": title, "year": year})
-                    })
-            except Exception as e:
-                print(f"处理Letterboxd搜索结果项时出错: {e}")
-                continue
-        
-        # 按匹配分数排序
-        results.sort(key=lambda x: x.get('match_score', 0), reverse=True)
-        print(f"搜索完成，找到 {len(results)} 个匹配结果")        
-        return results
-        
-    except Exception as e:
-        print(f"访问Letterboxd搜索页面失败: {e}")
-        if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
-
 @smart_retry(RetryConfig(
     max_retries=2,
     base_delay=1,
@@ -1351,12 +814,10 @@ async def handle_douban_search(page, search_url):
         await asyncio.sleep(2)
         
         # 立即检查是否出现访问频率限制
-        rate_limit_elem = await page.query_selector('.note-text')
-        if rate_limit_elem:
-            rate_limit_text = await rate_limit_elem.inner_text()
-            if "访问太频繁" in rate_limit_text:
-                print(f"豆瓣访问频率限制: {rate_limit_text}")
-                return {"status": RATING_STATUS["RATE_LIMIT"]}
+        rate_limit = await check_rate_limit(page, "douban")
+        if rate_limit:
+            print("检测到豆瓣访问限制")
+            return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
             # 检查搜索结果
@@ -1423,12 +884,10 @@ async def handle_imdb_search(page, search_url):
         await asyncio.sleep(2)
     
         # 立即检查是否出现访问频率限制
-        rate_limit_elem = await page.query_selector('.note-text')
-        if rate_limit_elem:
-            rate_limit_text = await rate_limit_elem.inner_text()
-            if "访问太频繁" in rate_limit_text:
-                print(f"IMDB访问频率限制: {rate_limit_text}")
-                return {"status": RATING_STATUS["RATE_LIMIT"]}
+        rate_limit = await check_rate_limit(page, "imdb")
+        if rate_limit:
+            print("检测到IMDB访问限制")
+            return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
             # 检查搜索结果
@@ -1489,12 +948,10 @@ async def handle_rt_search(page, search_url, tmdb_info):
         await asyncio.sleep(2)
     
         # 立即检查是否出现访问频率限制
-        rate_limit_elem = await page.query_selector('.note-text')
-        if rate_limit_elem:
-            rate_limit_text = await rate_limit_elem.inner_text()
-            if "访问太频繁" in rate_limit_text:
-                print(f"Rotten Tomatoes访问频率限制: {rate_limit_text}")
-                return {"status": RATING_STATUS["RATE_LIMIT"]}
+        rate_limit = await check_rate_limit(page, "rottentomatoes")
+        if rate_limit:
+            print("检测到IMDB访问限制")
+            return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
             # 检查搜索结果
@@ -1529,7 +986,7 @@ async def handle_rt_search(page, search_url, tmdb_info):
                             year == tmdb_info['year']):
                             return [{
                                 "title": title,
-                               "year": year,
+                                "year": year,
                                 "url": url,
                                 "match_score": 100,
                                 "number_of_seasons": tmdb_info.get("number_of_seasons", 0)
@@ -1574,12 +1031,10 @@ async def handle_metacritic_search(page, search_url):
         await asyncio.sleep(2)
     
         # 立即检查是否出现访问频率限制
-        rate_limit_elem = await page.query_selector('.note-text')
-        if rate_limit_elem:
-            rate_limit_text = await rate_limit_elem.inner_text()
-            if "访问太频繁" in rate_limit_text:
-                print(f"Metacritic访问频率限制: {rate_limit_text}")
-                return {"status": RATING_STATUS["RATE_LIMIT"]}
+        rate_limit = await check_rate_limit(page, "metacritic")
+        if rate_limit:
+            print("检测到Metacritic访问限制")
+            return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
             # 检查搜索结果
@@ -1637,12 +1092,10 @@ async def handle_letterboxd_search(page, search_url):
         await asyncio.sleep(2)
     
         # 立即检查是否出现访问频率限制
-        rate_limit_elem = await page.query_selector('.note-text')
-        if rate_limit_elem:
-            rate_limit_text = await rate_limit_elem.inner_text()
-            if "访问太频繁" in rate_limit_text:
-                print(f"Letterboxd访问频率限制: {rate_limit_text}")
-                return {"status": RATING_STATUS["RATE_LIMIT"]}
+        rate_limit = await check_rate_limit(page, "letterboxd")
+        if rate_limit:
+            print("检测到Letterboxd访问限制")
+            return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
             # 检查搜索结果
@@ -2779,7 +2232,7 @@ def format_rating_output(all_ratings, media_type):
 
 async def main():
     tmdb_id = input("请输入TMDB ID:")
-    tmdb_info = get_tmdb_info(tmdb_id)
+    tmdb_info = await get_tmdb_info(tmdb_id)
     if tmdb_info is None:
         print("获取TMDB信息失败，无法继续执行后续流程")
         return
