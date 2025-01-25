@@ -15,7 +15,7 @@ redis_broker.add_middleware(AsyncIO())
 
 dramatiq.set_broker(redis_broker)
 
-@dramatiq.actor
+@dramatiq.actor(store_results=True)
 async def fetch_platform_rating(media_type: str, platform: str, tmdb_info: dict):
     """异步获取平台评分"""
     try:
