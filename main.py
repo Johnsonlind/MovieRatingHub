@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS
+from ratings import get_tmdb_info, RATING_STATUS
 from redis import asyncio as aioredis
 import json
 from tasks import fetch_platform_rating
