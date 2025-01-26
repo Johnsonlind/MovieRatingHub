@@ -270,7 +270,7 @@ async def get_tmdb_info(tmdb_id, request=None):
                         else:
                             if not request or not (await request.is_disconnected()):
                                 print("影视类型不是剧集")
-                                print(f"剧集API错误响应: 未找到剧集")
+                                print("剧集API错误响应: 未找到剧集")
                             return None
             
             if not en_data:
@@ -349,51 +349,69 @@ async def get_tmdb_info(tmdb_id, request=None):
             print(f"详细错误信息:\n{traceback.format_exc()}")
         return None
 
-def calculate_match_degree(tmdb_info, result, platform=""):
+async def calculate_match_degree(tmdb_info, result, platform=""):
     """计算搜索结果与TMDB信息的匹配度"""
     try:
         score = 0
         
-        # 专门针对豆瓣平台的剧集
-        if platform == "douban" and tmdb_info.get("type") == "tv":
-            
-            # 1. 提取主标题（去掉季数和原剧名）
+        # 专门针对豆瓣平台
+        if platform == "douban":
+            # 1. 提取豆瓣标题中的所有可能部分
             result_title = result.get("title", "").lower()
-            main_title = result_title.split('第')[0].strip()
-            tmdb_title = tmdb_info.get("zh_title", "").lower()
-                        
-            # 标题必须完全匹配
-            if main_title != tmdb_title:
-                return 0
-            score += 60
+            # 分离中英文标题，去掉年份部分
+            parts = result_title.split('(')[0].strip()
+            title_parts = parts.split(' ')  # 按空格分割
             
-            # 2. 季数和年份匹配
-            season_match = re.search(r'第([一二三四五六七八九十百]+)季', result_title)
-            if season_match:
-                chinese_season_number = season_match.group(1)
-                result_season_number = chinese_to_arabic(chinese_season_number)
-                result_year = str(result.get("year", ""))
-                
-                
-                # 在TMDB季数信息中查找匹配
-                for season in tmdb_info.get("seasons", []):
-                    season_num = season.get("season_number")
-                    season_year = str(season.get("air_date", ""))[:4]
+            # 2. 尝试匹配 TMDB 中的各种标题
+            tmdb_titles = [
+                tmdb_info.get("title", "").lower(),
+                tmdb_info.get("original_title", "").lower(),
+                tmdb_info.get("zh_title", "").lower()
+            ]
+            
+            # 计算最高匹配分数
+            title_scores = []
+            for tmdb_title in tmdb_titles:
+                if tmdb_title:
+                    # 对每个标题部分计算匹配度
+                    for part in title_parts:
+                        if part and len(part) > 1:  # 确保部分不为空且长度大于1
+                            score = fuzz.ratio(tmdb_title, part)
+                            title_scores.append(score)
+            
+            if title_scores:
+                score = max(title_scores) * 0.6  # 标题匹配占60分
+            
+            # 3. 如果是剧集，额外检查季数
+            if tmdb_info.get("type") == "tv":
+                season_match = re.search(r'第([一二三四五六七八九十百]+)季', result_title)
+                if season_match:
+                    chinese_season_number = season_match.group(1)
+                    result_season_number = chinese_to_arabic(chinese_season_number)
                     
-                    if season_num == result_season_number:
-                        if season_year == result_year:
-                            score += 30
+                    for season in tmdb_info.get("seasons", []):
+                        if season.get("season_number") == result_season_number:
+                            score += 30  # 季数匹配加30分
                             break
-                        else:
-                            return 0
-                else:
-                    return 0
             
-            # 3. IMDB ID匹配（如果有）
+            # 4. 年份匹配（电影30分，剧集10分）
+            try:
+                tmdb_year = str(tmdb_info.get("year", ""))
+                result_year = str(result.get("year", ""))
+                if tmdb_year and result_year:
+                    year_diff = abs(int(tmdb_year) - int(result_year))
+                    if year_diff == 0:
+                        score += 30 if tmdb_info.get("type") == "movie" else 10
+                    elif year_diff == 1 and tmdb_info.get("type") == "movie":
+                        score += 15  # 电影年份差1年时给15分
+            except (ValueError, TypeError) as e:
+                print(f"年份比较出错: {e}")
+            
+            # 5. IMDB ID匹配（10分）
             if tmdb_info.get("imdb_id") and result.get("imdb_id"):
                 if tmdb_info["imdb_id"] == result["imdb_id"]:
                     score += 10
-            
+                    
         else:
             # 其他平台或非剧集的匹配逻辑
             # 获取所有可能的标题
@@ -403,7 +421,6 @@ def calculate_match_degree(tmdb_info, result, platform=""):
                 tmdb_info.get("zh_title", "").lower() if platform == "douban" else ""
             ]
             result_title = result.get("title", "").lower()
-        
             
             # 1. 标题匹配度计算（60分）
             title_scores = [fuzz.ratio(t, result_title) for t in tmdb_titles if t]
@@ -717,7 +734,7 @@ async def search_platform(platform, tmdb_info, request=None):
                 elif platform == "imdb":
                     results = await retry_request(handle_imdb_search, page, search_url)
                 elif platform == "letterboxd":
-                    results = await retry_request(handle_letterboxd_search, page, search_url)
+                    results = await retry_request(handle_letterboxd_search, page, search_url, tmdb_info)
                 elif platform == "rottentomatoes":
                     results = await retry_request(handle_rt_search, page, search_url, tmdb_info)
                 elif platform == "metacritic":
@@ -735,7 +752,10 @@ async def search_platform(platform, tmdb_info, request=None):
                     elif results["status"] == RATING_STATUS["FETCH_FAILED"]:
                         print(f"{platform} 获取失败")
                         return {"status": RATING_STATUS["FETCH_FAILED"]}
-                    
+                    elif results["status"] == RATING_STATUS["NO_FOUND"]:
+                        print(f"{platform}平台未收录此影视")
+                        return {"status": RATING_STATUS["NO_FOUND"]}
+                
                 # 检查搜索结果
                 await check_request()
                 if not isinstance(results, list):
@@ -761,7 +781,7 @@ async def search_platform(platform, tmdb_info, request=None):
                 matched_results = []
                 for result in results:
                     await check_request()
-                    match_score = calculate_match_degree(tmdb_info, result, platform)
+                    match_score = await calculate_match_degree(tmdb_info, result, platform)
                     if match_score >= threshold:
                         matched_results.append(result)
                 
@@ -996,7 +1016,7 @@ async def handle_rt_search(page, search_url, tmdb_info):
                             "title": title,
                             "year": year,
                             "url": url,
-                            "match_score": calculate_match_degree(tmdb_info, {"title": title, "year": year}),
+                            "match_score": await calculate_match_degree(tmdb_info, {"title": title, "year": year}),
                             "number_of_seasons": tmdb_info.get("number_of_seasons", 0)
                         })
                 except Exception as e:
@@ -1083,7 +1103,7 @@ async def handle_metacritic_search(page, search_url):
     base_delay=1,
     platform="letterboxd"
 ))
-async def handle_letterboxd_search(page, search_url):
+async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     try:
         await random_delay()
@@ -1098,54 +1118,75 @@ async def handle_letterboxd_search(page, search_url):
             return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
-            # 检查搜索结果
-            items = await page.query_selector_all('.results li')
-            results = []
-            
-            # 如果没有搜索结果
+            # 获取所有搜索结果的链接
+            items = await page.query_selector_all('.results li .film-title-wrapper a')
             if not items:
+                print("Letterboxd: 未找到搜索结果")
                 return {"status": RATING_STATUS["NO_FOUND"]}
             
+            # 收集所有详情页URL
+            detail_urls = []
             for item in items:
+                url = await item.get_attribute('href')
+                if url:
+                    detail_urls.append(f"https://letterboxd.com{url}")
+            
+            # 依次访问每个详情页
+            for detail_url in detail_urls:
                 try:
-                    title_elem = await item.query_selector('.film-title-wrapper a')
-                    year_elem = await item.query_selector('.film-title-wrapper small.metadata a')
-                    director_elem = await item.query_selector('.film-metadata a[href^="/director/"]')
-                
-                    if title_elem:
-                        title = await title_elem.inner_text()
-                        url = await title_elem.get_attribute('href')
-                        year = await year_elem.inner_text() if year_elem else ""
-                        director = await director_elem.inner_text() if director_elem else ""
+                    # 访问详情页
+                    await page.goto(detail_url, wait_until='domcontentloaded')
+                    await asyncio.sleep(1)
                     
-                        title = title.split(' <small')[0].strip()
+                    # 检查TMDb链接
+                    tmdb_link = await page.query_selector('a[data-track-action="TMDb"]')
+                    if tmdb_link:
+                        tmdb_href = await tmdb_link.get_attribute('href')
+                        if tmdb_href:
+                            # 提取TMDB ID
+                            tmdb_id = tmdb_href.split('/')[-1].strip('/')
+                            
+                            # 检查TMDB ID是否匹配
+                            if tmdb_id == str(tmdb_info.get("tmdb_id")):
+                                print(f"Letterboxd: 找到TMDB ID匹配的结果")
+                                
+                                # 获取标题和其他信息
+                                title = await page.query_selector('.headline-1 a')
+                                year = await page.query_selector('.headline-1 .number')
+                                director = await page.query_selector('.text-link[href^="/director/"]')
+                                
+                                return [{
+                                    "title": await title.inner_text() if title else "",
+                                    "year": await year.inner_text() if year else "",
+                                    "director": await director.inner_text() if director else "",
+                                    "url": detail_url,
+                                    "tmdb_id": tmdb_id
+                                }]
                     
-                        print(f"找到结果: {title} ({year})")
-                    
-                        results.append({
-                            "title": title,
-                            "year": year,
-                            "director": director,
-                            "url": f"https://letterboxd.com{url}"
-                        })
                 except Exception as e:
-                    print(f"处理Letterboxd单个结果时出错: {e}")
+                    print(f"处理详情页时出错: {e}")
                     continue
-        
-            return results if results else {"status": RATING_STATUS["NO_FOUND"]}
-        
+            
+            # 如果遍历完所有结果都没有找到匹配的TMDB ID
+            print("Letterboxd: 未找到TMDB ID匹配的结果")
+            return {
+                "status": RATING_STATUS["NO_FOUND"],
+                "rating": "暂无",
+                "rating_count": "暂无"
+            }
+            
         except Exception as e:
-            print(f"等待Letterboxd搜索结果超时: {e}")
+            print(f"等待Letterboxd搜索结果时出错: {e}")
             if "Timeout" in str(e):
                 return {"status": RATING_STATUS["TIMEOUT"]}
             return {"status": RATING_STATUS["FETCH_FAILED"]}
-      
+            
     except Exception as e:
         print(f"访问Letterboxd搜索页面失败: {e}")
         if "Timeout" in str(e):
             return {"status": RATING_STATUS["TIMEOUT"]}
         return {"status": RATING_STATUS["FETCH_FAILED"]}
-    
+
 async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None):
     """从各平台详情页HTML中提取对应评分数据"""
     @smart_retry(RetryConfig(
@@ -1197,7 +1238,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     print("请求已被取消,停止执行")
                     return {"status": "cancelled"}
                     
-                score = calculate_match_degree(tmdb_info, result)
+                score = await calculate_match_degree(tmdb_info, result, platform)
                 if score > highest_score:
                     highest_score = score
                     best_match = result
@@ -1320,7 +1361,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             
                     try:
                         if platform == "douban":
-                            rating_data = await extract_douban_rating(page, media_type, tmdb_info.get('seasons', []))
+                            rating_data = await extract_douban_rating(page, media_type, search_results)
                         elif platform == "imdb":
                             rating_data = await extract_imdb_rating(page)
                         elif platform == "letterboxd":
@@ -1468,6 +1509,7 @@ async def extract_douban_rating(page, media_type, matched_results):
             "rating_people": "暂无",
             "status": "Fail"
         }
+
 
 async def extract_imdb_rating(page):
     """从IMDB详情页提取评分数据"""
