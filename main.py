@@ -1,17 +1,15 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from ratings import get_tmdb_info, RATING_STATUS
+from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS
 from redis import asyncio as aioredis
 import json
-from tasks import fetch_platform_rating
-import dramatiq
 
-# 2. 配置
+# Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
 CACHE_EXPIRE_TIME = 24 * 60 * 60
 redis = None
 
-# 3. 应用初始化
+# 创建应用实例
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -27,19 +25,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 4. 健康检查端点
+# 健康检查端点
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "RateFuse API is running"}
 
-# 5. 缓存辅助函数
+# 缓存辅助函数
 async def get_cache(key: str):
+    """从 Redis 获取缓存数据"""
     if not redis:
         return None
     try:
         data = await redis.get(key)
         if data:
             data = json.loads(data)
+            # 只返回成功获取的数据
             if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
                 return data
         return None
@@ -48,9 +48,11 @@ async def get_cache(key: str):
         return None
 
 async def set_cache(key: str, data: dict):
+    """将数据存入 Redis 缓存"""
     if not redis:
         return
     try:
+        # 只缓存成功获取的数据
         if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
             await redis.setex(
                 key,
@@ -60,57 +62,51 @@ async def set_cache(key: str, data: dict):
     except Exception as e:
         print(f"设置缓存出错: {e}")
 
-# 6. 主要业务端点
+# 主要业务端点
 @app.get("/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(platform: str, type: str, id: str, request: Request):
+    """获取指定平台的评分信息"""
     try:
-        # 构建缓存键
+        if await request.is_disconnected():
+            print(f"{platform} 请求已在开始时被取消")
+            return None
         cache_key = f"rating:{platform}:{type}:{id}"
-        
-        # 检查缓存
         cached_data = await get_cache(cache_key)
         if cached_data:
             print(f"从缓存获取 {platform} 评分数据")
             return cached_data
 
-        # 获取 TMDB 信息
         tmdb_info = await get_tmdb_info(id, request)
         if not tmdb_info:
+            if await request.is_disconnected():
+                print(f"{platform} 请求在获取TMDB信息时被取消")
+                return None
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
 
-        # 将任务加入队列
-        message = fetch_platform_rating.send(type, platform, tmdb_info)
-        
-        # 返回任务ID，不等待结果
-        return {
-            "status": "processing",
-            "message": "任务已加入队列",
-            "task_id": message.message_id
-        }
+        rating_info = await extract_rating_info(type, platform, tmdb_info, request)
+
+        if await request.is_disconnected():
+            print(f"{platform} 请求在获取评分信息后被取消")
+            return None
+
+        if not rating_info:
+            if await request.is_disconnected():
+                print(f"{platform} 请求在处理评分信息时被取消")
+                return None
+
+            raise HTTPException(status_code=404, detail=f"未找到 {platform} 的评分信息")
+
+        await set_cache(cache_key, rating_info)
+        return rating_info
 
     except Exception as e:
+        if await request.is_disconnected():
+            print(f"{platform} 请求在发生错误时被取消")
+            return None
         print(f"获取 {platform} 评分时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/task/{task_id}")
-async def get_task_status(task_id: str):
-    try:
-        message = dramatiq.Message(
-            queue_name="default",
-            actor_name="fetch_platform_rating",
-            args=(),
-            kwargs={},
-            options={},
-            message_id=task_id,
-        )
-        result = message.get_result(block=False)
-        if result:
-            return {"status": "completed", "result": result}
-        return {"status": "processing"}
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
-
-# 7. 启动事件
+# 启动事件
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化"""
@@ -122,6 +118,7 @@ async def startup_event():
             decode_responses=True
         )
         print("Redis 连接成功初始化")
+
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
