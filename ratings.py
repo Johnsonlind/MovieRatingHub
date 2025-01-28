@@ -352,6 +352,10 @@ async def get_tmdb_info(tmdb_id, request=None):
 async def calculate_match_degree(tmdb_info, result, platform=""):
     """计算搜索结果与TMDB信息的匹配度"""
     try:
+        # 如果结果已经有匹配分数，直接返回
+        if "match_score" in result:
+            return result["match_score"]      
+          
         score = 0
         
         # 专门针对豆瓣平台
@@ -781,7 +785,12 @@ async def search_platform(platform, tmdb_info, request=None):
                 matched_results = []
                 for result in results:
                     await check_request()
-                    match_score = await calculate_match_degree(tmdb_info, result, platform)
+                    # 如果结果已经有匹配分数，直接使用
+                    if "match_score" in result:
+                        match_score = result["match_score"]
+                    else:
+                        match_score = await calculate_match_degree(tmdb_info, result, platform)
+                    
                     if match_score >= threshold:
                         matched_results.append(result)
                 
@@ -1139,12 +1148,16 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                     await asyncio.sleep(1)
                     
                     # 检查TMDb链接
-                    tmdb_link = await page.query_selector('a[data-track-action="TMDb"]')
+                    tmdb_link = await page.query_selector('a.micro-button[data-track-action="TMDb"]')
+                    print(f"TMDb link found: {tmdb_link is not None}")
+                    
                     if tmdb_link:
                         tmdb_href = await tmdb_link.get_attribute('href')
+                        print(f"TMDb href: {tmdb_href}")
+                        
                         if tmdb_href:
-                            # 提取TMDB ID
-                            tmdb_id = tmdb_href.split('/')[-1].strip('/')
+                            tmdb_id = tmdb_href.rstrip('/').split('/')[-1]
+                            print(f"Extracted TMDb ID: {tmdb_id}")
                             
                             # 检查TMDB ID是否匹配
                             if tmdb_id == str(tmdb_info.get("tmdb_id")):
@@ -1160,7 +1173,8 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                                     "year": await year.inner_text() if year else "",
                                     "director": await director.inner_text() if director else "",
                                     "url": detail_url,
-                                    "tmdb_id": tmdb_id
+                                    "tmdb_id": tmdb_id,
+                                    "match_score": 100
                                 }]
                     
                 except Exception as e:
