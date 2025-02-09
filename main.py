@@ -32,6 +32,7 @@ async def root():
 
 # 缓存辅助函数
 async def get_cache(key: str):
+    """从 Redis 获取缓存数据"""
     print(f"\n=== Redis缓存检查 ===")
     print(f"缓存键: {key}")
     print(f"Redis连接状态: {'已连接' if redis else '未连接'}")
@@ -45,89 +46,96 @@ async def get_cache(key: str):
         print(f"原始缓存数据: {data}")
         
         if data:
-            data = json.loads(data)
-            print(f"解析后的缓存数据: {json.dumps(data, ensure_ascii=False)}")
-            if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
-                print("返回有效缓存数据")
-                return data
-            print(f"缓存数据无效，状态: {data.get('status')}")
+            try:
+                data = json.loads(data)
+                print(f"解析后的缓存数据: {json.dumps(data, ensure_ascii=False)}")
+                if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+                    print("返回有效缓存数据")
+                    return data
+                print(f"缓存数据无效，状态: {data.get('status')}")
+            except json.JSONDecodeError as e:
+                print(f"缓存数据JSON解析失败: {e}")
         return None
     except Exception as e:
         print(f"获取缓存出错: {e}")
         return None
 
 async def set_cache(key: str, data: dict):
-    """将数据存入 Redis 缓存"""
+    """设置 Redis 缓存数据"""
+    print(f"\n=== 设置Redis缓存 ===")
+    print(f"缓存键: {key}")
+    
     if not redis:
+        print("Redis未连接，跳过缓存设置")
         return
+        
     try:
         # 只缓存成功获取的数据
-        if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
-            await redis.setex(
-                key,
-                CACHE_EXPIRE_TIME,
-                json.dumps(data)
-            )
+        if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+            json_data = json.dumps(data, ensure_ascii=False)
+            print(f"准备缓存数据: {json_data}")
+            await redis.set(key, json_data, ex=CACHE_EXPIRE_TIME)
+            print("缓存设置成功")
+        else:
+            print(f"数据状态不是成功({data.get('status')})，不进行缓存")
     except Exception as e:
-        print(f"设置缓存出错: {e}")
+        print(f"设置缓存失败: {e}")
+
+# 添加 Redis 连接初始化函数
+async def init_redis():
+    global redis
+    try:
+        print("正在连接 Redis...")
+        redis = await aioredis.from_url(
+            REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True
+        )
+        print("Redis 连接成功")
+    except Exception as e:
+        print(f"Redis 连接失败: {e}")
+        redis = None
+
+# 在应用启动时初始化 Redis
+@app.on_event("startup")
+async def startup_event():
+    await init_redis()
+
+# 在应用关闭时关闭 Redis 连接
+@app.on_event("shutdown")
+async def shutdown_event():
+    if redis:
+        await redis.close()
 
 # 主要业务端点
 @app.get("/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(platform: str, type: str, id: str, request: Request):
     """获取指定平台的评分信息"""
     try:
-        if await request.is_disconnected():
-            print(f"{platform} 请求已在开始时被取消")
-            return None
+        # 构建缓存键
         cache_key = f"rating:{platform}:{type}:{id}"
+        
+        # 尝试获取缓存
         cached_data = await get_cache(cache_key)
         if cached_data:
-            print(f"从缓存获取 {platform} 评分数据")
+            print(f"返回缓存的{platform}评分数据")
             return cached_data
-
-        tmdb_info = await get_tmdb_info(id, request)
+            
+        print(f"缓存未命中，开始获取{platform}评分数据")
+        
+        # 获取新数据
+        tmdb_info = await get_tmdb_info(type, id)
         if not tmdb_info:
-            if await request.is_disconnected():
-                print(f"{platform} 请求在获取TMDB信息时被取消")
-                return None
-            raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
-
+            raise HTTPException(status_code=404, detail="无法获取TMDB信息")
+            
         rating_info = await extract_rating_info(type, platform, tmdb_info, request)
-
-        if await request.is_disconnected():
-            print(f"{platform} 请求在获取评分信息后被取消")
-            return None
-
-        if not rating_info:
-            if await request.is_disconnected():
-                print(f"{platform} 请求在处理评分信息时被取消")
-                return None
-
-            raise HTTPException(status_code=404, detail=f"未找到 {platform} 的评分信息")
-
-        await set_cache(cache_key, rating_info)
+        
+        # 设置缓存
+        if rating_info:
+            await set_cache(cache_key, rating_info)
+            
         return rating_info
-
+        
     except Exception as e:
-        if await request.is_disconnected():
-            print(f"{platform} 请求在发生错误时被取消")
-            return None
-        print(f"获取 {platform} 评分时出错: {str(e)}")
+        print(f"获取{platform}评分失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-# 启动事件
-@app.on_event("startup")
-async def startup_event():
-    """应用启动时初始化"""
-    global redis
-    try:
-        redis = await aioredis.from_url(
-            REDIS_URL,
-            encoding='utf-8',
-            decode_responses=True
-        )
-        print("Redis 连接成功初始化")
-
-    except Exception as e:
-        print(f"Redis 连接初始化失败: {e}")
-        redis = None
