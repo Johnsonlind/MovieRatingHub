@@ -1214,7 +1214,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
         try:
             await random_delay()  # 添加随机延时
             # 检查请求是否已被取消
-            if request and hasattr(request, 'is_disconnected') and await request.is_disconnected():
+            if request and await request.is_disconnected():
                 print("请求已被取消,停止执行")
                 return {"status": "cancelled"}
         
@@ -1231,7 +1231,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     return create_rating_data(RATING_STATUS["FETCH_FAILED"], "获取失败")
         
             # 检查请求状态
-            if request and hasattr(request, 'is_disconnected') and await request.is_disconnected():
+            if request and await request.is_disconnected():
                 print("请求已被取消,停止执行")
                 return {"status": "cancelled"}
             
@@ -1248,7 +1248,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     result = {"title": result}
                     
                 # 检查请求状态
-                if request and hasattr(request, 'is_disconnected') and await request.is_disconnected():
+                if request and await request.is_disconnected():
                     print("请求已被取消,停止执行")
                     return {"status": "cancelled"}
                     
@@ -1343,7 +1343,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         })
                 
                     # 检查请求状态
-                    if request and hasattr(request, 'is_disconnected') and await request.is_disconnected():
+                    if request and await request.is_disconnected():
                         print("请求已被取消,停止执行")
                         return {"status": "cancelled"}
                 
@@ -1386,7 +1386,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                             rating_data = await extract_metacritic_rating(page, media_type, tmdb_info)
                     
                         # 检查请求状态
-                        if request and hasattr(request, 'is_disconnected') and await request.is_disconnected():
+                        if request and await request.is_disconnected():
                             print("请求已被取消,停止执行")
                             return {"status": "cancelled"}
                     
