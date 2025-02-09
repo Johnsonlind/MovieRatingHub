@@ -128,7 +128,14 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
         if not tmdb_info:
             raise HTTPException(status_code=404, detail="无法获取TMDB信息")
             
-        rating_info = await extract_rating_info(type, platform, tmdb_info, request)
+        # 这里需要传入 Request 对象，而不是字符串
+        rating_info = await extract_rating_info(
+            media_type=type,
+            platform=platform,
+            tmdb_info=tmdb_info,
+            search_results=None,  # 如果需要搜索结果，在这里添加
+            request=request  # 确保这里传入的是 FastAPI 的 Request 对象
+        )
         
         # 设置缓存
         if rating_info:
