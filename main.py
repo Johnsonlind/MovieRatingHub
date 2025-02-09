@@ -32,16 +32,25 @@ async def root():
 
 # 缓存辅助函数
 async def get_cache(key: str):
-    """从 Redis 获取缓存数据"""
+    print(f"\n=== Redis缓存检查 ===")
+    print(f"缓存键: {key}")
+    print(f"Redis连接状态: {'已连接' if redis else '未连接'}")
+    
     if not redis:
+        print("Redis未连接，跳过缓存")
         return None
+        
     try:
         data = await redis.get(key)
+        print(f"原始缓存数据: {data}")
+        
         if data:
             data = json.loads(data)
-            # 只返回成功获取的数据
+            print(f"解析后的缓存数据: {json.dumps(data, ensure_ascii=False)}")
             if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+                print("返回有效缓存数据")
                 return data
+            print(f"缓存数据无效，状态: {data.get('status')}")
         return None
     except Exception as e:
         print(f"获取缓存出错: {e}")
