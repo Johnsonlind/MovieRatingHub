@@ -10,6 +10,7 @@ import aiohttp
 from urllib.parse import quote
 from dataclasses import dataclass, field
 from fastapi import Request
+from asyncio import Semaphore
 
 
 TMDB_API_KEY = "4f681fa7b5ab7346a4e184bbf2d41715"
@@ -39,6 +40,9 @@ RATING_STATUS = {
     "SUCCESSFUL": "Successful"   # 成功获取到评分
 }
 
+BROWSER_SEMAPHORE = Semaphore(5)
+PAGE_SEMAPHORE = Semaphore(5) 
+
 def create_rating_data(status, reason=None):
     """创建统一的评分数据结构"""
     base_data = {
@@ -53,7 +57,7 @@ class RequestCancelledException(Exception):
     pass
 
 async def random_delay():
-    delay = random.uniform(2, 5)
+    delay = random.uniform(0.5, 2)
     await asyncio.sleep(delay)
 
 def chinese_to_arabic(chinese_num):
@@ -654,14 +658,21 @@ async def search_platform(platform, tmdb_info, request=None):
                 '--disable-default-apps',
                 '--mute-audio',
                 '--disable-blink-features=AutomationControlled',
-                '--disable-infobars'
+                '--disable-infobars',
+                '--disable-javascript',
+                '--disable-images',
+                '--disable-css',
+                '--disable-fonts',
+                '--disable-animations',
+                '--disable-video',
+                '--disable-audio'
             ]
 
             # 启动浏览器
             browser = await p.chromium.launch(
                 headless=True,
                 args=browser_args,
-                timeout=60000,
+                timeout=30000,
                 ignore_default_args=['--enable-automation']
             )
             
@@ -701,10 +712,13 @@ async def search_platform(platform, tmdb_info, request=None):
             # 添加请求拦截
             await context.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,ttf}", lambda route: route.abort())
             await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
+            await context.route("**/beacon/**", lambda route: route.abort())
+            await context.route("**/telemetry/**", lambda route: route.abort())
+            await context.route("**/stats/**", lambda route: route.abort())
             
             # 创建页面并设置
             page = await context.new_page()
-            page.set_default_timeout(30000)
+            page.set_default_timeout(20000) 
             
             # 如果是豆瓣，设置用户IP
             if platform == "douban" and request:
@@ -1351,27 +1365,27 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     if platform == "imdb":
                         # IMDB 评分是动态加载的
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(1)
                     elif platform == "douban":
                         # 豆瓣评分在 DOM 中就有
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(0.5)
                     elif platform == "letterboxd":
                         # Letterboxd 评分在 DOM 中就有
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(0.5)
                     elif platform == "rottentomatoes":
                         # 烂番茄需要等待评分加载
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(1)
                     elif platform == "metacritic":
                         # Metacritic 评分在 DOM 中就有
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(0.5)
                     else:
                         # 默认策略
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(1)
             
                     try:
                         if platform == "douban":
@@ -1491,7 +1505,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                 
                 # 获取该季评分
                 await page.goto(url, wait_until='domcontentloaded')
-                await asyncio.sleep(2)
+                await asyncio.sleep(0.5)
                 
                 rating_elem = await page.query_selector('.rating_self strong.rating_num')
                 rating = await rating_elem.inner_text() if rating_elem else "暂无"
@@ -1615,7 +1629,7 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                     print(f"访问第{season}季: {season_url}")
                     
                     await page.goto(season_url, wait_until='domcontentloaded')
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(0.5)
                     
                     await page.evaluate('''() => {
                         const button = document.querySelector('rt-text[slot="criticsScoreType"]');
@@ -1713,7 +1727,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     print(f"访问第{season_number}季URL: {season_url}")
 
                     await page.goto(season_url, wait_until='domcontentloaded')
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(0.5)
                     
                     # 获取该季的评分数据
                     # 专业评分
@@ -2238,54 +2252,118 @@ def format_rating_output(all_ratings, media_type):
     return formatted_data
 
 async def main():
-    tmdb_id = input("请输入TMDB ID:")
-    tmdb_info = await get_tmdb_info(tmdb_id)
-    if tmdb_info is None:
-        print("获取TMDB信息失败，无法继续执行后续流程")
-        return
-    
-    media_type = tmdb_info["type"]
+    try:
+        tmdb_id = input("请输入TMDB ID:")
+        tmdb_info = await get_tmdb_info(tmdb_id)
+        if tmdb_info is None:
+            print("获取TMDB信息失败，无法继续执行后续流程")
+            return
+        
+        media_type = tmdb_info["type"]
+        platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
+        
+        print(f"\n开始并发获取各平台评分信息...")
+        
+        # 使用信号量限制并发数
+        sem = asyncio.Semaphore(5)
+        
+        async def process_platform(platform):
+            async with sem:
+                try:
+                    print(f"开始获取 {platform} 平台评分...")
+                    # 获取搜索结果
+                    search_results = await search_platform(platform, tmdb_info)
+                    if isinstance(search_results, dict) and "status" in search_results:
+                        return platform, search_results
+                    
+                    # 提取评分信息
+                    rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results)
+                    return platform, rating_data
+                    
+                except Exception as e:
+                    print(f"处理 {platform} 平台时出错: {e}")
+                    print(traceback.format_exc())
+                    return platform, create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
+        
+        # 创建并发任务
+        tasks = [process_platform(platform) for platform in platforms]
+        
+        # 并发执行所有任务
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理结果
+            all_ratings = {}
+            for result in results:
+                if isinstance(result, Exception):
+                    print(f"任务执行出错: {result}")
+                    continue
+                    
+                platform, rating_data = result
+                all_ratings[platform] = rating_data
+                print(f"{platform} 平台评分信息获取完成")
+        
+            # 只有在all_ratings不为空时才调用format_rating_output
+            if all_ratings:
+                formatted_ratings = format_rating_output(all_ratings, media_type)
+                return formatted_ratings
+            else:
+                print("\n=== 评分信息汇总 ===\n未能获取到任何平台的评分信息")
+                return {}
+            
+        except Exception as e:
+            print(f"并发获取评分信息时出错: {e}")
+            print(traceback.format_exc())
+            return {}
+            
+    except Exception as e:
+        print(f"执行过程中出错: {e}")
+        print(traceback.format_exc())
+        return {}
+
+async def parallel_extract_ratings(tmdb_info, media_type, request=None):
+    """并行处理所有平台的评分获取"""
     platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
     
-    print(f"\n开始并发获取各平台评分信息...")
-    
-    # 创建所有平台的评分获取任务
-    tasks = []
-    for platform in platforms:
-        # 先获取搜索结果
-        search_results = await search_platform(platform, tmdb_info)
-        # 然后传入评分提取函数
-        tasks.append(
-            extract_rating_info(media_type, platform, tmdb_info, search_results)
-        )
-    
-    # 并发执行所有任务
-    try:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # 处理结果
-        all_ratings = {}
-        for platform, result in zip(platforms, results):
-            if isinstance(result, Exception):
-                print(f"处理 {platform} 平台时出错: {result}")
-                all_ratings[platform] = create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
-                continue
+    async def process_platform(platform):
+        try:
+            # 检查请求状态
+            if request and await request.is_disconnected():
+                print(f"{platform} 请求已取消")
+                return platform, {"status": "cancelled"}
                 
-            if result:
-                all_ratings[platform] = result
-                print(f"{platform} 平台评分信息获取完成")
+            print(f"开始获取 {platform} 平台评分...")
+            
+            # 搜索结果
+            search_results = await search_platform(platform, tmdb_info, request)
+            if isinstance(search_results, dict) and "status" in search_results:
+                return platform, search_results
+                
+            # 提取评分
+            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request)
+            return platform, rating_data
+            
+        except Exception as e:
+            print(f"处理 {platform} 平台时出错: {e}")
+            print(traceback.format_exc())
+            return platform, create_error_rating_data(platform, media_type)
     
-        # 只有在all_ratings不为空时才调用format_rating_output
-        if all_ratings:
-            format_rating_output(all_ratings, media_type)
-        else:
-            print("\n=== 评分信息汇总 ===\n未能获取到任何平台的评分信息")
-        
-        return all_ratings
-        
-    except Exception as e:
-        print(f"并发获取评分信息时出错: {e}")
-        return {}
+    # 使用信号量限制并发数
+    sem = asyncio.Semaphore(5)
+    
+    async def process_with_semaphore(platform):
+        async with sem:
+            return await process_platform(platform)
+    
+    # 并行执行所有平台的处理
+    tasks = [process_with_semaphore(platform) for platform in platforms]
+    results = await asyncio.gather(*tasks)
+    
+    # 整理结果
+    all_ratings = {platform: rating for platform, rating in results}
+    
+    # 格式化输出
+    return format_rating_output(all_ratings, media_type)
 
 if __name__ == "__main__":
     asyncio.run(main())
