@@ -40,9 +40,6 @@ RATING_STATUS = {
     "SUCCESSFUL": "Successful"   # 成功获取到评分
 }
 
-BROWSER_SEMAPHORE = Semaphore(5)
-PAGE_SEMAPHORE = Semaphore(5) 
-
 def create_rating_data(status, reason=None):
     """创建统一的评分数据结构"""
     base_data = {
@@ -1365,7 +1362,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     if platform == "imdb":
                         # IMDB 评分是动态加载的
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.5)
                     elif platform == "douban":
                         # 豆瓣评分在 DOM 中就有
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
@@ -1377,7 +1374,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     elif platform == "rottentomatoes":
                         # 烂番茄需要等待评分加载
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.5)
                     elif platform == "metacritic":
                         # Metacritic 评分在 DOM 中就有
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
@@ -1385,7 +1382,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     else:
                         # 默认策略
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.5)
             
                     try:
                         if platform == "douban":
@@ -1454,6 +1451,15 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
 async def extract_douban_rating(page, media_type, matched_results):
     """从豆瓣详情页提取评分数据"""
     try:
+        # 检查是否有"暂无评分"提示
+        no_rating_elem = await page.query_selector('text="暂无评分"')
+        if no_rating_elem:
+            return {
+                "rating": "暂无",
+                "rating_people": "暂无",
+                "status": RATING_STATUS["NO_RATING"]
+            }
+                
         # 电影评分处理
         if media_type != "tv":
             rating_elem = await page.query_selector('.rating_self strong.rating_num')
@@ -1542,8 +1548,17 @@ async def extract_douban_rating(page, media_type, matched_results):
 async def extract_imdb_rating(page):
     """从IMDB详情页提取评分数据"""
     try:
+        # 检查是否有评分元素
+        rating_elem = await page.query_selector('.sc-d541859f-1.imUuxf')
+        if not rating_elem:
+            return {
+                "rating": "暂无",
+                "rating_people": "暂无",
+                "status": RATING_STATUS["NO_RATING"]
+            }
+
         # 等待评分元素加载
-        await page.wait_for_selector('.sc-d541859f-1.imUuxf', timeout=5000)
+        await page.wait_for_selector('.sc-d541859f-1.imUuxf', timeout=2000)
         
         # 提取评分
         rating = await page.query_selector('.sc-d541859f-1.imUuxf')
@@ -1581,6 +1596,24 @@ class RTRating:
 async def extract_rt_rating(page, media_type, tmdb_info):
     """从Rotten Tomatoes详情页提取评分数据"""
     try:
+        # 检查是否有"暂无评分"提示
+        no_tomatometer = await page.query_selector('text="Tomatometer not yet available."')
+        no_audience = await page.query_selector('text="Audience Score not yet available."')
+        
+        if no_tomatometer and no_audience:
+            return {
+                "series": {
+                    "tomatometer": "暂无",
+                    "audience_score": "暂无", 
+                    "critics_avg": "暂无",
+                    "audience_avg": "暂无",
+                    "critics_count": "暂无",
+                    "audience_count": "暂无"
+                },
+                "seasons": [],
+                "status": RATING_STATUS["NO_RATING"]
+            }
+        
         ratings = {
             'series': {},
             'seasons': []
@@ -1686,6 +1719,20 @@ async def extract_rt_rating(page, media_type, tmdb_info):
 async def extract_metacritic_rating(page, media_type, tmdb_info):
     """从Metacritic详情页提取评分数据"""
     try:
+        # 检查是否有"tbd"评分
+        tbd_elem = await page.query_selector('text="tbd"')
+        if tbd_elem:
+            return {
+                "overall": {
+                    "metascore": "暂无",
+                    "critics_count": "暂无",
+                    "userscore": "暂无",
+                    "users_count": "暂无"
+                },
+                "seasons": [],
+                "status": RATING_STATUS["NO_RATING"]
+            }
+                
         ratings = {}
 
         # 1. 获取整部剧集的评分数据
@@ -1781,32 +1828,34 @@ async def extract_letterboxd_rating(page):
     """从Letterboxd详情页提取评分数据"""
     try:
         # 获取评分元素
-        rating_elem = await page.query_selector('.average-rating .display-rating')
+        rating_elem = await page.query_selector('a[href$="/ratings/"].tooltip.display-rating')
         
-        if rating_elem:
-            # 获取评分
-            rating = await rating_elem.inner_text()
-            
-            # 获取悬停提示中的评分人数
-            tooltip = await rating_elem.get_attribute('data-original-title')
-            if tooltip:
-                # 使用正则表达式提取评分人数
-                match = re.search(r'based on ([\d,]+)', tooltip)
-                rating_count = match.group(1) if match else "暂无"
-            else:
-                rating_count = "暂无"
-                
-            print(f"Letterboxd评分数据: 评分={rating}, 评分人数={rating_count}")
-            
-            return {
-                "rating": rating,
-                "rating_count": rating_count
-            }
-        else:
+        if not rating_elem:
+            print("Letterboxd: 未找到评分元素,该影视暂无评分")
             return {
                 "rating": "暂无",
-                "rating_count": "暂无"
+                "rating_count": "暂无",
+                "status": RATING_STATUS["NO_RATING"]
             }
+            
+        # 获取评分
+        rating = await rating_elem.inner_text()
+        
+        # 获取评分人数
+        tooltip = await rating_elem.get_attribute('data-original-title')
+        if tooltip:
+            match = re.search(r'based on ([\d,]+)', tooltip)
+            rating_count = match.group(1).replace(',', '') if match else "暂无"
+        else:
+            rating_count = "暂无"
+            
+        print(f"Letterboxd评分数据: 评分={rating}, 评分人数={rating_count}")
+        
+        return {
+            "rating": rating,
+            "rating_count": rating_count,
+            "status": RATING_STATUS["SUCCESSFUL"]
+        }
             
     except Exception as e:
         print(f"提取Letterboxd评分数据时出错: {e}")
@@ -2110,74 +2159,86 @@ def format_rating_output(all_ratings, media_type):
     """格式化输出所有平台的评分信息"""
     print("\n=== 评分信息汇总 ===\n")
     
+    # 状态映射表
+    status_map = {
+        "Successful": "成功",
+        "Fail": "失败", 
+        "No Found": "未收录",
+        "Timeout": "超时",
+        "No Rating": "暂无评分",
+        "RateLimit": "访问频繁"
+    }
+    
     # 豆瓣
-    if "douban" in all_ratings and all_ratings["douban"]:
+    if "douban" in all_ratings:
         print("豆瓣：")
-        douban_data = all_ratings["douban"]
+        status = all_ratings["douban"].get("status", "Fail")
+        print(f"状态：{status_map.get(status, status)}")
         
-        if media_type == "movie":
-            print(f"评分：{douban_data.get('rating', '暂无')}")
-            print(f"评分人数：{douban_data.get('rating_people', '暂无')}\n")
-            if all_ratings["douban"].get("status") == "Fail":
-               print("处理时出错\n")
-        else:
-            seasons = douban_data.get("seasons", [])
-            if seasons:  # 只要有季数据就显示
-                for season in sorted(seasons, key=lambda x: x["season_number"]):
-                    print(f"第{season['season_number']}季：")
-                    print(f"评分：{season.get('rating', '暂无')}")
-                    print(f"评分人数：{season.get('rating_people', '暂无')}")
-                print()
-                if all_ratings["douban"].get("status") == "Fail":
-                   print("处理时出错\n")
+        if status == "Successful":
+            if media_type == "movie":
+                print(f"评分：{all_ratings['douban'].get('rating', '暂无')}")
+                print(f"评分人数：{all_ratings['douban'].get('rating_people', '暂无')}\n")
             else:
-                print("暂无评分信息\n")
-    else:
-        print("豆瓣：\n暂无评分信息\n")
+                seasons = all_ratings["douban"].get("seasons", [])
+                if seasons:
+                    for season in sorted(seasons, key=lambda x: x["season_number"]):
+                        print(f"第{season['season_number']}季：")
+                        print(f"评分：{season.get('rating', '暂无')}")
+                        print(f"评分人数：{season.get('rating_people', '暂无')}")
+                print()
+        else:
+            print()
     
     # IMDb
     if "imdb" in all_ratings:
         print("IMDb：")
-        print(f"评分：{all_ratings['imdb'].get('rating', '暂无')}")
-        print(f"评分人数：{all_ratings['imdb'].get('rating_people', '暂无')}\n")
-        if all_ratings["imdb"].get("status") == "Fail":
-            print("处理时出错\n")
+        status = all_ratings["imdb"].get("status", "Fail")
+        print(f"状态：{status_map.get(status, status)}")
+        
+        if status == "Successful":
+            print(f"评分：{all_ratings['imdb'].get('rating', '暂无')}")
+            print(f"评分人数：{all_ratings['imdb'].get('rating_people', '暂无')}\n")
+        else:
+            print()
     
     # Letterboxd
     if "letterboxd" in all_ratings:
         print("Letterboxd：")
-        print(f"评分：{all_ratings['letterboxd'].get('rating', '暂无')}")
-        print(f"评分人数：{all_ratings['letterboxd'].get('rating_count', '暂无')}\n")
-        if all_ratings["letterboxd"].get("status") == "Fail":
-            print("处理时出错\n")
+        status = all_ratings["letterboxd"].get("status", "Fail")
+        print(f"状态：{status_map.get(status, status)}")
+        
+        if status == "Successful":
+            print(f"评分：{all_ratings['letterboxd'].get('rating', '暂无')}")
+            print(f"评分人数：{all_ratings['letterboxd'].get('rating_count', '暂无')}\n")
+        else:
+            print()
     
     # Rotten Tomatoes
     if "rottentomatoes" in all_ratings:
         print("Rotten Tomatoes：")
+        status = all_ratings["rottentomatoes"].get("status", "Fail")
+        print(f"状态：{status_map.get(status, status)}")
         
-        if media_type == "tv":
-            rt_data = all_ratings.get('rottentomatoes', {}).get('series', {})
-            print(f"整部剧集专业评分：{rt_data.get('tomatometer', '暂无')}")
-            print(f"整部剧集观众评分：{rt_data.get('audience_score', '暂无')}")
-            print(f"整部剧集专业平均评分：{rt_data.get('critics_avg', '暂无')}")
-            print(f"整部剧集观众平均评分：{rt_data.get('audience_avg', '暂无')}")
-            print(f"整部剧集专业评分人数：{rt_data.get('critics_count', '暂无')}")
-            print(f"整部剧集观众评分人数：{rt_data.get('audience_count', '暂无')}")
-            if all_ratings["rottentomatoes"].get("status") == "Fail":
-                print("处理时出错\n")
-            
-            # 各季评分
-            for season in all_ratings['rottentomatoes'].get('seasons', []):
-                print(f"\n第{season['season_number']}季专业评分：{season.get('tomatometer', '暂无')}")
-                print(f"第{season['season_number']}季观众评分：{season.get('audience_score', '暂无')}")
-                print(f"第{season['season_number']}季专业平均评分：{season.get('critics_avg', '暂无')}")
-                print(f"第{season['season_number']}季观众平均评分：{season.get('audience_avg', '暂无')}")
-                print(f"第{season['season_number']}季专业评分人数：{season.get('critics_count', '暂无')}")
-                print(f"第{season['season_number']}季观众评分人数：{season.get('audience_count', '暂无')}")
-                if all_ratings["rottentomatoes"].get("status") == "Fail":
-                    print("处理时出错\n")
-        else:
-            # 电影评分输出
+        if status == "Successful":
+            if media_type == "tv":
+                rt_data = all_ratings.get('rottentomatoes', {}).get('series', {})
+                print(f"整部剧集专业评分：{rt_data.get('tomatometer', '暂无')}")
+                print(f"整部剧集观众评分：{rt_data.get('audience_score', '暂无')}")
+                print(f"整部剧集专业平均评分：{rt_data.get('critics_avg', '暂无')}")
+                print(f"整部剧集观众平均评分：{rt_data.get('audience_avg', '暂无')}")
+                print(f"整部剧集专业评分人数：{rt_data.get('critics_count', '暂无')}")
+                print(f"整部剧集观众评分人数：{rt_data.get('audience_count', '暂无')}")
+                
+                # 各季评分
+                for season in all_ratings['rottentomatoes'].get('seasons', []):
+                    print(f"\n第{season['season_number']}季专业评分：{season.get('tomatometer', '暂无')}")
+                    print(f"第{season['season_number']}季观众评分：{season.get('audience_score', '暂无')}")
+                    print(f"第{season['season_number']}季专业平均评分：{season.get('critics_avg', '暂无')}")
+                    print(f"第{season['season_number']}季观众平均评分：{season.get('audience_avg', '暂无')}")
+                    print(f"第{season['season_number']}季专业评分人数：{season.get('critics_count', '暂无')}")
+                    print(f"第{season['season_number']}季观众评分人数：{season.get('audience_count', '暂无')}")
+            else:
                 overall_data = all_ratings['rottentomatoes'].get('series', {})
                 print(f"专业评分：{overall_data.get('tomatometer', '暂无')}")
                 print(f"观众评分：{overall_data.get('audience_score', '暂无')}")
@@ -2185,41 +2246,35 @@ def format_rating_output(all_ratings, media_type):
                 print(f"观众平均评分：{overall_data.get('audience_avg', '暂无')}")
                 print(f"专业评分人数：{overall_data.get('critics_count', '暂无')}")
                 print(f"观众评分人数：{overall_data.get('audience_count', '暂无')}")
-                if all_ratings["rottentomatoes"].get("status") == "Fail":
-                    print("处理时出错\n")
         print()
     
     # Metacritic
     if "metacritic" in all_ratings:
         print("Metacritic：")
-        mc_data = all_ratings['metacritic']
+        status = all_ratings["metacritic"].get("status", "Fail")
+        print(f"状态：{status_map.get(status, status)}")
         
-        # 整部剧集评分
-        if media_type == "tv":
-            overall = mc_data.get('overall', {})
-            print("整部剧集专业评分：" + overall.get('metascore', '暂无'))
-            print("整部剧集观众评分：" + overall.get('critics_count', '暂无'))
-            print("整部剧集专业评分人数：" + overall.get('userscore', '暂无'))
-            print("整部剧集观众评分人数：" + overall.get('users_count', '暂无'))
-            if all_ratings["metacritic"].get("status") == "Fail":
-                print("处理时出错\n")
-            
-            # 各季评分
-            for season in mc_data.get('seasons', []):
-                print(f"\n第{season['season_number']}季专业评分：{season.get('metascore', '暂无')}")
-                print(f"第{season['season_number']}季观众评分：{season.get('userscore', '暂无')}")
-                print(f"第{season['season_number']}季专业评分人数：{season.get('critics_count', '暂无')}")
-                print(f"第{season['season_number']}季观众评分人数：{season.get('users_count', '暂无')}")
-                if all_ratings["metacritic"].get("status") == "Fail":
-                    print("处理时出错\n")
-        else:
+        if status == "Successful":
+            mc_data = all_ratings['metacritic']
+            if media_type == "tv":
+                overall = mc_data.get('overall', {})
+                print("整部剧集专业评分：" + overall.get('metascore', '暂无'))
+                print("整部剧集观众评分：" + overall.get('userscore', '暂无'))
+                print("整部剧集专业评分人数：" + overall.get('critics_count', '暂无'))
+                print("整部剧集观众评分人数：" + overall.get('users_count', '暂无'))
+                
+                # 各季评分
+                for season in mc_data.get('seasons', []):
+                    print(f"\n第{season['season_number']}季专业评分：{season.get('metascore', '暂无')}")
+                    print(f"第{season['season_number']}季观众评分：{season.get('userscore', '暂无')}")
+                    print(f"第{season['season_number']}季专业评分人数：{season.get('critics_count', '暂无')}")
+                    print(f"第{season['season_number']}季观众评分人数：{season.get('users_count', '暂无')}")
+            else:
                 mc_data = all_ratings['metacritic'].get('overall', {})
                 print(f"专业评分：{mc_data.get('metascore', '暂无')}")
                 print(f"专业评分人数：{mc_data.get('critics_count', '暂无')}")
                 print(f"观众评分：{mc_data.get('userscore', '暂无')}")
-                print(f"观众评分人数：{mc_data.get('users_count', '暂无')}\n")
-                if all_ratings["metacritic"].get("status") == "Fail":
-                   print("处理时出错\n")
+                print(f"观众评分人数：{mc_data.get('users_count', '暂无')}")
         print()
 
     # 构建返回的数据结构（添加状态信息）
@@ -2250,6 +2305,50 @@ def format_rating_output(all_ratings, media_type):
             data["status"] = status
     
     return formatted_data
+
+async def parallel_extract_ratings(tmdb_info, media_type, request=None):
+    """并行处理所有平台的评分获取"""
+    platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
+    
+    async def process_platform(platform):
+        try:
+            # 检查请求状态
+            if request and await request.is_disconnected():
+                print(f"{platform} 请求已取消")
+                return platform, {"status": "cancelled"}
+                
+            print(f"开始获取 {platform} 平台评分...")
+            
+            # 搜索结果
+            search_results = await search_platform(platform, tmdb_info, request)
+            if isinstance(search_results, dict) and "status" in search_results:
+                return platform, search_results
+                
+            # 提取评分
+            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request)
+            return platform, rating_data
+            
+        except Exception as e:
+            print(f"处理 {platform} 平台时出错: {e}")
+            print(traceback.format_exc())
+            return platform, create_error_rating_data(platform, media_type)
+    
+    # 使用信号量限制并发数
+    sem = asyncio.Semaphore(5)
+    
+    async def process_with_semaphore(platform):
+        async with sem:
+            return await process_platform(platform)
+    
+    # 并行执行所有平台的处理
+    tasks = [process_with_semaphore(platform) for platform in platforms]
+    results = await asyncio.gather(*tasks)
+    
+    # 整理结果
+    all_ratings = {platform: rating for platform, rating in results}
+    
+    # 格式化输出
+    return format_rating_output(all_ratings, media_type)
 
 async def main():
     try:
@@ -2320,50 +2419,6 @@ async def main():
         print(f"执行过程中出错: {e}")
         print(traceback.format_exc())
         return {}
-
-async def parallel_extract_ratings(tmdb_info, media_type, request=None):
-    """并行处理所有平台的评分获取"""
-    platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
     
-    async def process_platform(platform):
-        try:
-            # 检查请求状态
-            if request and await request.is_disconnected():
-                print(f"{platform} 请求已取消")
-                return platform, {"status": "cancelled"}
-                
-            print(f"开始获取 {platform} 平台评分...")
-            
-            # 搜索结果
-            search_results = await search_platform(platform, tmdb_info, request)
-            if isinstance(search_results, dict) and "status" in search_results:
-                return platform, search_results
-                
-            # 提取评分
-            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request)
-            return platform, rating_data
-            
-        except Exception as e:
-            print(f"处理 {platform} 平台时出错: {e}")
-            print(traceback.format_exc())
-            return platform, create_error_rating_data(platform, media_type)
-    
-    # 使用信号量限制并发数
-    sem = asyncio.Semaphore(5)
-    
-    async def process_with_semaphore(platform):
-        async with sem:
-            return await process_platform(platform)
-    
-    # 并行执行所有平台的处理
-    tasks = [process_with_semaphore(platform) for platform in platforms]
-    results = await asyncio.gather(*tasks)
-    
-    # 整理结果
-    all_ratings = {platform: rating for platform, rating in results}
-    
-    # 格式化输出
-    return format_rating_output(all_ratings, media_type)
-
 if __name__ == "__main__":
     asyncio.run(main())
