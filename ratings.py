@@ -841,7 +841,7 @@ async def search_platform(platform, tmdb_info, request=None):
                 pass
 
 @smart_retry(RetryConfig(
-    max_retries=2,
+    max_retries=0,
     base_delay=1,
     platform="douban"
 ))
@@ -1362,27 +1362,27 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     if platform == "imdb":
                         # IMDB 评分是动态加载的
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
                     elif platform == "douban":
                         # 豆瓣评分在 DOM 中就有
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
                     elif platform == "letterboxd":
                         # Letterboxd 评分在 DOM 中就有
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
                     elif platform == "rottentomatoes":
                         # 烂番茄需要等待评分加载
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
                     elif platform == "metacritic":
                         # Metacritic 评分在 DOM 中就有
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
                     else:
                         # 默认策略
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
             
                     try:
                         if platform == "douban":
@@ -1511,7 +1511,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                 
                 # 获取该季评分
                 await page.goto(url, wait_until='domcontentloaded')
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
                 
                 rating_elem = await page.query_selector('.rating_self strong.rating_num')
                 rating = await rating_elem.inner_text() if rating_elem else "暂无"
@@ -1597,8 +1597,8 @@ async def extract_rt_rating(page, media_type, tmdb_info):
     """从Rotten Tomatoes详情页提取评分数据"""
     try:
         # 检查是否有"暂无评分"提示
-        no_tomatometer = await page.query_selector('text="Tomatometer not yet available."')
-        no_audience = await page.query_selector('text="Audience Score not yet available."')
+        no_tomatometer = await page.query_selector('rt-text.critics-score-empty')
+        no_audience = await page.query_selector('rt-text.audience-score-empty')
         
         if no_tomatometer and no_audience:
             return {
@@ -1774,7 +1774,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     print(f"访问第{season_number}季URL: {season_url}")
 
                     await page.goto(season_url, wait_until='domcontentloaded')
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
                     
                     # 获取该季的评分数据
                     # 专业评分
@@ -1828,7 +1828,7 @@ async def extract_letterboxd_rating(page):
     """从Letterboxd详情页提取评分数据"""
     try:
         # 获取评分元素
-        rating_elem = await page.query_selector('a[href$="/ratings/"].tooltip.display-rating')
+        rating_elem = await page.query_selector('span.average-rating a.tooltip')
         
         if not rating_elem:
             print("Letterboxd: 未找到评分元素,该影视暂无评分")
