@@ -71,19 +71,15 @@ export async function searchMedia(query: string): Promise<{ movies: Movie[], tvS
 }
 
 export async function fetchTMDBRating(type: 'movie' | 'tv', id: number) {
-  const endpoint = `${TMDB.baseUrl}/${type}/${id}`;
-  console.log(`正在请求 TMDB ${type} 数据:`, endpoint);
-  
   const response = await fetch(
-    `${endpoint}?api_key=${TMDB.apiKey}&language=zh-CN&append_to_response=reviews`
+    `${TMDB.baseUrl}/${type}/${id}?api_key=${TMDB.apiKey}&language=zh-CN&append_to_response=reviews`
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch TMDB ${type} rating`);
+    throw new Error('Failed to fetch TMDB rating');
   }
 
   const data = await response.json();
-  console.log(`TMDB ${type} 返回数据:`, data);
 
   return {
     rating: data.vote_average,
