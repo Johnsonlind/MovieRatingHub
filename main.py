@@ -87,7 +87,7 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
             print(f"从缓存获取 {platform} 评分数据")
             return cached_data
 
-        tmdb_info = await get_tmdb_info(id, request)
+        tmdb_info = await get_tmdb_info(id, type, request)
         if not tmdb_info:
             if await request.is_disconnected():
                 print(f"{platform} 请求在获取TMDB信息时被取消")
