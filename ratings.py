@@ -232,67 +232,48 @@ def construct_search_url(title, media_type, platform):
     }
     return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
         
-async def get_tmdb_info(tmdb_id, request=None, media_type=None):
-    """通过TMDB API获取影视基本信息
-    Args:
-        tmdb_id: TMDB ID
-        request: 请求对象
-        media_type: 可选的媒体类型('movie' 或 'tv')，如果不指定则自动判断
-    """
+async def get_tmdb_info(tmdb_id, request=None):
+    """通过TMDB API获取影视基本信息"""
     try:
+        # 检查请求是否已被取消
         if request and await request.is_disconnected():
             return None
             
         async with aiohttp.ClientSession() as session:
-            if media_type in ['movie', 'tv']:
-                # 如果指定了媒体类型，直接请求对应端点
-                endpoint = f"{TMDB_API_BASE_URL}{media_type}/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
-                async with session.get(endpoint) as response:
-                    if request and await request.is_disconnected():
-                        return None
-                        
-                    if response.status == 200:
-                        if not request or not (await request.is_disconnected()):
-                            print(f"影视类型为 {media_type}")
-                        en_data = await response.json()
-                    else:
-                        if not request or not (await request.is_disconnected()):
-                            print(f"未找到指定类型({media_type})的内容")
-                        return None
-            else:
-                # 如果没有指定媒体类型，保持原有的自动判断逻辑
-                # ... 原有的电影/剧集判断代码 ...
-                endpoint = f"{TMDB_API_BASE_URL}movie/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
-                async with session.get(endpoint) as response:
-                    if request and await request.is_disconnected():
-                        return None
-                        
-                    if response.status == 200:
-                        if not request or not (await request.is_disconnected()):
-                            print("影视类型为电影")
-                        en_data = await response.json()
-                    else:
-                        if not request or not (await request.is_disconnected()):
-                            print("影视类型不是电影")
-                            print("电影API错误响应: 未找到电影")
-                            print("尝试获取剧集信息...")
-                        
-                        endpoint = f"{TMDB_API_BASE_URL}tv/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
-                        async with session.get(endpoint) as response:
-                            if request and await request.is_disconnected():
-                                return None
-                                
-                            if response.status == 200:
-                                if not request or not (await request.is_disconnected()):
-                                    print("影视类型为剧集")
-                                en_data = await response.json()
-                            else:
-                                if not request or not (await request.is_disconnected()):
-                                    print("影视类型不是剧集")
-                                    print("剧集API错误响应: 未找到剧集")
-                                return None
-
-            # 其余代码保持不变
+            # 先尝试获取电影信息
+            endpoint = f"{TMDB_API_BASE_URL}movie/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
+            async with session.get(endpoint) as response:
+                # 检查请求是否已被取消
+                if request and await request.is_disconnected():
+                    return None
+                    
+                if response.status == 200:
+                    if not request or not (await request.is_disconnected()):
+                        print("影视类型为电影")
+                    en_data = await response.json()
+                else:
+                    if not request or not (await request.is_disconnected()):
+                        print("影视类型不是电影")
+                        print("电影API错误响应: 未找到电影")
+                        print("尝试获取剧集信息...")
+                    
+                    # 尝试获取剧集信息
+                    endpoint = f"{TMDB_API_BASE_URL}tv/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
+                    async with session.get(endpoint) as response:
+                        # 检查请求是否已被取消
+                        if request and await request.is_disconnected():
+                            return None
+                            
+                        if response.status == 200:
+                            if not request or not (await request.is_disconnected()):
+                                print("影视类型为剧集")
+                            en_data = await response.json()
+                        else:
+                            if not request or not (await request.is_disconnected()):
+                                print("影视类型不是剧集")
+                                print("剧集API错误响应: 未找到剧集")
+                            return None
+            
             if not en_data:
                 if not request or not (await request.is_disconnected()):
                     print("API返回的数据为空")
@@ -2440,7 +2421,6 @@ async def main():
         print(f"执行过程中出错: {e}")
         print(traceback.format_exc())
         return {}
-
     
 if __name__ == "__main__":
     asyncio.run(main())
