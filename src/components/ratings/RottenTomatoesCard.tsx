@@ -42,7 +42,7 @@ export function RottenTomatoesCard({
     if (!count || count === '暂无' || count === '0') return null;
     // 保留 "+" 符号
     const cleanCount = count.replace(/ Reviews| Ratings/g, '');
-    return isCritic ? `${cleanCount} 个专业评价` : `${cleanCount}+ 人评分`;
+    return isCritic ? `${cleanCount} 个专业评价` : `${cleanCount}人评分`;
   };
 
   return (
