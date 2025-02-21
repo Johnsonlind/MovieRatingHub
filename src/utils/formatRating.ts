@@ -23,22 +23,28 @@ export const formatRating = {
     
     // 处理带单位的字符串
     if (typeof value === 'string') {
+      // 检查是否有加号
+      const hasPlus = value.includes('+');
+      
       // 处理 M (百万)
       if (value.includes('M')) {
         const num = parseFloat(value);
-        return `${(num * 100).toFixed(0)}万`;
+        return `${(num * 100).toFixed(0)}万${hasPlus ? '+' : ''}`;
       }
       // 处理 K (千)
       if (value.includes('K')) {
         const num = parseFloat(value);
-        return `${num}千`;
+        return `${num}千${hasPlus ? '+' : ''}`;
       }
-      // 移除非数字字符并转换为数字
-      value = Number(value.toString().replace(/[^0-9.]/g, ''));
+      // 移除非数字字符（保留加号）并转换为数字
+      const numStr = value.replace(/[^0-9.+]/g, '');
+      if (numStr.includes('+')) {
+        return numStr;
+      }
+      value = Number(numStr);
     }
 
     const num = Number(value);
-    
     return num.toLocaleString();
   },
 
