@@ -232,48 +232,67 @@ def construct_search_url(title, media_type, platform):
     }
     return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
         
-async def get_tmdb_info(tmdb_id, request=None):
-    """通过TMDB API获取影视基本信息"""
+async def get_tmdb_info(tmdb_id, request=None, media_type=None):
+    """通过TMDB API获取影视基本信息
+    Args:
+        tmdb_id: TMDB ID
+        request: 请求对象
+        media_type: 可选的媒体类型('movie' 或 'tv')，如果不指定则自动判断
+    """
     try:
-        # 检查请求是否已被取消
         if request and await request.is_disconnected():
             return None
             
         async with aiohttp.ClientSession() as session:
-            # 先尝试获取电影信息
-            endpoint = f"{TMDB_API_BASE_URL}movie/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
-            async with session.get(endpoint) as response:
-                # 检查请求是否已被取消
-                if request and await request.is_disconnected():
-                    return None
-                    
-                if response.status == 200:
-                    if not request or not (await request.is_disconnected()):
-                        print("影视类型为电影")
-                    en_data = await response.json()
-                else:
-                    if not request or not (await request.is_disconnected()):
-                        print("影视类型不是电影")
-                        print("电影API错误响应: 未找到电影")
-                        print("尝试获取剧集信息...")
-                    
-                    # 尝试获取剧集信息
-                    endpoint = f"{TMDB_API_BASE_URL}tv/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
-                    async with session.get(endpoint) as response:
-                        # 检查请求是否已被取消
-                        if request and await request.is_disconnected():
-                            return None
-                            
-                        if response.status == 200:
-                            if not request or not (await request.is_disconnected()):
-                                print("影视类型为剧集")
-                            en_data = await response.json()
-                        else:
-                            if not request or not (await request.is_disconnected()):
-                                print("影视类型不是剧集")
-                                print("剧集API错误响应: 未找到剧集")
-                            return None
-            
+            if media_type in ['movie', 'tv']:
+                # 如果指定了媒体类型，直接请求对应端点
+                endpoint = f"{TMDB_API_BASE_URL}{media_type}/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
+                async with session.get(endpoint) as response:
+                    if request and await request.is_disconnected():
+                        return None
+                        
+                    if response.status == 200:
+                        if not request or not (await request.is_disconnected()):
+                            print(f"影视类型为 {media_type}")
+                        en_data = await response.json()
+                    else:
+                        if not request or not (await request.is_disconnected()):
+                            print(f"未找到指定类型({media_type})的内容")
+                        return None
+            else:
+                # 如果没有指定媒体类型，保持原有的自动判断逻辑
+                # ... 原有的电影/剧集判断代码 ...
+                endpoint = f"{TMDB_API_BASE_URL}movie/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
+                async with session.get(endpoint) as response:
+                    if request and await request.is_disconnected():
+                        return None
+                        
+                    if response.status == 200:
+                        if not request or not (await request.is_disconnected()):
+                            print("影视类型为电影")
+                        en_data = await response.json()
+                    else:
+                        if not request or not (await request.is_disconnected()):
+                            print("影视类型不是电影")
+                            print("电影API错误响应: 未找到电影")
+                            print("尝试获取剧集信息...")
+                        
+                        endpoint = f"{TMDB_API_BASE_URL}tv/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
+                        async with session.get(endpoint) as response:
+                            if request and await request.is_disconnected():
+                                return None
+                                
+                            if response.status == 200:
+                                if not request or not (await request.is_disconnected()):
+                                    print("影视类型为剧集")
+                                en_data = await response.json()
+                            else:
+                                if not request or not (await request.is_disconnected()):
+                                    print("影视类型不是剧集")
+                                    print("剧集API错误响应: 未找到剧集")
+                                return None
+
+            # 其余代码保持不变
             if not en_data:
                 if not request or not (await request.is_disconnected()):
                     print("API返回的数据为空")
@@ -841,7 +860,7 @@ async def search_platform(platform, tmdb_info, request=None):
                 pass
 
 @smart_retry(RetryConfig(
-    max_retries=0,
+    max_retries=2,
     base_delay=1,
     platform="douban"
 ))
@@ -1451,52 +1470,35 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
 async def extract_douban_rating(page, media_type, matched_results):
     """从豆瓣详情页提取评分数据"""
     try:
-        # 检查是否有"暂无评分"提示
-        no_rating_elem = await page.query_selector('text="暂无评分"')
-        if no_rating_elem:
+        # 获取页面源代码
+        content = await page.content()
+        
+        # 使用正则表达式匹配评分数据
+        rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', content)
+        rating = rating_match.group(1).strip() if rating_match and rating_match.group(1).strip() else "暂无"
+        
+        # 匹配评分人数
+        people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', content)
+        rating_people = people_match.group(1) if people_match else "暂无"
+        
+        # 检查是否显示"暂无评分"或"尚未上映"
+        if "暂无评分" in content or "尚未上映" in content:
             return {
                 "rating": "暂无",
                 "rating_people": "暂无",
                 "status": RATING_STATUS["NO_RATING"]
             }
-                
-        # 电影评分处理
+            
         if media_type != "tv":
-            rating_elem = await page.query_selector('.rating_self strong.rating_num')
-            rating = await rating_elem.inner_text() if rating_elem else "暂无"
-            
-            rating_people_elem = await page.query_selector('.rating_self a.rating_people span[property="v:votes"]')
-            rating_people = await rating_people_elem.inner_text() if rating_people_elem else "暂无"
-            
-            print("\n豆瓣平台评分信息：")
-            print(f"rating: {rating}")
-            print(f"rating_people: {rating_people}")
-            print("豆瓣平台评分信息获取完成")
-            
             return {
                 "rating": rating,
                 "rating_people": rating_people
             }
             
-        # 剧集评分处理
+        # TV剧集评分处理
         ratings = {"seasons": []}
-        
-        # 先打印所有要访问的URL
-        for result in matched_results:
-            title = result.get("title", "")
-            season_match = re.search(r'第([一二三四五六七八九十百]+)季', title)
-            if season_match:
-                chinese_season_number = season_match.group(1)
-                season_number = chinese_to_arabic(chinese_season_number)
-                url = result.get("url")
-                if url:
-                    print(f"访问第{season_number}季: {url}")
-        
-        print("\n豆瓣平台评分信息：")
-        # 然后获取评分数据
         for result in matched_results:
             try:
-                # 从标题中提取季数
                 title = result.get("title", "")
                 season_match = re.search(r'第([一二三四五六七八九十百]+)季', title)
                 if not season_match:
@@ -1509,30 +1511,28 @@ async def extract_douban_rating(page, media_type, matched_results):
                 if not url:
                     continue
                 
-                # 获取该季评分
-                await page.goto(url, wait_until='domcontentloaded')
-                await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
+                # 获取分季页面源代码
+                await page.goto(url)
+                season_content = await page.content()
                 
-                rating_elem = await page.query_selector('.rating_self strong.rating_num')
-                rating = await rating_elem.inner_text() if rating_elem else "暂无"
+                # 提取分季评分
+                season_rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', season_content)
+                season_rating = season_rating_match.group(1).strip() if season_rating_match and season_rating_match.group(1).strip() else "暂无"
                 
-                rating_people_elem = await page.query_selector('.rating_self a.rating_people span[property="v:votes"]')
-                rating_people = await rating_people_elem.inner_text() if rating_people_elem else "暂无"
+                # 提取分季评分人数
+                season_people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', season_content)
+                season_rating_people = season_people_match.group(1) if season_people_match else "暂无"
                 
                 ratings["seasons"].append({
                     "season_number": season_number,
-                    "rating": rating,
-                    "rating_people": rating_people
+                    "rating": season_rating,
+                    "rating_people": season_rating_people
                 })
                 
             except Exception as e:
                 print(f"获取第{season_number if 'season_number' in locals() else '未知'}季评分时出错: {e}")
                 continue
-        
-        print("豆瓣平台评分信息获取完成")
-        
-        # 按季数排序
-        ratings["seasons"].sort(key=lambda x: x["season_number"])
+                
         return ratings
             
     except Exception as e:
@@ -1596,233 +1596,254 @@ class RTRating:
 async def extract_rt_rating(page, media_type, tmdb_info):
     """从Rotten Tomatoes详情页提取评分数据"""
     try:
-        # 检查是否有"暂无评分"提示
-        no_tomatometer = await page.query_selector('rt-text.critics-score-empty')
-        no_audience = await page.query_selector('rt-text.audience-score-empty')
+        # 获取页面源代码
+        content = await page.content()
         
-        if no_tomatometer and no_audience:
-            return {
+        # 使用正则表达式提取JSON数据
+        json_match = re.search(r'<script[^>]*id="media-scorecard-json"[^>]*>\s*({[^<]+})\s*</script>', content)
+        if not json_match:
+            return create_empty_rating_data("rottentomatoes", media_type, RATING_STATUS["NO_RATING"])
+            
+        try:
+            score_data = json.loads(json_match.group(1))
+            overlay_data = score_data.get("overlay", {})
+            
+            # 检查是否有观众和专业评分数据
+            has_audience = overlay_data.get("hasAudienceAll", False)
+            has_critics = overlay_data.get("hasCriticsAll", False)
+            
+            # 如果两种评分都没有，返回NO_RATING
+            if not has_audience and not has_critics:
+                return create_empty_rating_data("rottentomatoes", media_type, RATING_STATUS["NO_RATING"])
+            
+            audience_data = overlay_data.get("audienceAll", {})
+            critics_data = overlay_data.get("criticsAll", {})
+            
+            # 提取观众评分数据
+            audience_score = "暂无"
+            audience_avg = "暂无"
+            audience_count = "暂无"
+            if has_audience:
+                audience_score = audience_data.get("scorePercent", "暂无").rstrip("%") if audience_data.get("scorePercent") else "暂无"
+                audience_avg = audience_data.get("averageRating", "暂无")
+                audience_count = audience_data.get("bandedRatingCount", "暂无")
+            
+            # 提取专业评分数据
+            tomatometer = "暂无"
+            critics_avg = "暂无"
+            critics_count = "暂无"
+            if has_critics:
+                tomatometer = critics_data.get("scorePercent", "暂无").rstrip("%") if critics_data.get("scorePercent") else "暂无"
+                critics_avg = critics_data.get("averageRating", "暂无")
+                critics_count = critics_data.get("scoreLinkText", "暂无").split()[0] if critics_data.get("scoreLinkText") else "暂无"
+            
+            ratings = {
                 "series": {
-                    "tomatometer": "暂无",
-                    "audience_score": "暂无", 
-                    "critics_avg": "暂无",
-                    "audience_avg": "暂无",
-                    "critics_count": "暂无",
-                    "audience_count": "暂无"
+                    "tomatometer": tomatometer,
+                    "audience_score": audience_score,
+                    "critics_avg": critics_avg,
+                    "critics_count": critics_count,
+                    "audience_count": audience_count,
+                    "audience_avg": audience_avg
                 },
                 "seasons": [],
-                "status": RATING_STATUS["NO_RATING"]
+                "status": RATING_STATUS["SUCCESSFUL"]  # 只要有一种评分就视为成功
             }
-        
-        ratings = {
-            'series': {},
-            'seasons': []
-        }
-        
-        # 1. 获取整部剧集的评分数据
-        # 使用 JavaScript 点击评分模块
-        await page.evaluate('''() => {
-            const button = document.querySelector('rt-text[slot="criticsScoreType"]');
-            if (button) button.click();
             
-            // 点击 All Critics 和 All Audience
-            setTimeout(() => {
-                const allCritics = document.querySelector('rt-tab[slot="btnAllCritics"]');
-                const allAudience = document.querySelector('rt-tab[slot="btnAllAudience"]');
-                if (allCritics) allCritics.click();
-                if (allAudience) allAudience.click();
-            }, 1000);
-        }''')
-        await asyncio.sleep(2)
-        
-        # 获取整部剧集评分，直接作为字典存储
-        series_data = await page.evaluate('''() => {
-            const getData = (selector) => {
-                const elem = document.querySelector(selector);
-                return elem ? elem.innerText : "暂无";
-            };
-            return {
-                tomatometer: getData('rt-text[slot="criticsScore"]'),
-                audience_score: getData('rt-text[slot="audienceScore"]'),
-                critics_avg: getData('rt-text[slot="criticsAverageRating"]'),
-                critics_count: getData('rt-link[slot="criticsLink"]'),
-                audience_count: getData('rt-link[slot="audienceLink"]'),
-                audience_avg: getData('rt-text[slot="audienceAverageRating"]')
-            };
-        }''')
-        ratings['series'] = series_data 
-        
-        # 2. 获取分季评分
-        if media_type == "tv" and tmdb_info.get("number_of_seasons", 0) > 0:
-            base_url = page.url.split("/tv/")[1].split("/")[0]
-            
-            for season in range(1, tmdb_info.get("number_of_seasons", 0) + 1):
-                try:
-                    season_url = f"https://www.rottentomatoes.com/tv/{base_url}/s{str(season).zfill(2)}"
-                    print(f"访问第{season}季: {season_url}")
-                    
-                    await page.goto(season_url, wait_until='domcontentloaded')
-                    await asyncio.sleep(0.5)
-                    
-                    await page.evaluate('''() => {
-                        const button = document.querySelector('rt-text[slot="criticsScoreType"]');
-                        if (button) button.click();
+            # 处理剧集分季数据
+            if media_type == "tv" and tmdb_info.get("number_of_seasons", 0) > 0:
+                base_url = page.url.split("/tv/")[1].split("/")[0]
+                
+                for season in range(1, tmdb_info.get("number_of_seasons", 0) + 1):
+                    try:
+                        season_url = f"https://www.rottentomatoes.com/tv/{base_url}/s{str(season).zfill(2)}"
+                        await page.goto(season_url)
+                        season_content = await page.content()
                         
-                        setTimeout(() => {
-                            const allCritics = document.querySelector('rt-tab[slot="btnAllCritics"]');
-                            const allAudience = document.querySelector('rt-tab[slot="btnAllAudience"]');
-                            if (allCritics) allCritics.click();
-                            if (allAudience) allAudience.click();
-                        }, 1000);
-                    }''')
-                    await asyncio.sleep(2)
-                    
-                    season_data = await page.evaluate('''() => {
-                        const getData = (selector) => {
-                            const elem = document.querySelector(selector);
-                            return elem ? elem.innerText.replace(/[^0-9.%+]/g, '') : "暂无";
-                        };
-                        return {
-                            tomatometer: getData('rt-text[slot="criticsScore"]'),
-                            audience_score: getData('rt-text[slot="audienceScore"]'),
-                            critics_avg: getData('rt-text[slot="criticsAverageRating"]'),
-                            audience_avg: getData('rt-text[slot="audienceAverageRating"]'),
-                            critics_count: getData('rt-link[slot="criticsLink"]'),
-                            audience_count: getData('rt-link[slot="audienceLink"]')
-                        };
-                    }''')
-                    
-                    season_data['season_number'] = season
-                    ratings['seasons'].append(season_data)
-                    
-                except Exception as e:
-                    print(f"获取第{season}季评分数据时出错: {e}")
-                    continue
+                        season_json_match = re.search(r'<script[^>]*id="media-scorecard-json"[^>]*>\s*({[^<]+})\s*</script>', season_content)
+                        if not season_json_match:
+                            continue
+                            
+                        season_score_data = json.loads(season_json_match.group(1))
+                        season_overlay = season_score_data.get("overlay", {})
+                        
+                        # 检查分季是否有观众和专业评分数据
+                        season_has_audience = season_overlay.get("hasAudienceAll", False)
+                        season_has_critics = season_overlay.get("hasCriticsAll", False)
+                        
+                        # 如果两种评分都没有，跳过这一季
+                        if not season_has_audience and not season_has_critics:
+                            continue
+                            
+                        season_audience = season_overlay.get("audienceAll", {})
+                        season_critics = season_overlay.get("criticsAll", {})
+                        
+                        # 提取分季评分数据
+                        season_tomatometer = "暂无"
+                        season_critics_avg = "暂无"
+                        season_critics_count = "暂无"
+                        if season_has_critics:
+                            season_tomatometer = season_critics.get("scorePercent", "暂无").rstrip("%") if season_critics.get("scorePercent") else "暂无"
+                            season_critics_avg = season_critics.get("averageRating", "暂无")
+                            season_critics_count = season_critics.get("scoreLinkText", "暂无").split()[0] if season_critics.get("scoreLinkText") else "暂无"
+                            
+                        season_audience_score = "暂无"
+                        season_audience_avg = "暂无"
+                        season_audience_count = "暂无"
+                        if season_has_audience:
+                            season_audience_score = season_audience.get("scorePercent", "暂无").rstrip("%") if season_audience.get("scorePercent") else "暂无"
+                            season_audience_avg = season_audience.get("averageRating", "暂无")
+                            season_audience_count = season_audience.get("bandedRatingCount", "暂无")
+                        
+                        season_data = {
+                            "season_number": season,
+                            "tomatometer": season_tomatometer,
+                            "audience_score": season_audience_score,
+                            "critics_avg": season_critics_avg,
+                            "audience_avg": season_audience_avg,
+                            "critics_count": season_critics_count,
+                            "audience_count": season_audience_count
+                        }
+                        
+                        ratings["seasons"].append(season_data)
+                        
+                    except Exception as e:
+                        print(f"获取第{season}季评分数据时出错: {e}")
+                        continue
+                            
+            return ratings
             
-        return ratings
-        
+        except json.JSONDecodeError as e:
+            print(f"解析JSON数据时出错: {e}")
+            return create_empty_rating_data("rottentomatoes", media_type, RATING_STATUS["FETCH_FAILED"])
+            
     except Exception as e:
         print(f"获取 Rotten Tomatoes 评分数据时出错: {e}")
-        return {
-            "series": {
-                "tomatometer": "暂无",
-                "audience_score": "暂无",
-                "critics_avg": "暂无",
-                "audience_avg": "暂无",
-                "critics_count": "暂无",
-                "audience_count": "暂无"
-            },
-            "seasons": [],
-            "status": "Fail"
-        }
+        return create_empty_rating_data("rottentomatoes", media_type, RATING_STATUS["FETCH_FAILED"])
 
 async def extract_metacritic_rating(page, media_type, tmdb_info):
     """从Metacritic详情页提取评分数据"""
     try:
-        # 检查是否有"tbd"评分
-        tbd_elem = await page.query_selector('text="tbd"')
-        if tbd_elem:
-            return {
-                "overall": {
-                    "metascore": "暂无",
-                    "critics_count": "暂无",
-                    "userscore": "暂无",
-                    "users_count": "暂无"
-                },
-                "seasons": [],
-                "status": RATING_STATUS["NO_RATING"]
-            }
-                
-        ratings = {}
-
-        # 1. 获取整部剧集的评分数据
-        # 专业评分
-        metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
-        metascore = await metascore_elem.inner_text() if metascore_elem else "暂无"
+        # 获取页面源代码
+        content = await page.content()
         
-        # 专业评分人数
-        critics_count_elem = await page.query_selector('a[data-testid="critic-path"] span')
-        critics_count_text = await critics_count_elem.inner_text() if critics_count_elem else ""
-        critics_count = re.search(r'Based on (\d+) Critic', critics_count_text).group(1) if critics_count_text else "暂无"
-        
-        # 观众评分
-        userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
-        userscore = await userscore_elem.inner_text() if userscore_elem else "暂无"
-        
-        # 观众评分人数
-        users_count_elem = await page.query_selector('a[data-testid="user-path"] span')
-        users_count_text = await users_count_elem.inner_text() if users_count_elem else ""
-        users_count = re.search(r'Based on ([\d,]+) User', users_count_text).group(1) if users_count_text else "暂无"
-        
-        ratings["overall"] = {
-            "metascore": metascore,
-            "critics_count": critics_count,
-            "userscore": userscore,
-            "users_count": users_count
+        # 初始化评分数据
+        ratings = {
+            "overall": {
+                "metascore": "暂无",
+                "critics_count": "暂无", 
+                "userscore": "暂无",
+                "users_count": "暂无"
+            },
+            "seasons": []
         }
-        
-        # 2. 如果是剧集且有多季，获取每一季的评分数据
-        if media_type == "tv" and tmdb_info.get("number_of_seasons", 0) > 0:
-            ratings["seasons"] = []
-            base_url = page.url.rstrip('/')
 
+        # 提取专业评分
+        metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
+        if metascore_elem:
+            metascore_text = await metascore_elem.inner_text()
+            if metascore_text and metascore_text.lower() != 'tbd':
+                ratings["overall"]["metascore"] = metascore_text
+
+        # 提取专业评分人数
+        critics_count_elem = await page.query_selector('a[data-testid="critic-path"] span')
+        if critics_count_elem:
+            critics_text = await critics_count_elem.inner_text()
+            match = re.search(r'Based on (\d+) Critic', critics_text)
+            if match:
+                ratings["overall"]["critics_count"] = match.group(1)
+
+        # 提取用户评分
+        userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
+        if userscore_elem:
+            userscore_text = await userscore_elem.inner_text()
+            if userscore_text and userscore_text.lower() != 'tbd':
+                ratings["overall"]["userscore"] = userscore_text
+
+        # 提取用户评分人数
+        users_count_elem = await page.query_selector('a[data-testid="user-path"] span')
+        if users_count_elem:
+            users_text = await users_count_elem.inner_text()
+            match = re.search(r'Based on ([\d,]+) User', users_text)
+            if match:
+                ratings["overall"]["users_count"] = match.group(1).replace(',', '')
+
+        # 如果是剧集且有多季,获取每一季的评分数据
+        if media_type == "tv" and tmdb_info.get("number_of_seasons", 0) > 0:
+            base_url = page.url.rstrip('/')
+            
             for season in tmdb_info.get("seasons", []):
                 season_number = season.get("season_number")
                 try:
-                    # 构造并访问分季URL
                     season_url = f"{base_url}/season-{season_number}/"
-                    print(f"访问第{season_number}季URL: {season_url}")
-
                     await page.goto(season_url, wait_until='domcontentloaded')
-                    await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
-                    
-                    # 获取该季的评分数据
-                    # 专业评分
-                    season_metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
-                    season_metascore = await season_metascore_elem.inner_text() if season_metascore_elem else "暂无"
-                    
-                    # 专业评分人数
-                    season_critics_count_elem = await page.query_selector('a[data-testid="critic-path"] span')
-                    season_critics_count_text = await season_critics_count_elem.inner_text() if season_critics_count_elem else ""
-                    season_critics_count = re.search(r'Based on (\d+) Critic', season_critics_count_text).group(1) if season_critics_count_text else "暂无"
-                    
-                    # 观众评分
-                    season_userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
-                    season_userscore = await season_userscore_elem.inner_text() if season_userscore_elem else "暂无"
-                    
-                    # 观众评分人数
-                    season_users_count_elem = await page.query_selector('a[data-testid="user-path"] span')
-                    season_users_count_text = await season_users_count_elem.inner_text() if season_users_count_elem else ""
-                    season_users_count = re.search(r'Based on ([\d,]+) User', season_users_count_text).group(1) if season_users_count_text else "暂无"
-                    
-                    ratings["seasons"].append({
+                    await asyncio.sleep(0.5)
+
+                    season_data = {
                         "season_number": season_number,
-                        "metascore": season_metascore,
-                        "critics_count": season_critics_count,
-                        "userscore": season_userscore,
-                        "users_count": season_users_count
-                    })
-                    
+                        "metascore": "暂无",
+                        "critics_count": "暂无",
+                        "userscore": "暂无",
+                        "users_count": "暂无"
+                    }
+
+                    # 提取分季专业评分
+                    season_metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
+                    if season_metascore_elem:
+                        metascore_text = await season_metascore_elem.inner_text()
+                        if metascore_text and metascore_text.lower() != 'tbd':
+                            season_data["metascore"] = metascore_text
+
+                    # 提取分季专业评分人数
+                    season_critics_elem = await page.query_selector('a[data-testid="critic-path"] span')
+                    if season_critics_elem:
+                        critics_text = await season_critics_elem.inner_text()
+                        match = re.search(r'Based on (\d+) Critic', critics_text)
+                        if match:
+                            season_data["critics_count"] = match.group(1)
+
+                    # 提取分季用户评分
+                    season_userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
+                    if season_userscore_elem:
+                        userscore_text = await season_userscore_elem.inner_text()
+                        if userscore_text and userscore_text.lower() != 'tbd':
+                            season_data["userscore"] = userscore_text
+
+                    # 提取分季用户评分人数
+                    season_users_elem = await page.query_selector('a[data-testid="user-path"] span')
+                    if season_users_elem:
+                        users_text = await season_users_elem.inner_text()
+                        match = re.search(r'Based on ([\d,]+) User', users_text)
+                        if match:
+                            season_data["users_count"] = match.group(1).replace(',', '')
+
+                    ratings["seasons"].append(season_data)
+
                 except Exception as e:
                     print(f"获取第{season_number}季评分数据时出错: {e}")
                     continue
+
+        # 检查评分状态
+        all_no_rating = all(
+            value == "暂无" or value == "tbd" 
+            for value in [
+                ratings["overall"]["metascore"],
+                ratings["overall"]["critics_count"],
+                ratings["overall"]["userscore"],
+                ratings["overall"]["users_count"]
+            ]
+        )
         
-        print(f"Metacritic评分数据: {ratings}")
+        ratings["status"] = (
+            RATING_STATUS["NO_RATING"] if all_no_rating
+            else RATING_STATUS["SUCCESSFUL"]
+        )
+
         return ratings
-        
+
     except Exception as e:
         print(f"提取Metacritic评分数据时出错: {e}")
-        return {
-            "overall": {
-                "metascore": "暂无",
-                "critics_count": "暂无",
-                "userscore": "暂无",
-                "users_count": "暂无",
-                "status": "Fail"
-            },
-            "seasons": [],
-            "status": "Fail"
-        }
+        return create_empty_rating_data("metacritic", media_type, RATING_STATUS["FETCH_FAILED"])
 
 async def extract_letterboxd_rating(page):
     """从Letterboxd详情页提取评分数据"""
@@ -2419,6 +2440,7 @@ async def main():
         print(f"执行过程中出错: {e}")
         print(traceback.format_exc())
         return {}
+
     
 if __name__ == "__main__":
     asyncio.run(main())
