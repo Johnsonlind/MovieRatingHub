@@ -160,6 +160,7 @@ export interface IMDBRating {
 export interface LetterboxdRating {
   rating: string;
   rating_count: string;
+  status: string;
 }
 
 // Rotten Tomatoes 评分类型定义
