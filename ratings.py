@@ -232,48 +232,31 @@ def construct_search_url(title, media_type, platform):
     }
     return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
         
-async def get_tmdb_info(tmdb_id, request=None):
-    """通过TMDB API获取影视基本信息"""
+async def get_tmdb_info(tmdb_id, media_type, request=None):
+    """通过TMDB API获取影视基本信息
+    
+    Args:
+        tmdb_id: TMDB ID
+        media_type: 媒体类型('movie'或'tv')
+        request: 可选,用于检查请求是否被取消
+    """
     try:
-        # 检查请求是否已被取消
         if request and await request.is_disconnected():
             return None
             
         async with aiohttp.ClientSession() as session:
-            # 先尝试获取电影信息
-            endpoint = f"{TMDB_API_BASE_URL}movie/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
+            # 直接根据media_type获取对应类型的信息
+            endpoint = f"{TMDB_API_BASE_URL}{media_type}/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
             async with session.get(endpoint) as response:
-                # 检查请求是否已被取消
-                if request and await request.is_disconnected():
-                    return None
-                    
                 if response.status == 200:
                     if not request or not (await request.is_disconnected()):
-                        print("影视类型为电影")
+                        print(f"影视类型为{media_type}")
                     en_data = await response.json()
                 else:
                     if not request or not (await request.is_disconnected()):
-                        print("影视类型不是电影")
-                        print("电影API错误响应: 未找到电影")
-                        print("尝试获取剧集信息...")
-                    
-                    # 尝试获取剧集信息
-                    endpoint = f"{TMDB_API_BASE_URL}tv/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
-                    async with session.get(endpoint) as response:
-                        # 检查请求是否已被取消
-                        if request and await request.is_disconnected():
-                            return None
-                            
-                        if response.status == 200:
-                            if not request or not (await request.is_disconnected()):
-                                print("影视类型为剧集")
-                            en_data = await response.json()
-                        else:
-                            if not request or not (await request.is_disconnected()):
-                                print("影视类型不是剧集")
-                                print("剧集API错误响应: 未找到剧集")
-                            return None
-            
+                        print(f"获取{media_type}信息失败")
+                    return None
+
             if not en_data:
                 if not request or not (await request.is_disconnected()):
                     print("API返回的数据为空")
@@ -288,11 +271,8 @@ async def get_tmdb_info(tmdb_id, request=None):
             async with session.get(zh_endpoint) as zh_response:
                 zh_data = await zh_response.json() if zh_response.status == 200 else en_data
         
-        # 确定媒体类型
-        is_movie = "release_date" in en_data
-        
         # 提取基本信息
-        if is_movie:
+        if media_type == "movie":
             title = en_data.get("title", "")
             original_title = en_data.get("original_title", "")
             zh_title = zh_data.get("title", "")
@@ -311,7 +291,7 @@ async def get_tmdb_info(tmdb_id, request=None):
             director = ", ".join(directors)
         
         result = {
-            "type": "movie" if is_movie else "tv",
+            "type": media_type,
             "title": title,
             "original_title": original_title,
             "zh_title": zh_title,
@@ -322,7 +302,7 @@ async def get_tmdb_info(tmdb_id, request=None):
         }
         
         # 如果是剧集，添加额外信息
-        if not is_movie:
+        if media_type == "tv":
             result.update({
                 "first_air_date": en_data.get("first_air_date", ""),
                 "number_of_seasons": en_data.get("number_of_seasons", 0),
@@ -1138,70 +1118,103 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
-            # 获取所有搜索结果的链接
-            items = await page.query_selector_all('.results li .film-title-wrapper a')
+            # 获取所有搜索结果的链接和标题
+            items = await page.query_selector_all('.results li .film-title-wrapper')
             if not items:
                 print("Letterboxd: 未找到搜索结果")
                 return {"status": RATING_STATUS["NO_FOUND"]}
             
-            # 收集所有详情页URL
-            detail_urls = []
+            # 收集所有结果信息
+            results = []
             for item in items:
-                url = await item.get_attribute('href')
-                if url:
-                    detail_urls.append(f"https://letterboxd.com{url}")
-            
-            # 依次访问每个详情页
-            for detail_url in detail_urls:
                 try:
-                    # 访问详情页
-                    await page.goto(detail_url, wait_until='domcontentloaded')
+                    link = await item.query_selector('a')
+                    if not link:
+                        continue
+                        
+                    url = await link.get_attribute('href')
+                    title = await link.inner_text()
+                    
+                    # 获取年份
+                    year_elem = await item.query_selector('.metadata')
+                    year = await year_elem.inner_text() if year_elem else ""
+                    
+                    if url:
+                        results.append({
+                            "title": title,
+                            "year": year.strip('()'),
+                            "url": f"https://letterboxd.com{url}"
+                        })
+                except Exception as e:
+                    print(f"处理搜索结果项时出错: {e}")
+                    continue
+            
+            # 计算匹配度并排序
+            for result in results:
+                result["match_score"] = await calculate_match_degree(tmdb_info, result, "letterboxd")
+            
+            # 按匹配度排序
+            results.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+            
+            # 优先处理匹配度高的结果
+            high_match_results = [r for r in results if r["match_score"] >= 70]  # 匹配度大于80的结果
+            results_to_check = high_match_results[:3] if high_match_results else results[:3]
+            
+            print(f"找到 {len(results)} 个搜索结果, 其中 {len(high_match_results)} 个高匹配度结果")
+            print(f"将检查 {len(results_to_check)} 个结果的TMDB ID")
+            
+            # 检查这些结果的TMDB ID
+            for result in results_to_check:
+                try:
+                    print(f"\n检查结果: {result['title']} ({result['year']}) - 匹配度: {result['match_score']}")
+                    await page.goto(result["url"], wait_until='domcontentloaded')
                     await asyncio.sleep(1)
                     
                     # 检查TMDb链接
                     tmdb_link = await page.query_selector('a.micro-button[data-track-action="TMDb"]')
-                    print(f"TMDb link found: {tmdb_link is not None}")
-                    
                     if tmdb_link:
                         tmdb_href = await tmdb_link.get_attribute('href')
-                        print(f"TMDb href: {tmdb_href}")
-                        
                         if tmdb_href:
                             tmdb_id = tmdb_href.rstrip('/').split('/')[-1]
-                            print(f"Extracted TMDb ID: {tmdb_id}")
-                            
-                            # 检查TMDB ID是否匹配
+                            print(f"找到TMDB ID: {tmdb_id}")
                             if tmdb_id == str(tmdb_info.get("tmdb_id")):
-                                print(f"Letterboxd: 找到TMDB ID匹配的结果")
-                                
-                                # 获取标题和其他信息
-                                title = await page.query_selector('.headline-1 a')
-                                year = await page.query_selector('.headline-1 .number')
-                                director = await page.query_selector('.text-link[href^="/director/"]')
-                                
-                                return [{
-                                    "title": await title.inner_text() if title else "",
-                                    "year": await year.inner_text() if year else "",
-                                    "director": await director.inner_text() if director else "",
-                                    "url": detail_url,
-                                    "tmdb_id": tmdb_id,
-                                    "match_score": 100
-                                }]
-                    
+                                print("TMDB ID匹配成功!")
+                                return [result]
+                            else:
+                                print("TMDB ID不匹配")
                 except Exception as e:
-                    print(f"处理详情页时出错: {e}")
+                    print(f"检查结果时出错: {e}")
                     continue
             
-            # 如果遍历完所有结果都没有找到匹配的TMDB ID
+            # 如果高匹配度结果都不匹配，且还有其他结果未检查
+            if len(results) > len(results_to_check):
+                print("\n高匹配度结果都不匹配，继续检查其他结果...")
+                for result in results[len(results_to_check):]:
+                    try:
+                        print(f"\n检查结果: {result['title']} ({result['year']}) - 匹配度: {result['match_score']}")
+                        await page.goto(result["url"], wait_until='domcontentloaded')
+                        await asyncio.sleep(1)
+                        
+                        tmdb_link = await page.query_selector('a.micro-button[data-track-action="TMDb"]')
+                        if tmdb_link:
+                            tmdb_href = await tmdb_link.get_attribute('href')
+                            if tmdb_href:
+                                tmdb_id = tmdb_href.rstrip('/').split('/')[-1]
+                                print(f"找到TMDB ID: {tmdb_id}")
+                                if tmdb_id == str(tmdb_info.get("tmdb_id")):
+                                    print("TMDB ID匹配成功!")
+                                    return [result]
+                                else:
+                                    print("TMDB ID不匹配")
+                    except Exception as e:
+                        print(f"检查结果时出错: {e}")
+                        continue
+            
             print("Letterboxd: 未找到TMDB ID匹配的结果")
-            return {
-                "status": RATING_STATUS["NO_FOUND"],
-                "rating": "暂无",
-                "rating_count": "暂无"
-            }
+            return {"status": RATING_STATUS["NO_FOUND"]}
             
         except Exception as e:
-            print(f"等待Letterboxd搜索结果时出错: {e}")
+            print(f"处理Letterboxd搜索结果时出错: {e}")
             if "Timeout" in str(e):
                 return {"status": RATING_STATUS["TIMEOUT"]}
             return {"status": RATING_STATUS["FETCH_FAILED"]}
@@ -1449,9 +1462,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
     return await _extract_rating_with_retry()
 
 async def extract_douban_rating(page, media_type, matched_results):
-    """从豆瓣详情页提取评分数据"""
     try:
-        # 获取页面源代码
         content = await page.content()
         
         # 使用正则表达式匹配评分数据
@@ -1461,23 +1472,30 @@ async def extract_douban_rating(page, media_type, matched_results):
         # 匹配评分人数
         people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', content)
         rating_people = people_match.group(1) if people_match else "暂无"
-        
-        # 检查是否显示"暂无评分"或"尚未上映"
-        if "暂无评分" in content or "尚未上映" in content:
-            return {
-                "rating": "暂无",
-                "rating_people": "暂无",
-                "status": RATING_STATUS["NO_RATING"]
-            }
             
         if media_type != "tv":
+            # 检查是否显示"暂无评分"或"尚未上映"
+            if "暂无评分" in content or "尚未上映" in content:
+                return create_empty_rating_data("douban", media_type, RATING_STATUS["NO_RATING"])
+            
+            # 检查评分和评分人数是否有效
+            if rating in [None, "暂无"] or rating_people in [None, "暂无"]:
+                return create_empty_rating_data("douban", media_type, RATING_STATUS["FETCH_FAILED"])
+                
             return {
+                "status": RATING_STATUS["SUCCESSFUL"],
                 "rating": rating,
                 "rating_people": rating_people
             }
             
         # TV剧集评分处理
-        ratings = {"seasons": []}
+        ratings = {
+            "status": RATING_STATUS["SUCCESSFUL"],
+            "seasons": []
+        }
+        
+        all_seasons_no_rating = True  # 用于跟踪是否所有季都暂无评分
+        
         for result in matched_results:
             try:
                 title = result.get("title", "")
@@ -1492,7 +1510,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                 if not url:
                     continue
                 
-                # 获取分季页面源代码
                 await page.goto(url)
                 season_content = await page.content()
                 
@@ -1504,27 +1521,37 @@ async def extract_douban_rating(page, media_type, matched_results):
                 season_people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', season_content)
                 season_rating_people = season_people_match.group(1) if season_people_match else "暂无"
                 
-                ratings["seasons"].append({
-                    "season_number": season_number,
-                    "rating": season_rating,
-                    "rating_people": season_rating_people
-                })
+                # 检查分季是否显示"暂无评分"或"尚未上映"
+                if "暂无评分" in season_content or "尚未上映" in season_content:
+                    ratings["seasons"].append({
+                        "season_number": season_number,
+                        "rating": "暂无",
+                        "rating_people": "暂无"
+                    })
+                else:
+                    if season_rating not in [None, "暂无"] and season_rating_people not in [None, "暂无"]:
+                        all_seasons_no_rating = False
+                    ratings["seasons"].append({
+                        "season_number": season_number,
+                        "rating": season_rating,
+                        "rating_people": season_rating_people
+                    })
                 
             except Exception as e:
                 print(f"获取第{season_number if 'season_number' in locals() else '未知'}季评分时出错: {e}")
                 continue
-                
+        
+        # 根据所有季的状态设置整体状态
+        if all_seasons_no_rating:
+            ratings["status"] = RATING_STATUS["NO_RATING"]
+        elif not ratings["seasons"]:
+            ratings["status"] = RATING_STATUS["FETCH_FAILED"]
+            
         return ratings
             
     except Exception as e:
         print(f"提取豆瓣评分数据时出错: {e}")
-        return {
-            "seasons": [] if media_type == "tv" else None,
-            "rating": "暂无",
-            "rating_people": "暂无",
-            "status": "Fail"
-        }
-
+        return create_empty_rating_data("douban", media_type, RATING_STATUS["FETCH_FAILED"])
 
 async def extract_imdb_rating(page):
     """从IMDB详情页提取评分数据"""
@@ -2355,15 +2382,61 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None):
 async def main():
     try:
         tmdb_id = input("请输入TMDB ID:")
-        tmdb_info = await get_tmdb_info(tmdb_id)
+        # 等待2秒让用户输入媒体类型
+        print("请输入媒体类型(movie/tv),2秒后默认尝试movie类型:")
+        
+        # 创建一个异步等待用户输入的任务
+        media_type = None
+        try:
+            media_type = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, input),
+                timeout=0.5
+            )
+            # 验证输入的类型是否有效
+            if media_type not in ["movie", "tv"]:
+                print("无效的媒体类型,默认使用movie类型")
+                media_type = "movie"
+        except asyncio.TimeoutError:
+            print("未输入媒体类型,默认使用movie类型")
+            media_type = "movie"
+            
+        # 让用户选择要测试的平台
+        all_platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
+        print("\n可用平台:", ", ".join(all_platforms))
+        print("请输入要测试的平台(多个平台用空格分隔),0.5秒后默认测试所有平台:")
+        
+        try:
+            platforms_input = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(None, input),
+                timeout=0.5
+            )
+            
+            # 处理平台输入
+            if platforms_input.strip():
+                platforms = [p.strip().lower() for p in platforms_input.split()]
+                # 验证输入的平台是否有效
+                invalid_platforms = [p for p in platforms if p not in all_platforms]
+                if invalid_platforms:
+                    print(f"警告: 无效的平台 {', '.join(invalid_platforms)}, 这些平台将被忽略")
+                    platforms = [p for p in platforms if p in all_platforms]
+                if not platforms:
+                    print("没有有效的平台输入,将测试所有平台")
+                    platforms = all_platforms
+            else:
+                print("未指定平台,将测试所有平台")
+                platforms = all_platforms
+                
+        except asyncio.TimeoutError:
+            print("未在0.5秒内输入平台,默认测试所有平台")
+            platforms = all_platforms
+        
+        tmdb_info = await get_tmdb_info(tmdb_id, media_type)
         if tmdb_info is None:
             print("获取TMDB信息失败，无法继续执行后续流程")
             return
         
         media_type = tmdb_info["type"]
-        platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
-        
-        print(f"\n开始并发获取各平台评分信息...")
+        print(f"\n开始获取以下平台的评分信息: {', '.join(platforms)}...")
         
         # 使用信号量限制并发数
         sem = asyncio.Semaphore(5)
