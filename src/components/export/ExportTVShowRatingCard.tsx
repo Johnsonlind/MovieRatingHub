@@ -129,7 +129,11 @@ export function ExportTVShowRatingCard({
   }
 
   // Letterboxd (只在整体评分时显示)
-  if (!selectedSeason && ratingData.letterboxd?.rating) {
+  if (!selectedSeason && 
+    ratingData.letterboxd?.rating && 
+    ratingData.letterboxd.rating !== '暂无' && 
+    ratingData.letterboxd.status === 'Successful' &&
+    Number(ratingData.letterboxd.rating) > 0) {
     ratingCards.push(
       <div key="letterboxd" className="w-full">
         <RatingCard
