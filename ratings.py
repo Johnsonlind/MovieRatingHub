@@ -2363,7 +2363,7 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None):
             return platform, create_error_rating_data(platform, media_type)
     
     # 使用信号量限制并发数
-    sem = asyncio.Semaphore(5)
+    sem = asyncio.Semaphore(2)
     
     async def process_with_semaphore(platform):
         async with sem:
@@ -2439,7 +2439,7 @@ async def main():
         print(f"\n开始获取以下平台的评分信息: {', '.join(platforms)}...")
         
         # 使用信号量限制并发数
-        sem = asyncio.Semaphore(5)
+        sem = asyncio.Semaphore(2)
         
         async def process_platform(platform):
             async with sem:
