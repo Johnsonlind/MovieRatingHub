@@ -487,7 +487,7 @@ export default function TVShowPage() {
       </div>
 
       {/* Export Content */}
-      <div className="fixed left-0 top-0 -z-50 pointer-events-none">
+      <div className="fixed left-0 top-0 -z-50 pointer-events-none hidden">
         <div id="export-content" className="bg-white">
           {tvShow && (
             <ExportTVShowRatingCard 
