@@ -30,6 +30,32 @@ interface CurrentRatings {
   trakt: TraktRating | null;
 }
 
+// 检查评分是否有效的辅助函数
+const isValidScore = (score: string | number | undefined | null): boolean => {
+  if (score === undefined || score === null || score === '暂无' || score === 0) return false;
+  return !isNaN(Number(score)) && Number(score) > 0;
+};
+
+// 检查 RT 评分是否有效
+const isValidRTScore = (rt: RTSeriesData | null) => {
+  if (!rt) return false;
+  return (
+    (rt.tomatometer !== '暂无' && rt.tomatometer !== '0') ||
+    (rt.audience_score !== '暂无' && rt.audience_score !== '0') ||
+    (rt.critics_avg !== '暂无') ||
+    (rt.audience_avg !== '暂无')
+  );
+};
+
+// 检查 Metacritic 评分是否有效
+const isValidMCScore = (mc: MCOverallData | null) => {
+  if (!mc) return false;
+  return (
+    (mc.metascore !== '暂无' && mc.metascore !== 'tbd' && Number(mc.metascore) > 0) ||
+    (mc.userscore !== '暂无' && mc.userscore !== 'tbd' && Number(mc.userscore) > 0)
+  );
+};
+
 export function ExportTVShowRatingCard({ 
   tvShow,
   ratingData,
@@ -61,7 +87,7 @@ export function ExportTVShowRatingCard({
   const ratingCards = [];
 
   // Douban
-  if (ratings.douban?.rating && ratings.douban.rating !== '暂无' && Number(ratings.douban.rating) > 0) {
+  if (ratings.douban && isValidScore(ratings.douban.rating)) {
     ratingCards.push(
       <div key="douban" className="w-full">
         <RatingCard
@@ -77,7 +103,7 @@ export function ExportTVShowRatingCard({
   }
 
   // IMDb
-  if (ratings.imdb?.rating && ratings.imdb.rating !== '暂无' && Number(ratings.imdb.rating) > 0) {
+  if (!selectedSeason && ratings.imdb && isValidScore(ratings.imdb.rating)) {
     ratingCards.push(
       <div key="imdb" className="w-full">
         <RatingCard
@@ -93,10 +119,7 @@ export function ExportTVShowRatingCard({
   }
 
   // Rotten Tomatoes
-  if (ratings.rt && (
-    (ratings.rt.tomatometer !== '暂无' && ratings.rt.tomatometer !== '0') || 
-    (ratings.rt.audience_score !== '暂无' && ratings.rt.audience_score !== '0')
-  )) {
+  if (ratings.rt && isValidRTScore(ratings.rt)) {
     ratingCards.push(
       <div key="rottentomatoes" className="w-full">
         <RottenTomatoesCard
@@ -112,34 +135,35 @@ export function ExportTVShowRatingCard({
   }
 
   // Metacritic
-  if (ratings.metacritic && (
-    ratings.metacritic.metascore !== '暂无' || 
-    ratings.metacritic.userscore !== '暂无'
-  )) {
-    ratingCards.push(
-      <div key="metacritic" className="w-full">
-        <MetacriticCard
-          metascore={formatRating.number(ratings.metacritic.metascore)}
-          userScore={formatRating.number(ratings.metacritic.userscore)}
-          criticReviews={formatRating.count(ratings.metacritic.critics_count)}
-          userReviews={formatRating.count(ratings.metacritic.users_count)}
-        />
-      </div>
-    );
+  if (ratings.metacritic && isValidMCScore(ratings.metacritic)) {
+    const metascore = formatRating.number(ratings.metacritic.metascore);
+    const userScore = formatRating.number(ratings.metacritic.userscore);
+    
+    if (metascore > 0 || userScore > 0) {
+      ratingCards.push(
+        <div key="metacritic" className="w-full">
+          <MetacriticCard
+            metascore={metascore > 0 ? metascore : undefined}
+            userScore={userScore > 0 ? userScore : undefined}
+            criticReviews={formatRating.count(ratings.metacritic.critics_count)}
+            userReviews={formatRating.count(ratings.metacritic.users_count)}
+          />
+        </div>
+      );
+    }
   }
 
   // Letterboxd (只在整体评分时显示)
   if (!selectedSeason && 
-    ratingData.letterboxd?.rating && 
-    ratingData.letterboxd.rating !== '暂无' && 
-    ratingData.letterboxd.status === 'Successful' &&
-    Number(ratingData.letterboxd.rating) > 0) {
+      ratingData.letterboxd && 
+      isValidScore(ratingData.letterboxd.rating) && 
+      ratingData.letterboxd.status === 'Successful') {
     ratingCards.push(
       <div key="letterboxd" className="w-full">
         <RatingCard
           logo={`${CDN_URL}/logos/letterboxd.png`}
-          rating={Number(ratingData.letterboxd.rating)}
-          maxRating={5}
+          rating={Number(ratingData.letterboxd.rating) * 2}
+          maxRating={10}
           label={`${formatRating.count(ratingData.letterboxd.rating_count)} 人评分`}
           showStars
           className="h-full"
@@ -149,7 +173,7 @@ export function ExportTVShowRatingCard({
   }
 
   // TMDB
-  if (ratings.tmdb?.rating && Number(ratings.tmdb.rating) > 0) {
+  if (ratings.tmdb && isValidScore(ratings.tmdb.rating)) {
     ratingCards.push(
       <div key="tmdb" className="w-full">
         <RatingCard
@@ -164,15 +188,15 @@ export function ExportTVShowRatingCard({
     );
   }
   
-  // Trakt 评分卡片 - 只在整体评分时显示
-  if (!selectedSeason && ratingData.trakt?.rating && Number(ratingData.trakt.rating) > 0) {
+  // Trakt (只在整体评分时显示)
+  if (!selectedSeason && ratings.trakt && isValidScore(ratings.trakt.rating)) {
     ratingCards.push(
       <div key="trakt" className="w-full">
         <RatingCard
           logo={`${CDN_URL}/logos/trakt.png`}
-          rating={Number((ratingData.trakt.rating).toFixed(1))}
+          rating={Number((ratings.trakt.rating).toFixed(1))}
           maxRating={10}
-          label={`${formatRating.count(ratingData.trakt?.votes)} 人评分`}
+          label={`${formatRating.count(ratings.trakt?.votes)} 人评分`}
           showStars
           className="h-full"
         />
