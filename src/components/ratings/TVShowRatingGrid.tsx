@@ -139,6 +139,17 @@ export function TVShowRatingGrid({
     return null;
   };
 
+  // 检查 RT 评分是否有效
+  const isValidRTScore = (rt: any) => {
+    if (!rt) return false;
+    return (
+      (rt.tomatometer !== '暂无' && rt.tomatometer !== '0' && rt.tomatometer !== 'tbd') ||
+      (rt.audience_score !== '暂无' && rt.audience_score !== '0' && rt.audience_score !== 'tbd') ||
+      (rt.critics_avg !== '暂无') ||
+      (rt.audience_avg !== '暂无')
+    );
+  };
+
   return (
     <div className={className}>
       <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ${className}`}>
@@ -161,40 +172,54 @@ export function TVShowRatingGrid({
           />
         )}
 
-        {ratings.rt && (
-          (ratings.rt.tomatometer !== '暂无' && ratings.rt.tomatometer !== '0') || 
-          (ratings.rt.audience_score !== '暂无' && ratings.rt.audience_score !== '0')
-        ) && (
+        {ratings.rt && isValidRTScore(ratings.rt) && (
           <RottenTomatoesCard
-            criticScore={formatRating.percentage(ratings.rt.tomatometer)}
-            audienceScore={formatRating.percentage(ratings.rt.audience_score)}
-            criticReviews={formatRating.count(ratings.rt.critics_count)}
-            audienceReviews={formatRating.count(ratings.rt.audience_count)}
+            criticScore={ratings.rt.tomatometer !== '暂无' && 
+              ratings.rt.tomatometer !== '0' && 
+              ratings.rt.tomatometer !== 'tbd' ? 
+              formatRating.percentage(ratings.rt.tomatometer) : undefined}
+            audienceScore={ratings.rt.audience_score !== '暂无' && 
+              ratings.rt.audience_score !== '0' && 
+              ratings.rt.audience_score !== 'tbd' ? 
+              formatRating.percentage(ratings.rt.audience_score) : undefined}
+            criticReviews={ratings.rt.critics_count !== '暂无' ? 
+              formatRating.count(ratings.rt.critics_count) : undefined}
+            audienceReviews={ratings.rt.audience_count !== '暂无' ? 
+              formatRating.count(ratings.rt.audience_count) : undefined}
             criticAvg={ratings.rt.critics_avg !== '暂无' ? ratings.rt.critics_avg : undefined}
             audienceAvg={ratings.rt.audience_avg !== '暂无' ? ratings.rt.audience_avg : undefined}
           />
         )}
 
-        {ratings.metacritic && 
-         ratings.metacritic.metascore && 
-         ratings.metacritic.metascore !== '暂无' && 
-         ratings.metacritic.metascore !== 'tbd' &&
-         Number(ratings.metacritic.metascore) > 0 && (
-            <MetacriticCard
-              metascore={formatRating.number(ratings.metacritic.metascore)}
-              userScore={formatRating.number(ratings.metacritic.userscore)}
-              criticReviews={formatRating.count(ratings.metacritic.critics_count)}
-              userReviews={formatRating.count(ratings.metacritic.users_count)}
-            />
-          )}
+        {ratings.metacritic && (
+          (ratings.metacritic.metascore !== '暂无' && 
+           ratings.metacritic.metascore !== 'tbd' && 
+           Number(ratings.metacritic.metascore) > 0) || 
+          (ratings.metacritic.userscore !== '暂无' && 
+           ratings.metacritic.userscore !== 'tbd' && 
+           Number(ratings.metacritic.userscore) > 0)
+        ) && (
+          <MetacriticCard
+            metascore={ratings.metacritic.metascore !== '暂无' && 
+              ratings.metacritic.metascore !== 'tbd' ? 
+              Number(formatRating.number(ratings.metacritic.metascore)) : 0}
+            userScore={ratings.metacritic.userscore !== '暂无' && 
+              ratings.metacritic.userscore !== 'tbd' ? 
+              Number(formatRating.number(ratings.metacritic.userscore)) : 0}
+            criticReviews={ratings.metacritic.critics_count !== '暂无' ? 
+              formatRating.count(ratings.metacritic.critics_count) : undefined}
+            userReviews={ratings.metacritic.users_count !== '暂无' ? 
+              formatRating.count(ratings.metacritic.users_count) : undefined}
+          />
+        )}
         {!selectedSeason && 
          ratingData.letterboxd?.rating && 
          ratingData.letterboxd.rating !== '暂无' && 
          Number(ratingData.letterboxd.rating) > 0 && (
             <RatingCard
               logo={`${CDN_URL}/logos/letterboxd.png`}
-              rating={Number(ratingData.letterboxd.rating)}
-              maxRating={5}
+              rating={formatRating.letterboxd(Number(ratingData.letterboxd.rating))}
+              maxRating={10}
               label={`${formatRating.count(ratingData.letterboxd.rating_count)} 人评分`}
               showStars
             />
