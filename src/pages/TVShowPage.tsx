@@ -48,6 +48,18 @@ interface TraktRating {
   };
 }
 
+const PRELOAD_IMAGES = [
+  `${CDN_URL}/background.png`,
+  `${CDN_URL}/rating-template.png`,
+  `${CDN_URL}/logos/douban.png`, 
+  `${CDN_URL}/logos/imdb.png`,
+  `${CDN_URL}/logos/letterboxd.png`,
+  `${CDN_URL}/logos/rottentomatoes_critics.png`,
+  `${CDN_URL}/logos/metacritic.png`,
+  `${CDN_URL}/logos/tmdb.png`,
+  `${CDN_URL}/logos/trakt.png`
+];
+
 export default function TVShowPage() {
   const { id } = useParams();
   const [selectedSeason, setSelectedSeason] = useState<number | undefined>(undefined);
@@ -212,6 +224,14 @@ export default function TVShowPage() {
       }
     };
   }, [id]);
+
+  useEffect(() => {
+    preloadImages({
+      cdnImages: PRELOAD_IMAGES
+    }).catch(error => {
+      console.warn('图片预加载失败:', error);
+    });
+  }, []);
 
   useEffect(() => {
     if (tvShow) {
@@ -382,6 +402,16 @@ export default function TVShowPage() {
   const handleExport = async () => {
     if (!tvShow || isExporting) return;
     
+    // 验证是否有有效的评分数据
+    const hasValidRatings = Object.values(allRatings).some(rating => 
+      rating && typeof rating === 'object' && Object.keys(rating).length > 0
+    );
+    
+    if (!hasValidRatings) {
+      console.error('没有有效的评分数据可供导出');
+      return;
+    }
+    
     setIsExporting(true);
     
     try {
@@ -487,7 +517,7 @@ export default function TVShowPage() {
       </div>
 
       {/* Export Content */}
-      <div className="fixed left-0 top-0 -z-50 pointer-events-none hidden">
+      <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
         <div id="export-content" className="bg-white">
           {tvShow && (
             <ExportTVShowRatingCard 
