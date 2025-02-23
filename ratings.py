@@ -108,7 +108,8 @@ class RetryConfig:
         'network_error': {'max_retries': 3, 'delay': 2}, # 网络错误
         'parse_error': {'max_retries': 2, 'delay': 1},   # 解析错误
         'fail': {'max_retries': 2, 'delay': 3},          # 获取失败
-        'error': {'max_retries': 2, 'delay': 2}          # 其他错误
+        'error': {'max_retries': 2, 'delay': 2},          # 其他错误
+        'no_found': {'max_retries': 1, 'delay': 2}      # 未找到时重试一次
     })
 
 def smart_retry(retry_config: RetryConfig):
@@ -162,6 +163,15 @@ def smart_retry(retry_config: RetryConfig):
                             if attempt < error_config['max_retries']:
                                 delay = error_config['delay'] * (1.5 ** attempt)
                                 print(f"{platform} 获取失败，{delay}秒后重试")
+                                await asyncio.sleep(delay)
+                                attempt += 1
+                                continue
+                                
+                        elif status == RATING_STATUS["NO_FOUND"]:
+                            error_config = retry_config.error_types['no_found']
+                            if attempt < error_config['max_retries']:
+                                delay = error_config['delay']
+                                print(f"{platform} 未找到匹配结果，{delay}秒后重试最后一次")
                                 await asyncio.sleep(delay)
                                 attempt += 1
                                 continue
@@ -1106,25 +1116,24 @@ async def handle_metacritic_search(page, search_url):
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     try:
-        await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
-        await asyncio.sleep(2)
+        await asyncio.sleep(2)  # 减少初始等待时间
     
-        # 立即检查是否出现访问频率限制
+        # 检查访问限制
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
             print("检测到Letterboxd访问限制")
             return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
-            # 获取所有搜索结果的链接和标题
+            # 获取所有搜索结果
             items = await page.query_selector_all('.results li .film-title-wrapper')
             if not items:
                 print("Letterboxd: 未找到搜索结果")
                 return {"status": RATING_STATUS["NO_FOUND"]}
             
-            # 收集所有结果信息
+            # 一次性收集所有结果信息
             results = []
             for item in items:
                 try:
@@ -1135,7 +1144,6 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                     url = await link.get_attribute('href')
                     title = await link.inner_text()
                     
-                    # 获取年份
                     year_elem = await item.query_selector('.metadata')
                     year = await year_elem.inner_text() if year_elem else ""
                     
@@ -1149,28 +1157,15 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                     print(f"处理搜索结果项时出错: {e}")
                     continue
             
-            # 计算匹配度并排序
+            print(f"找到 {len(results)} 个搜索结果")
+            
+            # 逐个检查结果的TMDB ID
             for result in results:
-                result["match_score"] = await calculate_match_degree(tmdb_info, result, "letterboxd")
-            
-            # 按匹配度排序
-            results.sort(key=lambda x: x.get("match_score", 0), reverse=True)
-            
-            # 优先处理匹配度高的结果
-            high_match_results = [r for r in results if r["match_score"] >= 70]  # 匹配度大于80的结果
-            results_to_check = high_match_results[:3] if high_match_results else results[:3]
-            
-            print(f"找到 {len(results)} 个搜索结果, 其中 {len(high_match_results)} 个高匹配度结果")
-            print(f"将检查 {len(results_to_check)} 个结果的TMDB ID")
-            
-            # 检查这些结果的TMDB ID
-            for result in results_to_check:
                 try:
-                    print(f"\n检查结果: {result['title']} ({result['year']}) - 匹配度: {result['match_score']}")
+                    print(f"\n检查结果: {result['title']} ({result['year']})")
                     await page.goto(result["url"], wait_until='domcontentloaded')
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.3)  # 减少每个结果的等待时间
                     
-                    # 检查TMDb链接
                     tmdb_link = await page.query_selector('a.micro-button[data-track-action="TMDb"]')
                     if tmdb_link:
                         tmdb_href = await tmdb_link.get_attribute('href')
@@ -1179,36 +1174,11 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                             print(f"找到TMDB ID: {tmdb_id}")
                             if tmdb_id == str(tmdb_info.get("tmdb_id")):
                                 print("TMDB ID匹配成功!")
+                                result["match_score"] = 100
                                 return [result]
-                            else:
-                                print("TMDB ID不匹配")
                 except Exception as e:
                     print(f"检查结果时出错: {e}")
                     continue
-            
-            # 如果高匹配度结果都不匹配，且还有其他结果未检查
-            if len(results) > len(results_to_check):
-                print("\n高匹配度结果都不匹配，继续检查其他结果...")
-                for result in results[len(results_to_check):]:
-                    try:
-                        print(f"\n检查结果: {result['title']} ({result['year']}) - 匹配度: {result['match_score']}")
-                        await page.goto(result["url"], wait_until='domcontentloaded')
-                        await asyncio.sleep(1)
-                        
-                        tmdb_link = await page.query_selector('a.micro-button[data-track-action="TMDb"]')
-                        if tmdb_link:
-                            tmdb_href = await tmdb_link.get_attribute('href')
-                            if tmdb_href:
-                                tmdb_id = tmdb_href.rstrip('/').split('/')[-1]
-                                print(f"找到TMDB ID: {tmdb_id}")
-                                if tmdb_id == str(tmdb_info.get("tmdb_id")):
-                                    print("TMDB ID匹配成功!")
-                                    return [result]
-                                else:
-                                    print("TMDB ID不匹配")
-                    except Exception as e:
-                        print(f"检查结果时出错: {e}")
-                        continue
             
             print("Letterboxd: 未找到TMDB ID匹配的结果")
             return {"status": RATING_STATUS["NO_FOUND"]}
@@ -1633,7 +1603,8 @@ async def extract_rt_rating(page, media_type, tmdb_info):
             audience_count = "暂无"
             if has_audience:
                 audience_score = audience_data.get("scorePercent", "暂无").rstrip("%") if audience_data.get("scorePercent") else "暂无"
-                audience_avg = audience_data.get("averageRating", "暂无")
+                avg_rating = audience_data.get("averageRating")
+                audience_avg = avg_rating if avg_rating and avg_rating not in ["暂无", ""] else "暂无"
                 audience_count = audience_data.get("bandedRatingCount", "暂无")
             
             # 提取专业评分数据
@@ -1690,6 +1661,7 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                         season_tomatometer = "暂无"
                         season_critics_avg = "暂无"
                         season_critics_count = "暂无"
+                        season_audience_avg = "暂无"
                         if season_has_critics:
                             season_tomatometer = season_critics.get("scorePercent", "暂无").rstrip("%") if season_critics.get("scorePercent") else "暂无"
                             season_critics_avg = season_critics.get("averageRating", "暂无")
@@ -1700,7 +1672,8 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                         season_audience_count = "暂无"
                         if season_has_audience:
                             season_audience_score = season_audience.get("scorePercent", "暂无").rstrip("%") if season_audience.get("scorePercent") else "暂无"
-                            season_audience_avg = season_audience.get("averageRating", "暂无")
+                            avg_rating = season_audience.get("averageRating")
+                            season_audience_avg = avg_rating if avg_rating and avg_rating not in ["暂无", ""] else "暂无"
                             season_audience_count = season_audience.get("bandedRatingCount", "暂无")
                         
                         season_data = {
@@ -2382,13 +2355,13 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None):
 async def main():
     try:
         tmdb_id = input("请输入TMDB ID:")
-        # 等待2秒让用户输入媒体类型
-        print("请输入媒体类型(movie/tv),2秒后默认尝试movie类型:")
+        # 等待0.5秒让用户输入媒体类型
+        print("请输入媒体类型(movie/tv),0.5秒后默认尝试movie类型:")
         
         # 创建一个异步等待用户输入的任务
         media_type = None
         try:
-            # 等待用户输入,最多2秒
+            # 等待用户输入,最多0.5秒
             media_type = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, input),
                 timeout=0.5
@@ -2404,10 +2377,10 @@ async def main():
         # 让用户选择要测试的平台
         all_platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
         print("\n可用平台:", ", ".join(all_platforms))
-        print("请输入要测试的平台(多个平台用空格分隔),2秒后默认测试所有平台:")
+        print("请输入要测试的平台(多个平台用空格分隔),0.5秒后默认测试所有平台:")
         
         try:
-            # 等待用户输入,最多2秒
+            # 等待用户输入,最多0.5秒
             platforms_input = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, input),
                 timeout=0.5
@@ -2429,7 +2402,7 @@ async def main():
                 platforms = all_platforms
                 
         except asyncio.TimeoutError:
-            print("未在2秒内输入平台,默认测试所有平台")
+            print("未在0.5秒内输入平台,默认测试所有平台")
             platforms = all_platforms
         
         tmdb_info = await get_tmdb_info(tmdb_id, media_type)
