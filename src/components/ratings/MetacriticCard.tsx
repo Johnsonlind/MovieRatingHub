@@ -1,11 +1,10 @@
 import { CDN_URL } from '../../lib/config';
 
 interface MetacriticCardProps {
-  metascore: number;
-  userScore: number;
+  metascore?: number;
+  userScore?: number;
   criticReviews?: string;
   userReviews?: string;
-  className?: string;
 }
 
 export function MetacriticCard({
@@ -26,56 +25,65 @@ export function MetacriticCard({
     return score.toFixed(1);
   };
 
+  // 如果两个评分都没有，不显示组件
+  if (!metascore && !userScore) {
+    return null;
+  }
+
   return (
     <div className="bg-[#15191E] text-white rounded-lg p-6 h-full">
       <div className="flex flex-col gap-6">
         {/* 专业评分 */}
-        <div className="flex items-start gap-4">
-          <img 
-            src={`${CDN_URL}/logos/metacritic.png`}
-            alt="" 
-            className="w-10 h-10 object-contain flex-shrink-0" 
-          />
-          <div className="flex-1">
-            <div className="flex items-start gap-2">
-              <span className="text-4xl font-bold leading-none">
-                {metascore || 'N/A'}
-              </span>
-              <div className="flex flex-col">
-                <span className="text-sm text-gray-400">专业评分</span>
-                {criticReviews && (
-                  <span className="text-sm text-gray-400 mt-1">
-                    {formatReviewCount(criticReviews, true)}
-                  </span>
-                )}
+        {typeof metascore === 'number' && metascore > 0 && (
+          <div className="flex items-start gap-4">
+            <img 
+              src={`${CDN_URL}/logos/metacritic.png`}
+              alt="" 
+              className="w-10 h-10 object-contain flex-shrink-0" 
+            />
+            <div className="flex-1">
+              <div className="flex items-start gap-2">
+                <span className="text-4xl font-bold leading-none">
+                  {metascore}
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-sm text-gray-400">专业评分</span>
+                  {criticReviews && (
+                    <span className="text-sm text-gray-400 mt-1">
+                      {formatReviewCount(criticReviews, true)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* 用户评分 */}
-        <div className="flex items-start gap-4">
-          <img 
-            src={`${CDN_URL}/logos/metacritic.png`}
-            alt="" 
-            className="w-10 h-10 object-contain flex-shrink-0" 
-          />
-          <div className="flex-1">
-            <div className="flex items-start gap-2">
-              <span className="text-4xl font-bold leading-none">
-                {formatUserScore(userScore)}
-              </span>
-              <div className="flex flex-col">
-                <span className="text-sm text-gray-400">用户评分</span>
-                {userReviews && (
-                  <span className="text-sm text-gray-400 mt-1">
-                    {formatReviewCount(userReviews, false)}
-                  </span>
-                )}
+        {typeof userScore === 'number' && userScore > 0 && (
+          <div className="flex items-start gap-4">
+            <img 
+              src={`${CDN_URL}/logos/metacritic.png`}
+              alt="" 
+              className="w-10 h-10 object-contain flex-shrink-0" 
+            />
+            <div className="flex-1">
+              <div className="flex items-start gap-2">
+                <span className="text-4xl font-bold leading-none">
+                  {formatUserScore(userScore)}
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-sm text-gray-400">用户评分</span>
+                  {userReviews && (
+                    <span className="text-sm text-gray-400 mt-1">
+                      {formatReviewCount(userReviews, false)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
