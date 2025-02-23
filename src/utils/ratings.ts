@@ -23,5 +23,11 @@ export const formatRating = {
   tmdb: (value: number | undefined | null): string => {
     if (!value) return '暂无';
     return (Math.round(value * 10) / 10).toFixed(1);
+  },
+
+  letterboxd: (value: string | number | undefined | null): number => {
+    if (!value || value === '暂无' || value === 'tbd') return 0;
+    const rating = Number(value);
+    return isNaN(rating) ? 0 : rating * 2; // 5分制转10分制
   }
 }; 
