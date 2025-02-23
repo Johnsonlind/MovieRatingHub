@@ -3,8 +3,10 @@ import { getBase64Image } from './image';
 
 
 // 分别处理 TMDB 图片和 CDN 图片
-export const preloadImages = async (images: { poster: string; cdnImages: string[] }) => {
-  // CDN 图片直接预加载
+export const preloadImages = async (images: { poster?: string; cdnImages: string[] }) => {
+  const promises = [];
+  
+  // CDN 图片预加载
   const cdnPromises = images.cdnImages.map(url => {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -14,14 +16,18 @@ export const preloadImages = async (images: { poster: string; cdnImages: string[
       img.src = url;
     });
   });
+  promises.push(...cdnPromises);
 
-  // TMDB 海报图片先转成 base64
-  const posterPromise = getBase64Image(images.poster).catch((error: Error) => {
-    console.warn('海报转换失败:', error);
-    return images.poster; // 如果转换失败，返回原始URL
-  });
+  // 如果有海报图片，则预加载
+  if (images.poster) {
+    const posterPromise = getBase64Image(images.poster).catch((error: Error) => {
+      console.warn('海报转换失败:', error);
+      return images.poster;
+    });
+    promises.push(posterPromise);
+  }
 
-  await Promise.all([...cdnPromises, posterPromise]);
+  await Promise.all(promises);
 };
 
 // 导出为PNG图片
