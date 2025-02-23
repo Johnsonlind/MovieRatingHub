@@ -30,9 +30,10 @@ export function RottenTomatoesCard({
   // 处理观众评分平均分
   const formatAudienceAvg = (avg: string | undefined) => {
     if (!avg || avg === '暂无') return '暂无数据';
-    const match = avg.match(/(\d+\.\d+)/);
+    // 匹配整数或小数
+    const match = avg.match(/(\d+(?:\.\d+)?)/);
     if (match) {
-      return `${Number(match[1]).toFixed(2)}/5`;
+      return `${Number(match[1]).toFixed(1)}/5`;
     }
     return '暂无数据';
   };
@@ -49,62 +50,66 @@ export function RottenTomatoesCard({
     <div className="bg-[#15191E] text-white rounded-lg p-6 h-full">
       <div className="flex flex-col gap-6">
         {/* 专业评分 */}
-        <div className="flex items-start gap-4">
-          <img 
-            src={`${CDN_URL}/logos/rottentomatoes_critics.png`}
-            alt="" 
-            className="w-10 h-10 object-contain flex-shrink-0" 
-          />
-          <div className="flex-1">
-            <div className="flex items-start gap-2">
-              <span className="text-4xl font-bold leading-none">
-                {criticScore ? `${criticScore}%` : 'N/A'}
-              </span>
-              <div className="flex flex-col">
-                <span className="text-sm text-gray-400">专业新鲜度</span>
-                {criticReviews && (
-                  <span className="text-sm text-gray-400 mt-1">
-                    {formatReviewCount(criticReviews, true)}
-                  </span>
-                )}
-                {criticAvg && (
-                  <span className="text-sm text-gray-400 mt-1">
-                    平均新鲜度 {formatCriticAvg(criticAvg)}
-                  </span>
-                )}
+        {criticScore && criticScore > 0 && (
+          <div className="flex items-start gap-4">
+            <img 
+              src={`${CDN_URL}/logos/rottentomatoes_critics.png`}
+              alt="" 
+              className="w-10 h-10 object-contain flex-shrink-0" 
+            />
+            <div className="flex-1">
+              <div className="flex items-start gap-2">
+                <span className="text-4xl font-bold leading-none">
+                  {`${criticScore}%`}
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-sm text-gray-400">专业新鲜度</span>
+                  {criticReviews && (
+                    <span className="text-sm text-gray-400 mt-1">
+                      {formatReviewCount(criticReviews, true)}
+                    </span>
+                  )}
+                  {criticAvg && (
+                    <span className="text-sm text-gray-400 mt-1">
+                      平均新鲜度 {formatCriticAvg(criticAvg)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* 观众评分 */}
-        <div className="flex items-start gap-4">
-          <img 
-            src={`${CDN_URL}/logos/rottentomatoes_audience.png`}
-            alt="" 
-            className="w-10 h-10 object-contain flex-shrink-0" 
-          />
-          <div className="flex-1">
-            <div className="flex items-start gap-2">
-              <span className="text-4xl font-bold leading-none">
-                {audienceScore ? `${audienceScore}%` : 'N/A'}
-              </span>
-              <div className="flex flex-col">
-                <span className="text-sm text-gray-400">观众新鲜度</span>
-                {audienceReviews && (
-                  <span className="text-sm text-gray-400 mt-1">
-                    {formatReviewCount(audienceReviews, false)}
-                  </span>
-                )}
-                {audienceAvg && (
-                  <span className="text-sm text-gray-400 mt-1">
-                    平均新鲜度 {formatAudienceAvg(audienceAvg)}
-                  </span>
-                )}
+        {audienceScore && audienceScore > 0 && (
+          <div className="flex items-start gap-4">
+            <img 
+              src={`${CDN_URL}/logos/rottentomatoes_audience.png`}
+              alt="" 
+              className="w-10 h-10 object-contain flex-shrink-0" 
+            />
+            <div className="flex-1">
+              <div className="flex items-start gap-2">
+                <span className="text-4xl font-bold leading-none">
+                  {`${audienceScore}%`}
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-sm text-gray-400">观众新鲜度</span>
+                  {audienceReviews && (
+                    <span className="text-sm text-gray-400 mt-1">
+                      {formatReviewCount(audienceReviews, false)}
+                    </span>
+                  )}
+                  {audienceAvg && (
+                    <span className="text-sm text-gray-400 mt-1">
+                      平均新鲜度 {formatAudienceAvg(audienceAvg)}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
