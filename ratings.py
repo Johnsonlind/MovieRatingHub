@@ -2388,6 +2388,7 @@ async def main():
         # 创建一个异步等待用户输入的任务
         media_type = None
         try:
+            # 等待用户输入,最多2秒
             media_type = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, input),
                 timeout=0.5
@@ -2403,9 +2404,10 @@ async def main():
         # 让用户选择要测试的平台
         all_platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
         print("\n可用平台:", ", ".join(all_platforms))
-        print("请输入要测试的平台(多个平台用空格分隔),0.5秒后默认测试所有平台:")
+        print("请输入要测试的平台(多个平台用空格分隔),2秒后默认测试所有平台:")
         
         try:
+            # 等待用户输入,最多2秒
             platforms_input = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, input),
                 timeout=0.5
@@ -2427,7 +2429,7 @@ async def main():
                 platforms = all_platforms
                 
         except asyncio.TimeoutError:
-            print("未在0.5秒内输入平台,默认测试所有平台")
+            print("未在2秒内输入平台,默认测试所有平台")
             platforms = all_platforms
         
         tmdb_info = await get_tmdb_info(tmdb_id, media_type)
