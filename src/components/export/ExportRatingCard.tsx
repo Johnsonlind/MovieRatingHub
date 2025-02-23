@@ -17,6 +17,32 @@ interface ExportRatingCardProps {
   selectedSeason?: number;
 }
 
+// 检查评分是否有效的辅助函数
+const isValidScore = (score: string | number | undefined | null): boolean => {
+  if (score === undefined || score === null || score === '暂无' || score === 0) return false;
+  return !isNaN(Number(score)) && Number(score) > 0;
+};
+
+// 检查 RT 评分是否有效
+const isValidRTScore = (rt: any) => {
+  if (!rt || !rt.series) return false;
+  return (
+    (rt.series.tomatometer !== '暂无' && rt.series.tomatometer !== '0') ||
+    (rt.series.audience_score !== '暂无' && rt.series.audience_score !== '0') ||
+    (rt.series.critics_avg !== '暂无') ||
+    (rt.series.audience_avg !== '暂无')
+  );
+};
+
+// 检查 Metacritic 评分是否有效
+const isValidMCScore = (mc: any) => {
+  if (!mc || !mc.overall) return false;
+  return (
+    (mc.overall.metascore !== '暂无' && mc.overall.metascore !== 'tbd' && Number(mc.overall.metascore) > 0) ||
+    (mc.overall.userscore !== '暂无' && mc.overall.userscore !== 'tbd' && Number(mc.overall.userscore) > 0)
+  );
+};
+
 export function ExportRatingCard({ media, ratingData, selectedSeason }: ExportRatingCardProps) {
   if (!media || !ratingData) {
     console.log('Missing required data:', { media, ratingData });
@@ -35,8 +61,8 @@ export function ExportRatingCard({ media, ratingData, selectedSeason }: ExportRa
     all: ratingData
   });
 
-  // Douban
-  if (ratingData.douban?.rating && ratingData.douban.rating !== '暂无' && Number(ratingData.douban.rating) > 0) {
+  // 只有在评分有效时才添加对应的评分卡片
+  if (ratingData.douban && isValidScore(ratingData.douban.rating)) {
     ratingCards.push(
       <div key="douban" className="w-full">
         <RatingCard
@@ -51,8 +77,7 @@ export function ExportRatingCard({ media, ratingData, selectedSeason }: ExportRa
     );
   }
 
-  // IMDb
-  if (ratingData.imdb?.rating && ratingData.imdb.rating !== '暂无' && Number(ratingData.imdb.rating) > 0) {
+  if (ratingData.imdb && isValidScore(ratingData.imdb.rating)) {
     ratingCards.push(
       <div key="imdb" className="w-full">
         <RatingCard
@@ -67,11 +92,7 @@ export function ExportRatingCard({ media, ratingData, selectedSeason }: ExportRa
     );
   }
 
-  // Rotten Tomatoes
-  if (ratingData.rottentomatoes && 'series' in ratingData.rottentomatoes && (
-    (ratingData.rottentomatoes.series.tomatometer !== '暂无' && ratingData.rottentomatoes.series.tomatometer !== '0') ||
-    (ratingData.rottentomatoes.series.audience_score !== '暂无' && ratingData.rottentomatoes.series.audience_score !== '0')
-  )) {
+  if (ratingData.rottentomatoes && isValidRTScore(ratingData.rottentomatoes)) {
     console.log('Adding Rotten Tomatoes card with:', {
       tomatometer: ratingData.rottentomatoes.series.tomatometer,
       audienceScore: ratingData.rottentomatoes.series.audience_score,
@@ -95,8 +116,7 @@ export function ExportRatingCard({ media, ratingData, selectedSeason }: ExportRa
     );
   }
 
-  // Metacritic
-  if (ratingData.metacritic?.overall) {
+  if (ratingData.metacritic && isValidMCScore(ratingData.metacritic)) {
     ratingCards.push(
       <div key="metacritic" className="w-full">
         <MetacriticCard
@@ -109,18 +129,13 @@ export function ExportRatingCard({ media, ratingData, selectedSeason }: ExportRa
     );
   }
 
-  // Letterboxd (只在整体评分时显示)
-  if (!selectedSeason && 
-      ratingData.letterboxd?.rating && 
-      ratingData.letterboxd.rating !== '暂无' && 
-      ratingData.letterboxd.status === 'Successful' &&
-      Number(ratingData.letterboxd.rating) > 0) {
+  if (!selectedSeason && ratingData.letterboxd && isValidScore(ratingData.letterboxd.rating)) {
     ratingCards.push(
       <div key="letterboxd" className="w-full">
         <RatingCard
           logo={`${CDN_URL}/logos/letterboxd.png`}
-          rating={Number(ratingData.letterboxd.rating)}
-          maxRating={5}
+          rating={Number(ratingData.letterboxd.rating) * 2}
+          maxRating={10}
           label={`${formatRating.count(ratingData.letterboxd.rating_count)} 人评分`}
           showStars
           className="h-full"
@@ -129,8 +144,7 @@ export function ExportRatingCard({ media, ratingData, selectedSeason }: ExportRa
     );
   }
 
-  // TMDB
-  if (ratingData.tmdb?.rating && Number(ratingData.tmdb.rating) > 0) {
+  if (ratingData.tmdb && isValidScore(ratingData.tmdb.rating)) {
     ratingCards.push(
       <div key="tmdb" className="w-full">
         <RatingCard
@@ -145,8 +159,7 @@ export function ExportRatingCard({ media, ratingData, selectedSeason }: ExportRa
     );
   }
 
-  // Trakt
-  if (ratingData.trakt?.rating && ratingData.trakt.rating > 0) {
+  if (!selectedSeason && ratingData.trakt && isValidScore(ratingData.trakt.rating)) {
     ratingCards.push(
       <div key="trakt" className="w-full">
         <RatingCard
