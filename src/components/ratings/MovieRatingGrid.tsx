@@ -97,23 +97,51 @@ export function MovieRatingGrid({
 
       {/* Rotten Tomatoes */}
       {ratingData.rottentomatoes?.series && (
+        (ratingData.rottentomatoes.series.tomatometer !== '暂无' && 
+         ratingData.rottentomatoes.series.tomatometer !== '0') || 
+        (ratingData.rottentomatoes.series.audience_score !== '暂无' && 
+         ratingData.rottentomatoes.series.audience_score !== '0')
+      ) && (
         <RottenTomatoesCard
-          criticScore={formatRating.percentage(ratingData.rottentomatoes.series.tomatometer)}
-          audienceScore={formatRating.percentage(ratingData.rottentomatoes.series.audience_score)}
-          criticReviews={formatRating.count(ratingData.rottentomatoes.series.critics_count)}
-          audienceReviews={formatRating.count(ratingData.rottentomatoes.series.audience_count)}
-          criticAvg={ratingData.rottentomatoes.series.critics_avg}
-          audienceAvg={ratingData.rottentomatoes.series.audience_avg}
+          criticScore={ratingData.rottentomatoes.series.tomatometer !== '暂无' && 
+            ratingData.rottentomatoes.series.tomatometer !== '0' ? 
+            formatRating.percentage(ratingData.rottentomatoes.series.tomatometer) : undefined}
+          audienceScore={ratingData.rottentomatoes.series.audience_score !== '暂无' && 
+            ratingData.rottentomatoes.series.audience_score !== '0' ? 
+            formatRating.percentage(ratingData.rottentomatoes.series.audience_score) : undefined}
+          criticReviews={ratingData.rottentomatoes.series.critics_count !== '暂无' ? 
+            formatRating.count(ratingData.rottentomatoes.series.critics_count) : undefined}
+          audienceReviews={ratingData.rottentomatoes.series.audience_count !== '暂无' ? 
+            formatRating.count(ratingData.rottentomatoes.series.audience_count) : undefined}
+          criticAvg={ratingData.rottentomatoes.series.critics_avg !== '暂无' ? 
+            ratingData.rottentomatoes.series.critics_avg : undefined}
+          audienceAvg={ratingData.rottentomatoes.series.audience_avg !== '暂无' ? 
+            ratingData.rottentomatoes.series.audience_avg : undefined}
         />
       )}
 
       {/* Metacritic */}
       {ratingData.metacritic?.overall && (
+        (ratingData.metacritic.overall.metascore !== '暂无' && 
+         ratingData.metacritic.overall.metascore !== 'tbd' && 
+         Number(ratingData.metacritic.overall.metascore) > 0) || 
+        (ratingData.metacritic.overall.userscore !== '暂无' && 
+         ratingData.metacritic.overall.userscore !== 'tbd' && 
+         Number(ratingData.metacritic.overall.userscore) > 0)
+      ) && (
         <MetacriticCard
-          metascore={Number(formatRating.number(ratingData.metacritic.overall.metascore))}
-          userScore={Number(formatRating.number(ratingData.metacritic.overall.userscore))}
-          criticReviews={String(formatRating.count(ratingData.metacritic.overall.critics_count))}
-          userReviews={String(formatRating.count(ratingData.metacritic.overall.users_count))}
+          metascore={ratingData.metacritic.overall.metascore !== '暂无' && 
+            ratingData.metacritic.overall.metascore !== 'tbd' && 
+            Number(formatRating.number(ratingData.metacritic.overall.metascore)) > 0 ? 
+            Number(formatRating.number(ratingData.metacritic.overall.metascore)) : undefined}
+          userScore={ratingData.metacritic.overall.userscore !== '暂无' && 
+            ratingData.metacritic.overall.userscore !== 'tbd' && 
+            Number(formatRating.number(ratingData.metacritic.overall.userscore)) > 0 ? 
+            Number(formatRating.number(ratingData.metacritic.overall.userscore)) : undefined}
+          criticReviews={ratingData.metacritic.overall.critics_count !== '暂无' ? 
+            formatRating.count(ratingData.metacritic.overall.critics_count) : undefined}
+          userReviews={ratingData.metacritic.overall.users_count !== '暂无' ? 
+            formatRating.count(ratingData.metacritic.overall.users_count) : undefined}
         />
       )}
 
@@ -121,8 +149,8 @@ export function MovieRatingGrid({
       {ratingData.letterboxd && isValidScore(ratingData.letterboxd.rating) && (
         <RatingCard
           logo={`${CDN_URL}/logos/letterboxd.png`}
-          rating={Number(ratingData.letterboxd.rating)}
-          maxRating={5}
+          rating={formatRating.letterboxd(ratingData.letterboxd.rating)}
+          maxRating={10}
           label={`${formatRating.count(String(ratingData.letterboxd.rating_count))} 人评分`}
           showStars={true}
         />
