@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Download } from 'lucide-react';
 import { TVShowHero } from '../components/tv/TVShowHero';
 import { Credits } from '../components/movie/Credits';
 import { getTVShow } from '../lib/api/tmdb/tv';
@@ -19,6 +18,8 @@ import { CDN_URL } from '../lib/config';
 import { getBase64Image } from '../lib/utils/image';
 import { SearchButton } from '../components/SearchButton';
 import { TraktRating } from '../types/ratings';
+import { HomeButton } from '../components/HomeButton';
+import { ExportButton } from '../components/ExportButton';
 
 // 添加 TMDB 和 Trakt 评分类型定义
 interface TMDBRating {
@@ -454,9 +455,17 @@ export default function TVShowPage() {
 
   return (
     <div className="min-h-screen bg-[var(--page-bg)]">
-      <ThemeToggle />
+        <ExportButton 
+          onExport={handleExport}
+          seasons={tvShow?.seasons}
+          selectedSeason={selectedSeason}
+          onSeasonChange={setSelectedSeason}
+          isExporting={isExporting}
+        />
       <SearchButton />
-
+      <HomeButton />
+      <ThemeToggle />
+    
       <div className="tv-show-content">
         {/* 添加调试日志 */}
         {(() => {
@@ -524,34 +533,6 @@ export default function TVShowPage() {
             />
           )}
         </div>
-      </div>
-      
-      <div className="fixed bottom-8 right-8 flex flex-col gap-2">
-        {tvShow?.seasons && tvShow.seasons.length > 0 && (
-          <select
-            value={selectedSeason || ''}
-            onChange={(e) => setSelectedSeason(e.target.value ? Number(e.target.value) : undefined)}
-            className="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            disabled={isExporting}
-          >
-            <option value="">导出整部剧集评分</option>
-            {tvShow.seasons.map((season) => (
-              <option key={season.seasonNumber} value={season.seasonNumber}>
-                导出第 {season.seasonNumber} 季评分
-              </option>
-            ))}
-          </select>
-        )}
-        
-        {/* Export Button */}
-        <button
-          onClick={handleExport}
-          disabled={isExporting}
-          className="export-button bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 transition-colors"
-        >
-          <Download className={`w-5 h-5 ${isExporting ? 'animate-bounce' : ''}`} />
-          {isExporting ? '导出中...' : '导出评分卡片'}
-        </button>
       </div>
     </div>
   );
