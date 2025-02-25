@@ -2371,7 +2371,7 @@ async def main():
             # 等待用户输入,最多2秒
             media_type = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, input),
-                timeout=5.0
+                timeout=0.2
             )
             # 验证输入的类型是否有效
             if media_type not in ["movie", "tv"]:
@@ -2390,7 +2390,7 @@ async def main():
             # 等待用户输入,最多2秒
             platforms_input = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, input),
-                timeout=5.0
+                timeout=0.2
             )
             
             # 处理平台输入
