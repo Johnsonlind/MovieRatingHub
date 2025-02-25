@@ -62,6 +62,50 @@ const isValidMCScore = (mc: MCOverallData | null) => {
   );
 };
 
+// 计算有效平台数量
+function calculateValidPlatformsCount(ratingData: TVShowRatingData, selectedSeason?: number) {
+  if (selectedSeason) {
+    return (
+      // 检查豆瓣分季评分
+      (ratingData.douban?.seasons?.find(s => 
+        s.season_number === selectedSeason && 
+        s.rating !== '暂无'
+      ) ? 1 : 0) +
+      // 检查烂番茄分季评分
+      (ratingData.rottentomatoes?.seasons?.find(s => 
+        s.season_number === selectedSeason && 
+        (s.tomatometer !== '暂无' || s.audience_score !== '暂无')
+      ) ? 1 : 0) +
+      // 检查 Metacritic 分季评分
+      (ratingData.metacritic?.seasons?.find(s => 
+        s.season_number === selectedSeason && 
+        (s.metascore !== '暂无' || s.userscore !== '暂无')
+      ) ? 1 : 0) +
+      // 检查 TMDB 分季评分
+      (ratingData.tmdb?.seasons?.find(s => 
+        s.season_number === selectedSeason && 
+        s.rating > 0
+      ) ? 1 : 0) +
+      // 检查 Trakt 分季评分
+      (ratingData.trakt?.seasons?.find(s => 
+        s.season_number === selectedSeason && 
+        s.rating > 0
+      ) ? 1 : 0)
+    );
+  }
+
+  return (
+    // 检查各平台是否有有效评分
+    (ratingData.douban?.rating && ratingData.douban.rating !== '暂无' ? 1 : 0) +
+    (ratingData.rottentomatoes?.series?.tomatometer || ratingData.rottentomatoes?.series?.audience_score ? 1 : 0) +
+    (ratingData.metacritic?.overall?.metascore || ratingData.metacritic?.overall?.userscore ? 1 : 0) +
+    (ratingData.tmdb?.rating ? 1 : 0) +
+    (ratingData.trakt?.rating ? 1 : 0) +
+    (ratingData.letterboxd?.rating ? 1 : 0) +
+    (ratingData.imdb?.rating && ratingData.imdb.rating !== '暂无' ? 1 : 0)
+  );
+}
+
 export function ExportTVShowRatingCard({ 
   tvShow,
   ratingData,
@@ -291,7 +335,7 @@ export function ExportTVShowRatingCard({
         <div className="mt-4 mb-6">
           <OverallRatingCard 
             rating={selectedSeason ? (seasonRating || 0) : (overallRating?.rating || 0)}
-            validPlatformsCount={Object.values(ratings).filter(r => r !== null).length}
+            validPlatformsCount={calculateValidPlatformsCount(ratingData, selectedSeason)}
           />
         </div>
 
