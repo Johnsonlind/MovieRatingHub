@@ -55,7 +55,7 @@ export function ExportButton({
         className="fixed bottom-14 left-2 z-30 p-2 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20 backdrop-blur-sm transition-colors"
         aria-label={isExporting ? '导出中' : '导出评分卡片'}
       >
-        <Download className={`w-6 h-6 text-gray-700 dark:text-white ${isExporting ? 'animate-bounce' : ''}`} />
+        <Download className={`w-4 h-4 text-gray-700 dark:text-white ${isExporting ? 'animate-bounce' : ''}`} />
       </button>
 
       {seasons.length > 0 && showSeasonSelect && (
