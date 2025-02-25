@@ -26,10 +26,10 @@ export function SearchButton() {
     <>
       <button
         onClick={() => setShowSearch(true)}
-        className="fixed top-4 left-4 z-30 p-2 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20 backdrop-blur-sm transition-colors"
+        className="fixed top-2 left-2 z-30 p-2 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20 backdrop-blur-sm transition-colors"
         aria-label="搜索"
       >
-        <Search className="w-6 h-6 text-gray-700 dark:text-white" />
+        <Search className="w-4 h-4 text-gray-700 dark:text-white" />
       </button>
 
       {showSearch && (
@@ -39,7 +39,7 @@ export function SearchButton() {
               type="text"
               autoFocus
               placeholder="搜索电影或电视剧..."
-              className="w-full px-4 py-3 text-lg rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              className="w-full px-2 py-1.5 text-lg rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
             />
