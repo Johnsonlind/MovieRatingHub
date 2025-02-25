@@ -73,6 +73,9 @@ export default function TVShowPage() {
 
   const [posterBase64, setPosterBase64] = useState<string | null>(null);
 
+  // 添加一个导出专用的状态
+  const exportSeasonRef = useRef<number | undefined>(undefined);
+
   useEffect(() => {
     const fetchAllRatings = async () => {
       // 如果存在之前的请求，先取消它
@@ -394,29 +397,25 @@ export default function TVShowPage() {
     }
   };
 
+  const handleSeasonChange = async (season: number | undefined) => {
+    // 同时更新两个值
+    exportSeasonRef.current = season;
+    setSelectedSeason(season);
+  };
+
   const handleExport = async () => {
+    const seasonToExport = exportSeasonRef.current;
+    
     if (!tvShow || isExporting) return;
-    
-    // 验证是否有有效的评分数据
-    const hasValidRatings = Object.values(allRatings).some(rating => 
-      rating && typeof rating === 'object' && Object.keys(rating).length > 0
-    );
-    
-    if (!hasValidRatings) {
-      console.error('没有有效的评分数据可供导出');
-      return;
-    }
-    
     setIsExporting(true);
     
     try {
       const element = document.getElementById('export-content');
       if (!element) throw new Error('导出元素不存在');
       
-      // 构建文件名：标题+年份，如果是分季则加上季数
       let fileName = `${tvShow.title} (${tvShow.year})`;
-      if (selectedSeason) {
-        fileName += ` S${selectedSeason.toString().padStart(2, '0')}`;
+      if (seasonToExport) {
+        fileName += ` S${seasonToExport.toString().padStart(2, '0')}`;
       }
       fileName = fileName.replace(/[/\\?%*:|"<>]/g, '-');
       
@@ -459,7 +458,7 @@ export default function TVShowPage() {
           onExport={handleExport}
           seasons={tvShow?.seasons}
           selectedSeason={selectedSeason}
-          onSeasonChange={setSelectedSeason}
+          onSeasonChange={handleSeasonChange}
           isExporting={isExporting}
         />
       <SearchButton />
