@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Download } from 'lucide-react';
 import { MovieHero } from '../components/movie/MovieHero';
 import { Credits } from '../components/movie/Credits';
 import { getMovie } from '../lib/api/tmdb/movies';
@@ -19,6 +18,8 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { CDN_URL } from '../lib/config';
 import { getBase64Image } from '../lib/utils/image';
 import { SearchButton } from '../components/SearchButton';
+import { HomeButton } from '../components/HomeButton';
+import { ExportButton } from '../components/ExportButton';
 
 interface PlatformStatus {
   status: FetchStatus;
@@ -400,8 +401,14 @@ export default function MoviePage() {
 
   return (
     <div className="min-h-screen bg-[var(--page-bg)]">
-      <ThemeToggle />
+      <ExportButton 
+        onExport={handleExport}
+        isExporting={isExporting}
+      />           
       <SearchButton />
+      <HomeButton />
+      <ThemeToggle />
+
       
       <div className="movie-content">
         <MovieHero 
@@ -450,16 +457,6 @@ export default function MoviePage() {
           )}
         </div>
       </div>
-      
-      {/* Export Button */}
-      <button
-        onClick={handleExport}
-        disabled={isExporting}
-        className="fixed bottom-8 right-8 export-button bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 transition-colors"
-      >
-        <Download className={`w-5 h-5 ${isExporting ? 'animate-bounce' : ''}`} />
-        {isExporting ? '导出中...' : '导出评分卡片'}
-      </button>
     </div>
   );
 }
