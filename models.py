@@ -30,6 +30,7 @@ class Favorite(Base):
     media_type = Column(String(50))
     title = Column(String(255))
     poster = Column(String(255))
+    year = Column(String(50))
     created_at = Column(DateTime, default=datetime.utcnow)
     
     user = relationship("User", back_populates="favorites")
