@@ -13,6 +13,7 @@ interface Favorite {
   media_type: string;
   title: string;
   poster: string;
+  year: string;
 }
 
 interface ProfileFormData {
@@ -301,7 +302,10 @@ export default function ProfilePage() {
                       className="w-full aspect-[2/3] object-cover transform transition-transform group-hover:scale-105"
                     />
                   </div>
-                  <p className="mt-2 text-sm dark:text-gray-300 truncate">{favorite.title}</p>
+                  <div className="mt-2">
+                    <p className="text-sm dark:text-gray-300 truncate">{favorite.title}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">({favorite.year})</p>
+                  </div>
                 </div>
               ))}
             </div>
