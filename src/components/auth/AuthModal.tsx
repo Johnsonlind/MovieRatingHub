@@ -13,7 +13,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [, setError] = useState('');
+  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isDark, setIsDark] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -191,6 +191,12 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                       </button>
                     )}
                   </div>
+
+                  {error && (
+                    <div className="text-red-500 text-sm">
+                      {error}
+                    </div>
+                  )}
                 </form>
 
                 <div className="absolute bottom-1.5 left-4 right-4 sm:left-8 sm:right-8 flex justify-between items-center">
