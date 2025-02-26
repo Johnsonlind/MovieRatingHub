@@ -337,7 +337,8 @@ async def add_favorite(
         media_id=data["media_id"],
         media_type=data["media_type"],
         title=data["title"],
-        poster=data["poster"]
+        poster=data["poster"],
+        year=data.get("year", "")
     )
     
     db.add(favorite)
