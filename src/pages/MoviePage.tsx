@@ -20,6 +20,8 @@ import { getBase64Image } from '../lib/utils/image';
 import { SearchButton } from '../components/SearchButton';
 import { HomeButton } from '../components/HomeButton';
 import { ExportButton } from '../components/ExportButton';
+import { FavoriteButton } from '../components/FavoriteButton';
+import { UserButton } from '../components/auth/UserButton';
 
 interface PlatformStatus {
   status: FetchStatus;
@@ -401,15 +403,18 @@ export default function MoviePage() {
 
   return (
     <div className="min-h-screen bg-[var(--page-bg)]">
-      <ExportButton 
-        onExport={handleExport}
-        isExporting={isExporting}
-      />           
-      <SearchButton />
-      <HomeButton />
       <ThemeToggle />
+      <HomeButton />
+      <SearchButton />
+      <UserButton />
+      <FavoriteButton 
+        mediaId={id || ''}
+        mediaType="movie"
+        title={movie.title}
+        poster={movie.poster}
+      />
+      <ExportButton onExport={handleExport} isExporting={isExporting} />
 
-      
       <div className="movie-content">
         <MovieHero 
           movie={{
