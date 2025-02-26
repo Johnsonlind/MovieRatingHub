@@ -10,7 +10,18 @@ export function getImageUrl(path: string | null, size: ImageSize, type: ImageTyp
   return `${TMDB.imageBaseUrl}/${TMDB.posterSizes[size]}${path}`;
 }
 
-export async function getBase64Image(imgUrl: string): Promise<string> {
+export async function getBase64Image(input: string | File): Promise<string> {
+  // 如果输入是 File 对象
+  if (input instanceof File) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(input);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+    });
+  }
+  
+  // 原有的 URL 处理逻辑
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -45,6 +56,6 @@ export async function getBase64Image(imgUrl: string): Promise<string> {
     };
 
     // 添加时间戳避免缓存
-    img.src = `${imgUrl}?t=${Date.now()}`;
+    img.src = `${input}?t=${Date.now()}`;
   });
 }
