@@ -21,6 +21,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
 import secrets
+from fastapi.responses import JSONResponse
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -248,42 +249,54 @@ async def register(
 
 @app.post("/auth/login")
 async def login(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
-    email = data.get("email")
-    password = data.get("password")
-    remember_me = data.get("remember_me", False)
-    
-    user = db.query(User).filter(User.email == email).first()
-    
-    # 先检查邮箱是否存在
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="此邮箱未注册"
+    try:
+        data = await request.json()
+        email = data.get("email")
+        password = data.get("password")
+        remember_me = data.get("remember_me", False)
+        
+        print(f"收到登录请求: email={email}, remember_me={remember_me}")
+        
+        user = db.query(User).filter(User.email == email).first()
+        
+        # 先检查邮箱是否存在
+        if not user:
+            print(f"邮箱 {email} 未注册")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "此邮箱未注册"}
+            )
+        
+        # 再检查密码是否正确
+        if not verify_password(password, user.hashed_password):
+            print(f"邮箱 {email} 密码错误")
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "邮箱或密码错误"}
+            )
+        
+        print(f"用户 {email} 登录成功")
+        access_token = create_access_token(
+            data={"sub": user.email},
+            remember_me=remember_me
         )
-    
-    # 再检查密码是否正确
-    if not verify_password(password, user.hashed_password):
-        raise HTTPException(
-            status_code=401,
-            detail="邮箱或密码错误"
-        )
-    
-    access_token = create_access_token(
-        data={"sub": user.email},
-        remember_me=remember_me
-    )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "username": user.username,
-            "avatar": user.avatar
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "username": user.username,
+                "avatar": user.avatar
+            }
         }
-    }
+    except Exception as e:
+        print(f"登录过程出错: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 # 获取当前用户
 async def get_current_user(
