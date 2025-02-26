@@ -56,30 +56,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (email: string, password: string, rememberMe: boolean = false) => {
-    const response = await fetch('/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, remember_me: rememberMe })
-    });
-  
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail);
-    }
-  
-    const data = await response.json();
-    localStorage.setItem('token', data.access_token);
+    console.log('开始登录请求:', { email, rememberMe });
     
-    // 获取最新的用户信息
-    const userResponse = await fetch('/api/user/me', {
-      headers: {
-        'Authorization': `Bearer ${data.access_token}`
+    try {
+      const response = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, remember_me: rememberMe })
+      });
+    
+      console.log('登录响应状态:', response.status);
+      
+      if (!response.ok) {
+        const error = await response.json();
+        console.error('登录失败:', error);
+        throw new Error(error.detail);
       }
-    });
-    
-    if (userResponse.ok) {
-      const userData = await userResponse.json();
-      setUser(userData);
+      
+      const data = await response.json();
+      console.log('登录成功:', data);
+      localStorage.setItem('token', data.access_token);
+      
+      // 获取用户信息
+      const userResponse = await fetch('/api/user/me', {
+        headers: {
+          'Authorization': `Bearer ${data.access_token}`
+        }
+      });
+      
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        setUser(userData);
+      }
+    } catch (error) {
+      console.error('登录过程出错:', error);
+      throw error;
     }
   };
 
