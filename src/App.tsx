@@ -1,8 +1,13 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthProvider } from './contexts/AuthContext';
 import HomePage from './pages/HomePage';
 import MoviePage from './pages/MoviePage';
 import TVShowPage from './pages/TVShowPage';
+import ProfilePage from './pages/ProfilePage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
+import AuthConfirmPage from './pages/AuthConfirmPage';
+import AuthErrorPage from './pages/AuthErrorPage';
 
 const queryClient = new QueryClient();
 
@@ -17,15 +22,21 @@ const routerOptions = {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router {...routerOptions}>
-        <div className="min-h-screen bg-gray-50">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/movie/:id" element={<MoviePage />} />
-            <Route path="/tv/:id" element={<TVShowPage />} />
-          </Routes>
-        </div>
-      </Router>
+      <AuthProvider>
+        <Router {...routerOptions}>
+          <div className="min-h-screen bg-gray-50">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/movie/:id" element={<MoviePage />} />
+              <Route path="/tv/:id" element={<TVShowPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/auth/confirm" element={<AuthConfirmPage />} />
+              <Route path="/auth/auth-code-error" element={<AuthErrorPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+            </Routes>
+          </div>
+        </Router>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
