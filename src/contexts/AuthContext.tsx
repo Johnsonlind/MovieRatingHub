@@ -68,9 +68,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('登录响应状态:', response.status);
       
       if (!response.ok) {
-        const error = await response.json();
-        console.error('登录失败:', error);
-        throw new Error(error.detail);
+        const errorData = await response.json();
+        console.error('登录失败:', errorData);
+        
+        // 根据错误类型返回不同的错误信息
+        if (errorData.error_type === 'email_not_found') {
+          throw new Error('此邮箱未注册');
+        } else if (errorData.error_type === 'invalid_password') {
+          throw new Error('邮箱或密码错误');
+        } else {
+          throw new Error(errorData.detail || '登录失败');
+        }
       }
       
       const data = await response.json();
