@@ -250,37 +250,50 @@ async def register(
 @app.post("/auth/login")
 async def login(request: Request, db: Session = Depends(get_db)):
     try:
+        print("=== 登录请求开始 ===")
         data = await request.json()
         email = data.get("email")
         password = data.get("password")
         remember_me = data.get("remember_me", False)
         
-        print(f"收到登录请求: email={email}, remember_me={remember_me}")
+        print(f"接收到的登录数据: email={email}, remember_me={remember_me}")
         
-        user = db.query(User).filter(User.email == email).first()
+        # 添加数据库连接状态检查
+        try:
+            user = db.query(User).filter(User.email == email).first()
+            print(f"数据库查询结果: {'找到用户' if user else '未找到用户'}")
+        except Exception as e:
+            print(f"数据库查询错误: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"数据库查询错误: {str(e)}"
+            )
         
         # 先检查邮箱是否存在
         if not user:
             print(f"邮箱 {email} 未注册")
             return JSONResponse(
                 status_code=401,
-                content={"detail": "此邮箱未注册"}
+                content={"detail": "此邮箱未注册", "error_type": "email_not_found"}
             )
+        
+        print(f"找到用户: {user.email}")
         
         # 再检查密码是否正确
         if not verify_password(password, user.hashed_password):
-            print(f"邮箱 {email} 密码错误")
+            print(f"用户 {email} 密码验证失败")
             return JSONResponse(
                 status_code=401,
-                content={"detail": "邮箱或密码错误"}
+                content={"detail": "邮箱或密码错误", "error_type": "invalid_password"}
             )
         
-        print(f"用户 {email} 登录成功")
+        print(f"密码验证成功，生成token")
         access_token = create_access_token(
             data={"sub": user.email},
             remember_me=remember_me
         )
         
+        print("=== 登录请求完成 ===")
         return {
             "access_token": access_token,
             "token_type": "bearer",
@@ -291,11 +304,15 @@ async def login(request: Request, db: Session = Depends(get_db)):
                 "avatar": user.avatar
             }
         }
+    except HTTPException as he:
+        # 直接重新抛出 HTTP 异常
+        raise he
     except Exception as e:
-        print(f"登录过程出错: {str(e)}")
+        # 记录意外错误
+        print(f"登录过程发生意外错误: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=f"服务器错误: {str(e)}"
         )
 
 # 获取当前用户
