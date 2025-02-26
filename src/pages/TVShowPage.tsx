@@ -465,6 +465,7 @@ export default function TVShowPage() {
         mediaType="tv"
         title={tvShow.title || ''}
         poster={`https://image.tmdb.org/t/p/w500${tvShow.backdrop}`}
+        year={String(tvShow.year || '')}
       />
       <ExportButton 
         onExport={handleExport}
