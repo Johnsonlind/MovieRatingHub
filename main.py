@@ -253,10 +253,13 @@ async def login(request: Request, db: Session = Depends(get_db)):
     password = data.get("password")
     remember_me = data.get("remember_me", False)
     
+    print(f"收到登录请求: email={email}, remember_me={remember_me}")
+    
     user = db.query(User).filter(User.email == email).first()
     
     # 先检查邮箱是否存在
     if not user:
+        print(f"邮箱 {email} 未注册")
         raise HTTPException(
             status_code=401,
             detail="此邮箱未注册"
@@ -264,11 +267,13 @@ async def login(request: Request, db: Session = Depends(get_db)):
     
     # 再检查密码是否正确
     if not verify_password(password, user.hashed_password):
+        print(f"邮箱 {email} 密码错误")
         raise HTTPException(
             status_code=401,
             detail="邮箱或密码错误"
         )
     
+    print(f"用户 {email} 登录成功")
     access_token = create_access_token(
         data={"sub": user.email},
         remember_me=remember_me
