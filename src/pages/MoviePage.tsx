@@ -412,6 +412,7 @@ export default function MoviePage() {
         mediaType="movie"
         title={movie.title}
         poster={movie.poster}
+        year={String(movie.year || '')}
       />
       <ExportButton onExport={handleExport} isExporting={isExporting} />
 
