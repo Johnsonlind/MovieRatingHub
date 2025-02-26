@@ -66,13 +66,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     
       console.log('登录响应状态:', response.status);
-      console.log('登录响应头:', response.headers);
+      
+      const errorData = await response.json();
+      console.log('登录响应数据:', errorData);
       
       if (!response.ok) {
-        const errorData = await response.json();
-        console.error('登录失败:', errorData);
-        
-        // 根据错误类型返回不同的错误信息
         if (errorData.error_type === 'email_not_found') {
           throw new Error('此邮箱未注册');
         } else if (errorData.error_type === 'invalid_password') {
@@ -82,14 +80,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
       
-      const data = await response.json();
-      console.log('登录成功:', data);
-      localStorage.setItem('token', data.access_token);
+      // 登录成功的处理
+      localStorage.setItem('token', errorData.access_token);
       
       // 获取用户信息
       const userResponse = await fetch('/api/user/me', {
         headers: {
-          'Authorization': `Bearer ${data.access_token}`
+          'Authorization': `Bearer ${errorData.access_token}`
         }
       });
       
