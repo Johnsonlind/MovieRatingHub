@@ -66,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     
       console.log('登录响应状态:', response.status);
+      console.log('登录响应头:', response.headers);
       
       if (!response.ok) {
         const errorData = await response.json();
