@@ -7,9 +7,10 @@ interface FavoriteButtonProps {
   mediaType: string;
   title: string;
   poster: string;
+  year: string;
 }
 
-export function FavoriteButton({ mediaId, mediaType, title, poster }: FavoriteButtonProps) {
+export function FavoriteButton({ mediaId, mediaType, title, poster, year }: FavoriteButtonProps) {
   const { user } = useAuth();
   const [isFavorited, setIsFavorited] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -55,6 +56,7 @@ export function FavoriteButton({ mediaId, mediaType, title, poster }: FavoriteBu
           media_id: mediaId,
           media_type: mediaType,
           title,
+          year,
           poster
         })
       });
