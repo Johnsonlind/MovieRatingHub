@@ -254,7 +254,16 @@ async def login(request: Request, db: Session = Depends(get_db)):
     remember_me = data.get("remember_me", False)
     
     user = db.query(User).filter(User.email == email).first()
-    if not user or not verify_password(password, user.hashed_password):
+    
+    # 先检查邮箱是否存在
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="此邮箱未注册"
+        )
+    
+    # 再检查密码是否正确
+    if not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=401,
             detail="邮箱或密码错误"
