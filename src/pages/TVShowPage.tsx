@@ -20,6 +20,8 @@ import { SearchButton } from '../components/SearchButton';
 import { TraktRating } from '../types/ratings';
 import { HomeButton } from '../components/HomeButton';
 import { ExportButton } from '../components/ExportButton';
+import { FavoriteButton } from '../components/FavoriteButton';
+import { UserButton } from '../components/auth/UserButton';
 
 // 添加 TMDB 和 Trakt 评分类型定义
 interface TMDBRating {
@@ -454,16 +456,23 @@ export default function TVShowPage() {
 
   return (
     <div className="min-h-screen bg-[var(--page-bg)]">
-        <ExportButton 
-          onExport={handleExport}
-          seasons={tvShow?.seasons}
-          selectedSeason={selectedSeason}
-          onSeasonChange={handleSeasonChange}
-          isExporting={isExporting}
-        />
-      <SearchButton />
-      <HomeButton />
       <ThemeToggle />
+      <UserButton />
+      <HomeButton />
+      <SearchButton />
+      <FavoriteButton 
+        mediaId={id || ''}
+        mediaType="tv"
+        title={tvShow.title || ''}
+        poster={`https://image.tmdb.org/t/p/w500${tvShow.backdrop}`}
+      />
+      <ExportButton 
+        onExport={handleExport}
+        seasons={tvShow?.seasons}
+        selectedSeason={selectedSeason}
+        onSeasonChange={handleSeasonChange}
+        isExporting={isExporting}
+      />
     
       <div className="tv-show-content">
         {/* 添加调试日志 */}
