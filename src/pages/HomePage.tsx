@@ -7,6 +7,7 @@ import { messages } from '../lib/constants/messages';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { CDN_URL } from '../lib/config';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { UserButton } from '../components/auth/UserButton';
 
 export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -35,6 +36,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[var(--page-bg)]">
       <ThemeToggle />
+      <UserButton />
       
       <div className="container mx-auto px-4 py-8">
         <div className="text-center mb-6 sm:mb-8">
