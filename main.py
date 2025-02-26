@@ -248,12 +248,13 @@ async def register(
 
 @app.post("/auth/login")
 async def login(request: Request, db: Session = Depends(get_db)):
+    print("=== 登录请求开始 ===")
     data = await request.json()
     email = data.get("email")
     password = data.get("password")
     remember_me = data.get("remember_me", False)
     
-    print(f"收到登录请求: email={email}, remember_me={remember_me}")
+    print(f"接收到的登录数据: email={email}, remember_me={remember_me}")
     
     user = db.query(User).filter(User.email == email).first()
     
@@ -265,20 +266,23 @@ async def login(request: Request, db: Session = Depends(get_db)):
             detail="此邮箱未注册"
         )
     
+    print(f"找到用户: {user.email}")
+    
     # 再检查密码是否正确
     if not verify_password(password, user.hashed_password):
-        print(f"邮箱 {email} 密码错误")
+        print(f"用户 {email} 密码验证失败")
         raise HTTPException(
             status_code=401,
             detail="邮箱或密码错误"
         )
     
-    print(f"用户 {email} 登录成功")
+    print(f"密码验证成功，生成token")
     access_token = create_access_token(
         data={"sub": user.email},
         remember_me=remember_me
     )
     
+    print("=== 登录请求完成 ===")
     return {
         "access_token": access_token,
         "token_type": "bearer",
