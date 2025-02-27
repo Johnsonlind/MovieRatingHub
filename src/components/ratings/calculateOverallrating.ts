@@ -5,28 +5,28 @@ import type {
 
 // 平台权重配置
 const PLATFORM_WEIGHTS = {
-  douban: 1.8,
-  imdb: 1.7,
-  letterboxd: 1.3,
+  douban: 1.2,
+  imdb: 1.2,
+  letterboxd: 1.0,
   rottentomatoes: {
-    critics: 1.5,
-    audience: 1.3,
-    series: 1.4,
-    season: 1.2
+    critics: 1.2,
+    audience: 1.0,
+    series: 1.1,
+    season: 1.0
   },
   metacritic: {
-    critics: 1.6,
-    users: 1.4,
-    series: 1.5,
-    season: 1.3
+    critics: 1.2,
+    users: 1.0,
+    series: 1.1,
+    season: 1.0
   },
   tmdb: {
-    series: 0.7,
-    season: 0.6
-  },
-  trakt: {
     series: 0.6,
     season: 0.5
+  },
+  trakt: {
+    series: 0.5,
+    season: 0.4
   }
 };
 
@@ -62,13 +62,13 @@ export function normalizeRating(rating: string | number | null | undefined, plat
 // 评分调整函数
 function adjustScore(score: number): number {
   if (score >= 8.5) {
-    return score * 1.02;
-  } else if (score >= 6.5) {
     return score;
-  } else if (score >= 5.0) {
+  } else if (score >= 6.5) {
     return score * 0.98;
+  } else if (score >= 5.0) {
+    return score * 0.95;
   } else {
-    return score * 0.93;
+    return score * 0.90;
   }
 }
 
