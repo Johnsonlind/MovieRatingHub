@@ -20,6 +20,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+const API_BASE_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://api.ratefuse.cn'
+  : '';
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,9 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('开始登录请求:', { email, rememberMe });
     
     try {
-      // 记录完整请求URL
-      const requestUrl = '/auth/login';
-      console.log('请求URL:', window.location.origin + requestUrl);
+      const requestUrl = `${API_BASE_URL}/auth/login`;
+      console.log('请求URL:', requestUrl);
       
       const response = await fetch(requestUrl, {
         method: 'POST',
@@ -70,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // 添加额外的请求头以便追踪
           'X-Request-ID': Date.now().toString()
         },
+        credentials: 'include',
         body: JSON.stringify({ email, password, remember_me: rememberMe })
       });
     
