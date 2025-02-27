@@ -3,33 +3,6 @@ import type {
   TVShowRatingData,
 } from '../../types/ratings';
 
-// 平台权重配置
-const PLATFORM_WEIGHTS = {
-  douban: 1.2,
-  imdb: 1.2,
-  letterboxd: 1.0,
-  rottentomatoes: {
-    critics: 1.2,
-    audience: 1.0,
-    series: 1.1,
-    season: 1.0
-  },
-  metacritic: {
-    critics: 1.2,
-    users: 1.0,
-    series: 1.1,
-    season: 1.0
-  },
-  tmdb: {
-    series: 0.6,
-    season: 0.5
-  },
-  trakt: {
-    series: 0.5,
-    season: 0.4
-  }
-};
-
 // 标准化评分函数
 export function normalizeRating(rating: string | number | null | undefined, platform: string, type?: string): number | null {
   if (!rating || rating === '暂无' || rating === 'tbd' || rating === 'N/A') return null;
@@ -59,447 +32,399 @@ export function normalizeRating(rating: string | number | null | undefined, plat
   }
 }
 
-// 评分调整函数
-function adjustScore(score: number): number {
-  if (score >= 8.5) {
-    return score;
-  } else if (score >= 6.5) {
-    return score * 0.98;
-  } else if (score >= 5.0) {
-    return score * 0.95;
-  } else {
-    return score * 0.90;
+// 辅助函数：检查评分和计数是否有效
+function isValidRatingData(rating: string | number | undefined | null, count?: string | number | undefined | null): boolean {
+  // 检查评分值
+  if (!rating) return false;
+  if (typeof rating === 'string') {
+    if (rating === '暂无' || rating === 'tbd' || rating === 'N/A' || rating === '0') return false;
+    const numRating = parseFloat(rating);
+    if (isNaN(numRating) || numRating === 0) return false;
+  } else if (typeof rating === 'number') {
+    if (rating === 0 || isNaN(rating)) return false;
   }
+
+  // 检查计数值（如果提供）
+  if (count !== undefined) {
+    if (!count) return false;
+    if (typeof count === 'string') {
+      if (count === '暂无' || count === '0' || count === 'N/A') return false;
+      const numCount = count.includes('K') ? 
+        parseFloat(count.replace('K', '')) * 1000 :
+        count.includes('M') ? 
+          parseFloat(count.replace('M', '')) * 1000000 :
+          parseInt(count.replace(/[^0-9]/g, ''));
+      if (isNaN(numCount) || numCount === 0) return false;
+    } else if (typeof count === 'number') {
+      if (count === 0 || isNaN(count)) return false;
+    }
+  }
+
+  return true;
 }
 
-// 计算评分人数权重
-function calculateVoteWeight(voteCount: string | number): number {
-  let count: number;
-  if (typeof voteCount === 'string') {
-    if (voteCount.includes('K')) {
-      count = parseFloat(voteCount.replace('K', '')) * 1000;
-    } else if (voteCount.includes('M')) {
-      count = parseFloat(voteCount.replace('M', '')) * 1000000;
-    } else {
-      count = parseInt(voteCount.replace(/[^0-9]/g, ''));
-    }
-  } else {
-    count = voteCount;
+// 辅助函数:计算评分人数的中位数
+function calculateMedianVoteCount(ratingData: RatingData | TVShowRatingData): number {
+  const voteCounts = [];
+  
+  // 收集所有有效的评分人数
+  if (ratingData.douban?.rating_people) {
+    voteCounts.push(parseFloat(ratingData.douban.rating_people.replace(/[^0-9]/g, '')));
+  }
+  if (ratingData.imdb?.rating_people) {
+    voteCounts.push(parseFloat(ratingData.imdb.rating_people.replace(/[^0-9]/g, '')));
+  }
+  if (ratingData.rottentomatoes?.series?.critics_count) {
+    voteCounts.push(parseFloat(ratingData.rottentomatoes.series.critics_count.replace(/[^0-9]/g, '')));
+  }
+  if (ratingData.rottentomatoes?.series?.audience_count) {
+    voteCounts.push(parseFloat(ratingData.rottentomatoes.series.audience_count.replace(/[^0-9]/g, '')));
+  }
+  if (ratingData.metacritic?.overall?.critics_count) {
+    voteCounts.push(parseFloat(ratingData.metacritic.overall.critics_count));
+  }
+  if (ratingData.metacritic?.overall?.users_count) {
+    voteCounts.push(parseFloat(ratingData.metacritic.overall.users_count));
+  }
+  if (ratingData.tmdb?.voteCount) {
+    voteCounts.push(ratingData.tmdb.voteCount);
+  }
+  if (ratingData.trakt?.votes) {
+    voteCounts.push(ratingData.trakt.votes);
+  }
+  if (ratingData.letterboxd?.rating_count) {
+    voteCounts.push(parseFloat(ratingData.letterboxd.rating_count.replace(/[^0-9]/g, '')));
+  }
+
+  // 如果是电视剧,还要收集分季评分人数
+  if ('type' in ratingData && ratingData.type === 'tv') {
+    const tvData = ratingData as TVShowRatingData;
+    tvData.seasons?.forEach(season => {
+      if (season.douban?.rating_people) {
+        voteCounts.push(parseFloat(season.douban.rating_people.replace(/[^0-9]/g, '')));
+      }
+      if (season.rottentomatoes?.critics_count) {
+        voteCounts.push(parseFloat(season.rottentomatoes.critics_count.replace(/[^0-9]/g, '')));
+      }
+      if (season.rottentomatoes?.audience_count) {
+        voteCounts.push(parseFloat(season.rottentomatoes.audience_count.replace(/[^0-9]/g, '')));
+      }
+      if (season.metacritic?.critics_count) {
+        voteCounts.push(parseFloat(season.metacritic.critics_count));
+      }
+      if (season.metacritic?.users_count) {
+        voteCounts.push(parseFloat(season.metacritic.users_count));
+      }
+      if (season.tmdb?.voteCount) {
+        voteCounts.push(season.tmdb.voteCount);
+      }
+      if (season.trakt?.votes) {
+        voteCounts.push(season.trakt.votes);
+      }
+    });
+  }
+
+  // 如果没有任何有效评分人数,返回默认值
+  if (voteCounts.length === 0) {
+    return 1000;
   }
   
-  if (isNaN(count)) return 0;
-
-  const baseWeight = Math.log10(count + 1) / Math.log10(200000);
-  return Math.min(baseWeight, 1.0);
-}
-
-export function isValidScore(score: any): boolean {
-  if (!score || score === '暂无' || score === 'tbd' || score === 'N/A') return false;
-  const numScore = parseFloat(score);
-  return !isNaN(numScore) && numScore > 0;
-}
-
-interface CalculatedRating {
-  rating: number | null;
-  validRatings: number;
-  platforms: string[];
+  // 计算中位数
+  voteCounts.sort((a, b) => a - b);
+  const mid = Math.floor(voteCounts.length / 2);
+  return voteCounts.length % 2 === 0 
+    ? (voteCounts[mid - 1] + voteCounts[mid]) / 2
+    : voteCounts[mid];
 }
 
 export function calculateOverallRating(
-  ratingData: RatingData, 
+  ratingData: RatingData | TVShowRatingData,
   type: 'movie' | 'tvshow' = 'movie'
-): CalculatedRating {
-
+): { rating: number | null; validRatings: number; platforms: string[] } {
   if (!ratingData) return { rating: null, validRatings: 0, platforms: [] };
 
-  let weightedSum = 0;
-  let totalWeight = 0;
+  let ratingTimesVoteSum = 0;  // 评分乘以评分人数的总和
+  let totalVoteCount = 0;      // 总评分人数
   const validPlatforms: string[] = [];
-  const ratingDetails: {platform: string, rating: number, weight: number}[] = [];
   
-  const calculateVariance = (ratings: number[]) => {
-    if (ratings.length < 2) return 0;
-    const mean = ratings.reduce((a, b) => a + b) / ratings.length;
-    const variance = ratings.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / ratings.length;
-    return variance;
-  };
+  // 获取评分人数中位数(用于无评分人数的平台)
+  const medianVoteCount = calculateMedianVoteCount(ratingData);
 
-  const addContribution = (score: number, weight: number, platform: string) => {
-    if (score > 0 && weight > 0) {
-      weightedSum += score * weight;
-      totalWeight += weight;
-      if (!validPlatforms.includes(platform)) {
-        validPlatforms.push(platform);
-      }
-      ratingDetails.push({
-        platform,
-        rating: score,
-        weight
-      });
-    }
-  };
-
+  // 处理电影评分
   if (type === 'movie') {
     // 豆瓣评分
-    if (ratingData.douban?.rating) {
-      const rating = ratingData.douban.rating;
-      if (isValidScore(rating)) {
-        const normalizedRating = parseFloat(rating);
-        const voteWeight = calculateVoteWeight(ratingData.douban.rating_people);
-        const weight = PLATFORM_WEIGHTS.douban * (1 + voteWeight);
-        addContribution(adjustScore(normalizedRating), weight, 'douban');
-      }
+    if (isValidRatingData(ratingData.douban?.rating)) {
+      const rating = parseFloat(ratingData.douban?.rating || '0');
+      const voteCount = ratingData.douban?.rating_people 
+        ? parseFloat(ratingData.douban.rating_people.replace(/[^0-9]/g, ''))
+        : medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('douban');
     }
 
     // IMDB评分
-    if (ratingData.imdb?.rating) {
-      const rating = ratingData.imdb.rating;
-      if (isValidScore(rating)) {
-        const normalizedRating = parseFloat(rating);
-        const voteWeight = calculateVoteWeight(ratingData.imdb.rating_people);
-        const weight = PLATFORM_WEIGHTS.imdb * (1 + voteWeight);
-        addContribution(adjustScore(normalizedRating), weight, 'imdb');
-      }
+    if (isValidRatingData(ratingData.imdb?.rating)) {
+      const rating = parseFloat(ratingData.imdb?.rating || '0');
+      const voteCount = ratingData.imdb?.rating_people
+        ? parseFloat(ratingData.imdb.rating_people.replace(/[^0-9]/g, ''))
+        : medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('imdb');
     }
 
     // 烂番茄评分
     if (ratingData.rottentomatoes?.series) {
       const rt = ratingData.rottentomatoes.series;
-      const ratings: number[] = [];
-      let rtSum = 0;
-      let rtWeight = 0;
-
-      if (rt.tomatometer && isValidScore(rt.tomatometer)) {
-        const tomatometer = parseFloat(rt.tomatometer) / 10;
-        ratings.push(tomatometer);
-        rtSum += tomatometer * PLATFORM_WEIGHTS.rottentomatoes.critics;
-        rtWeight += PLATFORM_WEIGHTS.rottentomatoes.critics;
+      // 专业评分
+      if (isValidRatingData(rt.critics_avg)) {
+        const rating = normalizeRating(rt.critics_avg, 'rottentomatoes') ?? 0;
+        const voteCount = rt.critics_count
+          ? parseFloat(rt.critics_count.replace(/[^0-9]/g, ''))
+          : medianVoteCount;
+        ratingTimesVoteSum += rating * voteCount;
+        totalVoteCount += voteCount;
       }
-
-      if (rt.critics_avg && isValidScore(rt.critics_avg)) {
-        const criticsAvg = parseFloat(rt.critics_avg);
-        ratings.push(criticsAvg);
-        rtSum += criticsAvg * PLATFORM_WEIGHTS.rottentomatoes.critics;
-        rtWeight += PLATFORM_WEIGHTS.rottentomatoes.critics;
+      // 用户评分
+      if (isValidRatingData(rt.audience_avg)) {
+        const rating = normalizeRating(rt.audience_avg, 'rottentomatoes') ?? 0;
+        const voteCount = rt.audience_count
+          ? parseFloat(rt.audience_count.replace(/[^0-9]/g, ''))
+          : medianVoteCount;
+        ratingTimesVoteSum += rating * voteCount;
+        totalVoteCount += voteCount;
       }
-
-      if (rt.audience_score && isValidScore(rt.audience_score)) {
-        const audienceScore = parseFloat(rt.audience_score) / 10;
-        ratings.push(audienceScore);
-        rtSum += audienceScore * PLATFORM_WEIGHTS.rottentomatoes.audience;
-        rtWeight += PLATFORM_WEIGHTS.rottentomatoes.audience;
-      }
-
-      if (rt.audience_avg && isValidScore(rt.audience_avg)) {
-        const audienceAvg = parseFloat(rt.audience_avg) * 2;
-        ratings.push(audienceAvg);
-        rtSum += audienceAvg * PLATFORM_WEIGHTS.rottentomatoes.audience;
-        rtWeight += PLATFORM_WEIGHTS.rottentomatoes.audience;
-      }
-
-      if (rtWeight > 0) {
-        const variance = calculateVariance(ratings);
-        const varianceWeight = 1 / (1 + variance);
-        const rtAverage = rtSum / rtWeight;
-        addContribution(rtAverage, PLATFORM_WEIGHTS.rottentomatoes.series * varianceWeight, 'rottentomatoes');
+      if (rt.critics_avg || rt.audience_avg) {
+        validPlatforms.push('rottentomatoes');
       }
     }
 
     // Metacritic评分
     if (ratingData.metacritic?.overall) {
       const mc = ratingData.metacritic.overall;
-      const ratings: number[] = [];
-      let mcSum = 0;
-      let mcWeight = 0;
-
-      if (mc.metascore && isValidScore(mc.metascore)) {
-        const metascore = parseFloat(mc.metascore) / 10;
-        ratings.push(metascore);
-        mcSum += metascore * PLATFORM_WEIGHTS.metacritic.critics;
-        mcWeight += PLATFORM_WEIGHTS.metacritic.critics;
+      // 专业评分
+      if (isValidRatingData(mc.metascore)) {
+        const rating = normalizeRating(mc.metascore, 'metacritic') ?? 0;
+        const voteCount = mc.critics_count
+          ? parseFloat(mc.critics_count)
+          : medianVoteCount;
+        ratingTimesVoteSum += rating * voteCount;
+        totalVoteCount += voteCount;
       }
-
-      if (mc.userscore && isValidScore(mc.userscore)) {
-        const userscore = parseFloat(mc.userscore);
-        ratings.push(userscore);
-        mcSum += userscore * PLATFORM_WEIGHTS.metacritic.users;
-        mcWeight += PLATFORM_WEIGHTS.metacritic.users;
+      // 用户评分
+      if (isValidRatingData(mc.userscore)) {
+        const rating = normalizeRating(mc.userscore, 'metacritic') ?? 0;
+        const voteCount = mc.users_count
+          ? parseFloat(mc.users_count)
+          : medianVoteCount;
+        ratingTimesVoteSum += rating * voteCount;
+        totalVoteCount += voteCount;
       }
-
-      if (mcWeight > 0) {
-        const variance = calculateVariance(ratings);
-        const varianceWeight = 1 / (1 + variance);
-        const mcAverage = mcSum / mcWeight;
-        addContribution(mcAverage, PLATFORM_WEIGHTS.metacritic.series * varianceWeight, 'metacritic');
+      if (mc.metascore || mc.userscore) {
+        validPlatforms.push('metacritic');
       }
     }
 
     // TMDB评分
-    if (ratingData.tmdb?.rating) {
-      const rating = ratingData.tmdb.rating;
-      if (rating > 0) {
-        const voteWeight = calculateVoteWeight(ratingData.tmdb.voteCount);
-        const weight = PLATFORM_WEIGHTS.tmdb.series * (1 + voteWeight);
-        addContribution(adjustScore(rating), weight, 'tmdb');
-      }
+    if (isValidRatingData(ratingData.tmdb?.rating)) {
+      const rating = ratingData.tmdb?.rating ?? 0;
+      const voteCount = ratingData.tmdb?.voteCount ?? medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('tmdb');
     }
 
     // Trakt评分
-    if (ratingData.trakt?.rating) {
-      const rating = ratingData.trakt.rating;
-      if (rating > 0) {
-        const voteWeight = calculateVoteWeight(ratingData.trakt.votes);
-        const weight = PLATFORM_WEIGHTS.trakt.series * (1 + voteWeight);
-        addContribution(adjustScore(rating), weight, 'trakt');
-      }
+    if (isValidRatingData(ratingData.trakt?.rating)) {
+      const rating = ratingData.trakt?.rating ?? 0;
+      const voteCount = ratingData.trakt?.votes ?? medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('trakt');
     }
 
     // Letterboxd评分
-    if (ratingData.letterboxd?.rating) {
-      const rating = ratingData.letterboxd.rating;
-      if (isValidScore(rating)) {
-        const normalizedRating = parseFloat(rating) * 2;
-        const voteWeight = calculateVoteWeight(ratingData.letterboxd.rating_count);
-        const weight = PLATFORM_WEIGHTS.letterboxd * (1 + voteWeight);
-        addContribution(adjustScore(normalizedRating), weight, 'letterboxd');
+    if (isValidRatingData(ratingData.letterboxd?.rating)) {
+      const rating = normalizeRating(ratingData.letterboxd?.rating, 'letterboxd') ?? 0;
+      const voteCount = ratingData.letterboxd?.rating_count
+        ? parseFloat(ratingData.letterboxd.rating_count.replace(/[^0-9]/g, ''))
+        : medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('letterboxd');
+    }
+  } 
+  // 处理剧集评分
+  else {
+    const tvData = ratingData as TVShowRatingData;
+    
+    // 处理整剧评分
+    // IMDB评分
+    if (isValidRatingData(tvData.imdb?.rating)) {
+      const rating = parseFloat(tvData.imdb?.rating || '0');
+      const voteCount = tvData.imdb?.rating_people
+        ? parseFloat(tvData.imdb.rating_people.replace(/[^0-9]/g, ''))
+        : medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('imdb');
+    }
+
+    // 烂番茄整剧评分
+    if (tvData.rottentomatoes?.series) {
+      const rt = tvData.rottentomatoes.series;
+      if (isValidRatingData(rt.critics_avg)) {
+        const rating = normalizeRating(rt.critics_avg, 'rottentomatoes') ?? 0;
+        const voteCount = rt.critics_count
+          ? parseFloat(rt.critics_count.replace(/[^0-9]/g, ''))
+          : medianVoteCount;
+        ratingTimesVoteSum += rating * voteCount;
+        totalVoteCount += voteCount;
+      }
+      if (isValidRatingData(rt.audience_avg)) {
+        const rating = normalizeRating(rt.audience_avg, 'rottentomatoes') ?? 0;
+        const voteCount = rt.audience_count
+          ? parseFloat(rt.audience_count.replace(/[^0-9]/g, ''))
+          : medianVoteCount;
+        ratingTimesVoteSum += rating * voteCount;
+        totalVoteCount += voteCount;
+      }
+      if (rt.critics_avg || rt.audience_avg) {
+        validPlatforms.push('rottentomatoes');
       }
     }
 
-  } else {
-    // 剧集评分处理
-    const tvShowData = ratingData as TVShowRatingData;
-
-    // 豆瓣（分季数据）
-    if (tvShowData.douban?.seasons?.length) {
-      let seasonTotal = 0;
-      let validSeasons = 0;
-
-      tvShowData.douban.seasons.forEach(season => {
-        if (season.rating && season.rating !== '暂无') {
-          const rating = parseFloat(season.rating);
-          const voteWeight = calculateVoteWeight(season.rating_people);
-          const adjScore = adjustScore(rating);
-          
-          seasonTotal += adjScore * (1 + voteWeight);
-          validSeasons++;
-        }
-      });
-
-      if (validSeasons > 0) {
-        const avgScore = seasonTotal / validSeasons;
-        const weight = PLATFORM_WEIGHTS.douban * 0.4 * validSeasons;
-        addContribution(avgScore, weight, 'douban');
+    // Metacritic整剧评分
+    if (tvData.metacritic?.overall) {
+      const mc = tvData.metacritic.overall;
+      if (isValidRatingData(mc.metascore)) {
+        const rating = normalizeRating(mc.metascore, 'metacritic') ?? 0;
+        const voteCount = mc.critics_count
+          ? parseFloat(mc.critics_count)
+          : medianVoteCount;
+        ratingTimesVoteSum += rating * voteCount;
+        totalVoteCount += voteCount;
+      }
+      if (isValidRatingData(mc.userscore)) {
+        const rating = normalizeRating(mc.userscore, 'metacritic') ?? 0;
+        const voteCount = mc.users_count
+          ? parseFloat(mc.users_count)
+          : medianVoteCount;
+        ratingTimesVoteSum += rating * voteCount;
+        totalVoteCount += voteCount;
+      }
+      if (mc.metascore || mc.userscore) {
+        validPlatforms.push('metacritic');
       }
     }
 
-    // IMDB（只有整体数据）
-    if (ratingData.imdb?.rating) {
-      const rating = parseFloat(ratingData.imdb.rating);
-      const voteWeight = calculateVoteWeight(ratingData.imdb.rating_people);
-      const weight = PLATFORM_WEIGHTS.imdb * 0.6 * (1 + voteWeight);
-      addContribution(adjustScore(rating), weight, 'imdb');
+    // Letterboxd整剧评分
+    if (isValidRatingData(tvData.letterboxd?.rating)) {
+      const rating = normalizeRating(tvData.letterboxd?.rating, 'letterboxd') ?? 0;
+      const voteCount = tvData.letterboxd?.rating_count
+        ? parseFloat(tvData.letterboxd.rating_count.replace(/[^0-9]/g, ''))
+        : medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('letterboxd');
     }
 
-    // 烂番茄（整体+分季）
-    let rtTotal = 0, rtWeight = 0;
-    // 整体部分
-    if (ratingData.rottentomatoes?.series) {
-      const rt = ratingData.rottentomatoes.series;
-      const ratings: number[] = [];
-      let sum = 0, weight = 0;
-
-      if (rt.tomatometer && isValidScore(rt.tomatometer)) {
-        const score = parseFloat(rt.tomatometer)/10;
-        ratings.push(score);
-        sum += score * PLATFORM_WEIGHTS.rottentomatoes.critics;
-        weight += PLATFORM_WEIGHTS.rottentomatoes.critics;
-      }
-
-      if (rt.critics_avg && isValidScore(rt.critics_avg)) {
-        const score = parseFloat(rt.critics_avg);
-        ratings.push(score);
-        sum += score * PLATFORM_WEIGHTS.rottentomatoes.critics;
-        weight += PLATFORM_WEIGHTS.rottentomatoes.critics;
-      }
-
-      if (rt.audience_score && isValidScore(rt.audience_score)) {
-        const score = parseFloat(rt.audience_score)/10;
-        ratings.push(score);
-        sum += score * PLATFORM_WEIGHTS.rottentomatoes.audience;
-        weight += PLATFORM_WEIGHTS.rottentomatoes.audience;
-      }
-
-      if (rt.audience_avg && isValidScore(rt.audience_avg)) {
-        const score = parseFloat(rt.audience_avg) * 2;
-        ratings.push(score);
-        sum += score * PLATFORM_WEIGHTS.rottentomatoes.audience;
-        weight += PLATFORM_WEIGHTS.rottentomatoes.audience;
-      }
-
-      if (weight > 0) {
-        const variance = calculateVariance(ratings);
-        rtTotal += (sum/weight) * 0.6 * (1/(1 + variance));
-        rtWeight += PLATFORM_WEIGHTS.rottentomatoes.series * 0.6;
-      }
+    // TMDB整剧评分
+    if (isValidRatingData(tvData.tmdb?.rating)) {
+      const rating = tvData.tmdb?.rating ?? 0;
+      const voteCount = tvData.tmdb?.voteCount ?? medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('tmdb');
     }
-    // 分季部分
-    if (tvShowData.rottentomatoes?.seasons?.length) {
-      let seasonTotal = 0, validSeasons = 0;
-      tvShowData.rottentomatoes.seasons.forEach(season => {
-        const ratings: number[] = [];
-        let sum = 0, weight = 0;
 
-        // 专业评分
-        if (season.tomatometer && season.tomatometer !== '暂无') {
-          const tomatometer = parseFloat(season.tomatometer) / 10;
-          ratings.push(tomatometer);
-          sum += tomatometer * PLATFORM_WEIGHTS.rottentomatoes.critics;
-          weight += PLATFORM_WEIGHTS.rottentomatoes.critics;
-        }
-
-        // 用户评分
-        if (season.audience_score && season.audience_score !== '暂无') {
-          const audienceScore = parseFloat(season.audience_score) / 10;
-          ratings.push(audienceScore);
-          sum += audienceScore * PLATFORM_WEIGHTS.rottentomatoes.audience;
-          weight += PLATFORM_WEIGHTS.rottentomatoes.audience;
-        }
-
-        if (weight > 0) {
-          const variance = calculateVariance(ratings);
-          seasonTotal += (sum/weight) * (1/(1 + variance));
-          validSeasons++;
-        }
-      });
-      if (validSeasons > 0) {
-        rtTotal += (seasonTotal/validSeasons) * 0.4;
-        rtWeight += PLATFORM_WEIGHTS.rottentomatoes.season * 0.4;
-      }
+    // Trakt整剧评分
+    if (isValidRatingData(tvData.trakt?.rating)) {
+      const rating = tvData.trakt?.rating ?? 0;
+      const voteCount = tvData.trakt?.votes ?? medianVoteCount;
+      ratingTimesVoteSum += rating * voteCount;
+      totalVoteCount += voteCount;
+      validPlatforms.push('trakt');
     }
-    addContribution(rtTotal, rtWeight, 'rottentomatoes');
 
-    // Metacritic（整体+分季）
-    let mcTotal = 0, mcWeight = 0;
-    // 整体部分
-    if (ratingData.metacritic?.overall) {
-      const mc = ratingData.metacritic.overall;
-      const ratings: number[] = [];
-      let sum = 0, weight = 0;
-
-      if (mc.metascore && isValidScore(mc.metascore)) {
-        const score = parseFloat(mc.metascore)/10;
-        ratings.push(score);
-        sum += score * PLATFORM_WEIGHTS.metacritic.critics;
-        weight += PLATFORM_WEIGHTS.metacritic.critics;
-      }
-
-      if (mc.userscore && isValidScore(mc.userscore)) {
-        const score = parseFloat(mc.userscore);
-        ratings.push(score);
-        sum += score * PLATFORM_WEIGHTS.metacritic.users;
-        weight += PLATFORM_WEIGHTS.metacritic.users;
-      }
-
-      if (weight > 0) {
-        const variance = calculateVariance(ratings);
-        mcTotal += (sum/weight) * 0.6 * (1/(1 + variance));
-        mcWeight += PLATFORM_WEIGHTS.metacritic.series * 0.6;
-      }
-    }
-    // 分季部分
-    if (tvShowData.metacritic?.seasons?.length) {
-      let seasonTotal = 0, validSeasons = 0;
-      tvShowData.metacritic.seasons.forEach(season => {
-        const ratings: number[] = [];
-        let sum = 0, weight = 0;
-
-        // 专业评分
-        if (season.metascore && season.metascore !== '暂无') {
-          const metascore = parseFloat(season.metascore) / 10;
-          ratings.push(metascore);
-          sum += metascore * PLATFORM_WEIGHTS.metacritic.critics;
-          weight += PLATFORM_WEIGHTS.metacritic.critics;
-        }
-
-        // 用户评分
-        if (season.userscore && season.userscore !== '暂无') {
-          const userscore = parseFloat(season.userscore);
-          ratings.push(userscore);
-          sum += userscore * PLATFORM_WEIGHTS.metacritic.users;
-          weight += PLATFORM_WEIGHTS.metacritic.users;
-        }
-
-        if (weight > 0) {
-          const variance = calculateVariance(ratings);
-          seasonTotal += (sum/weight) * (1/(1 + variance));
-          validSeasons++;
-        }
-      });
-      if (validSeasons > 0) {
-        mcTotal += (seasonTotal/validSeasons) * 0.4;
-        mcWeight += PLATFORM_WEIGHTS.metacritic.season * 0.4;
-      }
-    }
-    addContribution(mcTotal, mcWeight, 'metacritic');
-
-    // TMDB（整体+分季）
-    if (ratingData.tmdb) {
-      // 整体部分
-      if (ratingData.tmdb.rating) {
-        const voteWeight = calculateVoteWeight(ratingData.tmdb.voteCount);
-        const weight = PLATFORM_WEIGHTS.tmdb.series * 0.6 * (1 + voteWeight);
-        addContribution(adjustScore(ratingData.tmdb.rating), weight, 'tmdb');
-      }
-      // 分季部分
-      if (tvShowData.tmdb?.seasons?.length) {
-        let seasonTotal = 0, validSeasons = 0;
-        tvShowData.tmdb.seasons.forEach(season => {
-          if (season.rating > 0) {
-            seasonTotal += adjustScore(season.rating);
-            validSeasons++;
+    // 处理分季评分
+    if (tvData.seasons) {
+      tvData.seasons.forEach(season => {
+        // 豆瓣分季评分
+        if (isValidRatingData(season.douban?.rating)) {
+          const rating = parseFloat(season.douban?.rating || '0');
+          const voteCount = season.douban?.rating_people
+            ? parseFloat(season.douban.rating_people.replace(/[^0-9]/g, ''))
+            : medianVoteCount;
+          ratingTimesVoteSum += rating * voteCount;
+          totalVoteCount += voteCount;
+          if (!validPlatforms.includes('douban')) {
+            validPlatforms.push('douban');
           }
-        });
-        if (validSeasons > 0) {
-          const weight = PLATFORM_WEIGHTS.tmdb.season * 0.4 * validSeasons;
-          addContribution(seasonTotal/validSeasons, weight, 'tmdb');
         }
-      }
-    }
 
-    // Trakt（整体+分季）
-    if (ratingData.trakt) {
-      // 整体部分
-      if (ratingData.trakt.rating) {
-        const voteWeight = calculateVoteWeight(ratingData.trakt.votes);
-        const weight = PLATFORM_WEIGHTS.trakt.series * 0.6 * (1 + voteWeight);
-        addContribution(adjustScore(ratingData.trakt.rating), weight, 'trakt');
-      }
-      // 分季部分
-      if (tvShowData.trakt?.seasons?.length) {
-        let seasonTotal = 0, validSeasons = 0;
-        tvShowData.trakt.seasons.forEach(season => {
-          if (season.rating > 0) {
-            seasonTotal += adjustScore(season.rating);
-            validSeasons++;
+        // 烂番茄分季评分
+        if (season.rottentomatoes) {
+          const rt = season.rottentomatoes;
+          if (isValidRatingData(rt.critics_avg)) {
+            const rating = normalizeRating(rt.critics_avg, 'rottentomatoes') ?? 0;
+            const voteCount = rt.critics_count
+              ? parseFloat(rt.critics_count.replace(/[^0-9]/g, ''))
+              : medianVoteCount;
+            ratingTimesVoteSum += rating * voteCount;
+            totalVoteCount += voteCount;
           }
-        });
-        if (validSeasons > 0) {
-          const weight = PLATFORM_WEIGHTS.trakt.season * 0.4 * validSeasons;
-          addContribution(seasonTotal/validSeasons, weight, 'trakt');
+          if (isValidRatingData(rt.audience_avg)) {
+            const rating = normalizeRating(rt.audience_avg, 'rottentomatoes') ?? 0;
+            const voteCount = rt.audience_count
+              ? parseFloat(rt.audience_count.replace(/[^0-9]/g, ''))
+              : medianVoteCount;
+            ratingTimesVoteSum += rating * voteCount;
+            totalVoteCount += voteCount;
+          }
         }
-      }
-    }
 
-    // Letterboxd（只有整体数据）
-    if (ratingData.letterboxd?.rating) {
-      const rating = parseFloat(ratingData.letterboxd.rating)*2;
-      const voteWeight = calculateVoteWeight(ratingData.letterboxd.rating_count);
-      const weight = PLATFORM_WEIGHTS.letterboxd * 0.6 * (1 + voteWeight);
-      addContribution(adjustScore(rating), weight, 'letterboxd');
+        // Metacritic分季评分
+        if (season.metacritic) {
+          if (isValidRatingData(season.metacritic.metascore)) {
+            const rating = normalizeRating(season.metacritic.metascore, 'metacritic') ?? 0;
+            const voteCount = season.metacritic.critics_count
+              ? parseFloat(season.metacritic.critics_count)
+              : medianVoteCount;
+            ratingTimesVoteSum += rating * voteCount;
+            totalVoteCount += voteCount;
+          }
+          if (isValidRatingData(season.metacritic.userscore)) {
+            const rating = normalizeRating(season.metacritic.userscore, 'metacritic') ?? 0;
+            const voteCount = season.metacritic.users_count
+              ? parseFloat(season.metacritic.users_count)
+              : medianVoteCount;
+            ratingTimesVoteSum += rating * voteCount;
+            totalVoteCount += voteCount;
+          }
+        }
+
+        // TMDB分季评分
+        if (isValidRatingData(season.tmdb?.rating)) {
+          const rating = season.tmdb?.rating ?? 0;
+          const voteCount = season.tmdb?.voteCount ?? medianVoteCount;
+          ratingTimesVoteSum += rating * voteCount;
+          totalVoteCount += voteCount;
+        }
+
+        // Trakt分季评分
+        if (isValidRatingData(season.trakt?.rating)) {
+          const rating = season.trakt?.rating ?? 0;
+          const voteCount = season.trakt?.votes ?? medianVoteCount;
+          ratingTimesVoteSum += rating * voteCount;
+          totalVoteCount += voteCount;
+        }
+      });
     }
   }
 
-  const finalRating = totalWeight > 0 ? Number((weightedSum/totalWeight).toFixed(1)) : null;
+  const finalRating = totalVoteCount > 0 ? Number((ratingTimesVoteSum / totalVoteCount).toFixed(1)) : null;
 
   return {
     rating: finalRating,
