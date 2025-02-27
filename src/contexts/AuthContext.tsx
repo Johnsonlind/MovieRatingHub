@@ -20,10 +20,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://api.ratefuse.cn'
-  : '';
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -60,66 +56,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const login = async (email: string, password: string, rememberMe: boolean = false) => {
-    console.log('开始登录请求:', { email, rememberMe });
+    const response = await fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, remember_me: rememberMe })
+    });
+  
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail);
+    }
+  
+    const data = await response.json();
+    localStorage.setItem('token', data.access_token);
     
-    try {
-      const requestUrl = `${API_BASE_URL}/auth/login`;
-      console.log('请求URL:', requestUrl);
-      
-      const response = await fetch(requestUrl, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          // 添加额外的请求头以便追踪
-          'X-Request-ID': Date.now().toString()
-        },
-        credentials: 'include',
-        body: JSON.stringify({ email, password, remember_me: rememberMe })
-      });
+    // 获取最新的用户信息
+    const userResponse = await fetch('/api/user/me', {
+      headers: {
+        'Authorization': `Bearer ${data.access_token}`
+      }
+    });
     
-      console.log('登录响应状态:', response.status);
-      console.log('登录响应头:', Object.fromEntries(response.headers.entries()));
-      
-      let errorData;
-      const responseText = await response.text();
-      console.log('原始响应文本:', responseText);
-      
-      try {
-        errorData = JSON.parse(responseText);
-        console.log('解析后的响应数据:', errorData);
-      } catch (e) {
-        console.error('响应数据解析失败:', e);
-        throw new Error('服务器响应格式错误');
-      }
-      
-      if (!response.ok) {
-        console.log('错误响应类型:', errorData.error_type);
-        if (errorData.error_type === 'email_not_found') {
-          throw new Error('此邮箱未注册');
-        } else if (errorData.error_type === 'invalid_password') {
-          throw new Error('邮箱或密码错误');
-        } else {
-          throw new Error(errorData.detail || '登录失败');
-        }
-      }
-      
-      // 登录成功的处理
-      localStorage.setItem('token', errorData.access_token);
-      
-      // 获取用户信息
-      const userResponse = await fetch('/api/user/me', {
-        headers: {
-          'Authorization': `Bearer ${errorData.access_token}`
-        }
-      });
-      
-      if (userResponse.ok) {
-        const userData = await userResponse.json();
-        setUser(userData);
-      }
-    } catch (error) {
-      console.error('登录过程出错:', error);
-      throw error;
+    if (userResponse.ok) {
+      const userData = await userResponse.json();
+      setUser(userData);
     }
   };
 
