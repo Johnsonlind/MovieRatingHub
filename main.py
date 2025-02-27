@@ -21,8 +21,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
 import secrets
-from fastapi.responses import JSONResponse
-from ratings import get_client_ip
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -69,13 +67,15 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://localhost:5173",
+        "http://ratefuse.cn",
         "https://ratefuse.cn",
+        "http://www.ratefuse.cn",
         "https://www.ratefuse.cn"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Length", "Content-Range"]
 )
 
 # 添加环境变量配置
@@ -248,67 +248,42 @@ async def register(
 
 @app.post("/auth/login")
 async def login(request: Request, db: Session = Depends(get_db)):
-    try:
-        # 记录请求头信息
-        print("请求头:", dict(request.headers))
-        # 记录客户端IP
-        print("客户端IP:", get_client_ip(request))
-        
-        data = await request.json()
-        print("请求数据:", data)
-        
-        email = data.get("email")
-        password = data.get("password")
-        remember_me = data.get("remember_me", False)
-        
-        user = db.query(User).filter(User.email == email).first()
-        
-        if not user:
-            print(f"邮箱 {email} 未注册")
-            response = JSONResponse(
-                status_code=401,
-                content={
-                    "detail": "此邮箱未注册",
-                    "error_type": "email_not_found"
-                }
-            )
-            print("响应数据:", response.body.decode())
-            return response
-        
-        # 再检查密码是否正确
-        if not verify_password(password, user.hashed_password):
-            print(f"用户 {email} 密码验证失败")
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "detail": "邮箱或密码错误",
-                    "error_type": "invalid_password"
-                }
-            )
-        
-        print(f"密码验证成功，生成token")
-        access_token = create_access_token(
-            data={"sub": user.email},
-            remember_me=remember_me
-        )
-        
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "username": user.username,
-                "avatar": user.avatar
-            }
-        }
-    except Exception as e:
-        # 记录意外错误
-        print(f"登录过程发生意外错误: {str(e)}")
+    data = await request.json()
+    email = data.get("email")
+    password = data.get("password")
+    remember_me = data.get("remember_me", False)
+    
+    user = db.query(User).filter(User.email == email).first()
+    
+    # 先检查邮箱是否存在
+    if not user:
         raise HTTPException(
-            status_code=500,
-            detail=f"服务器错误: {str(e)}"
+            status_code=401,
+            detail="此邮箱未注册"
         )
+    
+    # 再检查密码是否正确
+    if not verify_password(password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="邮箱或密码错误"
+        )
+    
+    access_token = create_access_token(
+        data={"sub": user.email},
+        remember_me=remember_me
+    )
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "username": user.username,
+            "avatar": user.avatar
+        }
+    }
 
 # 获取当前用户
 async def get_current_user(
