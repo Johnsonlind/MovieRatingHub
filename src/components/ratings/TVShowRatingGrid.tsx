@@ -122,13 +122,13 @@ export function TVShowRatingGrid({
       metascore: ratings.metacritic.metascore,
       userscore: ratings.metacritic.userscore
     } : undefined,
-    tmdb: ratings.tmdb?.rating ? {
-      rating: ratings.tmdb.rating,
-      voteCount: ratings.tmdb.voteCount
+    tmdb: ratings.tmdb ? {
+      rating: ratings.tmdb.rating || 0,
+      voteCount: ratings.tmdb.voteCount || 0
     } : undefined,
     trakt: ratings.trakt ? {
-      rating: ratings.trakt.rating,
-      votes: ratings.trakt.votes
+      rating: ratings.trakt.rating || 0,
+      votes: ratings.trakt.votes || 0
     } : undefined
   });
 
