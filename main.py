@@ -22,6 +22,7 @@ from email.mime.multipart import MIMEMultipart
 import smtplib
 import secrets
 from fastapi.responses import JSONResponse
+from ratings import get_client_ip
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -250,26 +251,31 @@ async def register(
 @app.post("/auth/login")
 async def login(request: Request, db: Session = Depends(get_db)):
     try:
+        # 记录请求头信息
+        print("请求头:", dict(request.headers))
+        # 记录客户端IP
+        print("客户端IP:", get_client_ip(request))
+        
         data = await request.json()
+        print("请求数据:", data)
+        
         email = data.get("email")
         password = data.get("password")
         remember_me = data.get("remember_me", False)
         
-        print(f"接收到的登录数据: email={email}, remember_me={remember_me}")
-        
         user = db.query(User).filter(User.email == email).first()
         
-        # 先检查邮箱是否存在
         if not user:
             print(f"邮箱 {email} 未注册")
-            # 使用 JSONResponse 而不是 HTTPException
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=401,
                 content={
                     "detail": "此邮箱未注册",
                     "error_type": "email_not_found"
                 }
             )
+            print("响应数据:", response.body.decode())
+            return response
         
         # 再检查密码是否正确
         if not verify_password(password, user.hashed_password):
