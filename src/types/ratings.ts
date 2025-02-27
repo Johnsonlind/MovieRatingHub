@@ -77,10 +77,14 @@ export interface TVShowRatingData {
       audience_score: string;
       critics_avg: string;
       audience_avg: string;
+      critics_count: string;
+      audience_count: string;
     };
     metacritic?: {
       metascore: string;
       userscore: string;
+      critics_count: string;
+      users_count: string;
     };
     tmdb?: {
       rating: number;
@@ -333,27 +337,6 @@ export interface SeasonRatingsProps {
     detail: string;
   };
   onRetry: (platform: string) => void;
-}
-
-export function calculateOverallRating(ratingData: any) {
-  const ratings = [];
-  
-  // TMDB评分 (10分制)
-  if (ratingData.tmdb?.rating && ratingData.tmdb.rating > 0) {
-    ratings.push(Number(ratingData.tmdb.rating));
-  }
-  
-  // Trakt评分 (10分制)
-  if (ratingData.trakt?.rating && ratingData.trakt.rating > 0) {
-    ratings.push(Number(ratingData.trakt.rating));
-  }
-
-  // 计算平均分
-  if (ratings.length > 0) {
-    return ratings.reduce((a, b) => a + b) / ratings.length;
-  }
-  
-  return null;
 }
 
 export interface CalculatedRating {
