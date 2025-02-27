@@ -8,7 +8,7 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   server: {
-    proxy: {
+    proxy: process.env.NODE_ENV === 'development' ? {
       '/auth': {
         target: 'http://localhost:8000',
         changeOrigin: true,
@@ -28,7 +28,7 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true
       }
-    }
+    } : {}
   },
   build: {
     target: 'es2015'
