@@ -59,18 +59,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log('开始登录请求:', { email, rememberMe });
     
     try {
-      const response = await fetch('/auth/login', {
+      // 记录完整请求URL
+      const requestUrl = '/auth/login';
+      console.log('请求URL:', window.location.origin + requestUrl);
+      
+      const response = await fetch(requestUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          // 添加额外的请求头以便追踪
+          'X-Request-ID': Date.now().toString()
+        },
         body: JSON.stringify({ email, password, remember_me: rememberMe })
       });
     
       console.log('登录响应状态:', response.status);
+      console.log('登录响应头:', Object.fromEntries(response.headers.entries()));
       
-      const errorData = await response.json();
-      console.log('登录响应数据:', errorData);
+      let errorData;
+      const responseText = await response.text();
+      console.log('原始响应文本:', responseText);
+      
+      try {
+        errorData = JSON.parse(responseText);
+        console.log('解析后的响应数据:', errorData);
+      } catch (e) {
+        console.error('响应数据解析失败:', e);
+        throw new Error('服务器响应格式错误');
+      }
       
       if (!response.ok) {
+        console.log('错误响应类型:', errorData.error_type);
         if (errorData.error_type === 'email_not_found') {
           throw new Error('此邮箱未注册');
         } else if (errorData.error_type === 'invalid_password') {
