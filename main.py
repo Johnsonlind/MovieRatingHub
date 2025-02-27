@@ -248,42 +248,50 @@ async def register(
 
 @app.post("/auth/login")
 async def login(request: Request, db: Session = Depends(get_db)):
-    data = await request.json()
-    email = data.get("email")
-    password = data.get("password")
-    remember_me = data.get("remember_me", False)
-    
-    user = db.query(User).filter(User.email == email).first()
-    
-    # 先检查邮箱是否存在
-    if not user:
-        raise HTTPException(
-            status_code=401,
-            detail="此邮箱未注册"
+    try:
+        data = await request.json()
+        email = data.get("email")
+        password = data.get("password")
+        remember_me = data.get("remember_me", False)
+        
+        print(f"收到登录请求: {email}")  # 添加日志
+        
+        user = db.query(User).filter(User.email == email).first()
+        
+        print(f"查询用户结果: {'找到用户' if user else '未找到用户'}")  # 添加日志
+        
+        if not user:
+            print("用户不存在，返回错误")  # 添加日志
+            raise HTTPException(
+                status_code=401,
+                detail="此邮箱未注册"
+            )
+            
+        # 再检查密码是否正确
+        if not verify_password(password, user.hashed_password):
+            raise HTTPException(
+                status_code=401,
+                detail="邮箱或密码错误"
+            )
+        
+        access_token = create_access_token(
+            data={"sub": user.email},
+            remember_me=remember_me
         )
-    
-    # 再检查密码是否正确
-    if not verify_password(password, user.hashed_password):
-        raise HTTPException(
-            status_code=401,
-            detail="邮箱或密码错误"
-        )
-    
-    access_token = create_access_token(
-        data={"sub": user.email},
-        remember_me=remember_me
-    )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "username": user.username,
-            "avatar": user.avatar
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "username": user.username,
+                "avatar": user.avatar
+            }
         }
-    }
+    except Exception as e:
+        print(f"登录过程出错: {str(e)}")  # 添加日志
+        raise
 
 # 获取当前用户
 async def get_current_user(
