@@ -69,15 +69,13 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://ratefuse.cn",
         "https://ratefuse.cn",
-        "http://www.ratefuse.cn",
         "https://www.ratefuse.cn"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Length", "Content-Range"]
 )
 
 # 添加环境变量配置
