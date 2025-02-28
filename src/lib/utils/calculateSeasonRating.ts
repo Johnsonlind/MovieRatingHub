@@ -222,7 +222,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
       : medianVoteCount;
     ratingTimesVoteSum += rating * rating_people;
     totalVoteCount += rating_people;
-    validPlatforms.push('douban');
+    if (!validPlatforms.includes('douban')) {
+      validPlatforms.push('douban');
+    }
     ratingDetails.push({
       platform: 'douban',
       originalRating: doubanSeason?.rating,
@@ -235,7 +237,6 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
   // 烂番茄分季评分
   const rtSeason = (ratings as any).rottentomatoes?.seasons?.find((s: any) => s.season_number === seasonNumber);
   if (rtSeason) {
-    let hasValidRt = false;
     // 专业评分
     if (isValidRatingData(rtSeason.critics_avg)) {
       const rating = normalizeRating(rtSeason.critics_avg, 'rottentomatoes') ?? 0;
@@ -244,7 +245,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
         : medianVoteCount;
       ratingTimesVoteSum += rating * criticsCount;
       totalVoteCount += criticsCount;
-      hasValidRt = true;
+      if (!validPlatforms.includes('rottentomatoes')) {
+        validPlatforms.push('rottentomatoes');
+      }
       ratingDetails.push({
         platform: 'rottentomatoes_critics',
         originalRating: rtSeason.critics_avg,
@@ -259,7 +262,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
         : medianVoteCount;
       ratingTimesVoteSum += rating * criticsCount;
       totalVoteCount += criticsCount;
-      hasValidRt = true;
+      if (!validPlatforms.includes('rottentomatoes')) {
+        validPlatforms.push('rottentomatoes');
+      }
       ratingDetails.push({
         platform: 'rottentomatoes_tomatometer',
         originalRating: rtSeason.tomatometer,
@@ -277,7 +282,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
         : medianVoteCount;
       ratingTimesVoteSum += rating * audienceCount;
       totalVoteCount += audienceCount;
-      hasValidRt = true;
+      if (!validPlatforms.includes('rottentomatoes')) {
+        validPlatforms.push('rottentomatoes');
+      }
       ratingDetails.push({
         platform: 'rottentomatoes_audience',
         originalRating: rtSeason.audience_avg,
@@ -292,7 +299,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
         : medianVoteCount;
       ratingTimesVoteSum += rating * audienceCount;
       totalVoteCount += audienceCount;
-      hasValidRt = true;
+      if (!validPlatforms.includes('rottentomatoes')) {
+        validPlatforms.push('rottentomatoes');
+      }
       ratingDetails.push({
         platform: 'rottentomatoes_audience_score',
         originalRating: rtSeason.audience_score,
@@ -301,15 +310,11 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
         contribution: rating * audienceCount
       });
     }
-    if (hasValidRt) {
-      validPlatforms.push('rottentomatoes');
-    }
   }
 
   // Metacritic分季评分
   const mcSeason = ratings.metacritic?.seasons?.find(s => s.season_number === seasonNumber);
   if (mcSeason) {
-    let hasValidMc = false;
     // 专业评分
     if (isValidRatingData(mcSeason.metascore)) {
       const rating = normalizeRating(mcSeason.metascore, 'metacritic', 'metascore') ?? 0;
@@ -318,7 +323,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
         : medianVoteCount;
       ratingTimesVoteSum += rating * criticsCount;
       totalVoteCount += criticsCount;
-      hasValidMc = true;
+      if (!validPlatforms.includes('metacritic')) {
+        validPlatforms.push('metacritic');
+      }
       ratingDetails.push({
         platform: 'metacritic_critics',
         originalRating: mcSeason.metascore,
@@ -336,7 +343,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
         : medianVoteCount;
       ratingTimesVoteSum += rating * usersCount;
       totalVoteCount += usersCount;
-      hasValidMc = true;
+      if (!validPlatforms.includes('metacritic')) {
+        validPlatforms.push('metacritic');
+      }
       ratingDetails.push({
         platform: 'metacritic_userscore',
         originalRating: mcSeason.userscore,
@@ -344,9 +353,6 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
         voteCount: usersCount,
         contribution: rating * usersCount
       });
-    }
-    if (hasValidMc) {
-      validPlatforms.push('metacritic');
     }
   }
 
@@ -357,7 +363,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
     const voteCount = tmdbSeason?.voteCount || medianVoteCount;
     ratingTimesVoteSum += rating * voteCount;
     totalVoteCount += voteCount;
-    validPlatforms.push('tmdb');
+    if (!validPlatforms.includes('tmdb')) {
+      validPlatforms.push('tmdb');
+    }
     ratingDetails.push({
       platform: 'tmdb',
       originalRating: tmdbSeason?.rating,
@@ -374,7 +382,9 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
     const voteCount = traktSeason?.votes || medianVoteCount;
     ratingTimesVoteSum += rating * voteCount;
     totalVoteCount += voteCount;
-    validPlatforms.push('trakt');
+    if (!validPlatforms.includes('trakt')) {
+      validPlatforms.push('trakt');
+    }
     ratingDetails.push({
       platform: 'trakt',
       originalRating: traktSeason?.rating,
