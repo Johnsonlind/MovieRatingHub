@@ -133,8 +133,6 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
   // 烂番茄评分
   if (ratingData.rottentomatoes?.series) {
     const rt = ratingData.rottentomatoes.series;
-    let hasValidRt = false;
-    
     // 优先使用平均分，如果没有则使用百分比评分
     // 专业评分
     if (isValidRatingData(rt.critics_avg)) {
@@ -144,7 +142,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
         : medianVoteCount;
       ratingTimesVoteSum += rating * criticsCount;
       totalVoteCount += criticsCount;
-      hasValidRt = true;
+      if (!validPlatforms.includes('rottentomatoes')) {
+        validPlatforms.push('rottentomatoes');
+      }
       ratingDetails.push({
         platform: 'rottentomatoes_critics',
         originalRating: rt.critics_avg,
@@ -159,7 +159,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
         : medianVoteCount;
       ratingTimesVoteSum += rating * criticsCount;
       totalVoteCount += criticsCount;
-      hasValidRt = true;
+      if (!validPlatforms.includes('rottentomatoes')) {
+        validPlatforms.push('rottentomatoes');
+      }
       ratingDetails.push({
         platform: 'rottentomatoes_critics',
         originalRating: rt.tomatometer,
@@ -177,7 +179,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
         : medianVoteCount;
       ratingTimesVoteSum += rating * audienceCount;
       totalVoteCount += audienceCount;
-      hasValidRt = true;
+      if (!validPlatforms.includes('rottentomatoes')) {
+        validPlatforms.push('rottentomatoes');
+      }
       ratingDetails.push({
         platform: 'rottentomatoes_audience',
         originalRating: rt.audience_avg,
@@ -192,7 +196,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
         : medianVoteCount;
       ratingTimesVoteSum += rating * audienceCount;
       totalVoteCount += audienceCount;
-      hasValidRt = true;
+      if (!validPlatforms.includes('rottentomatoes')) {
+        validPlatforms.push('rottentomatoes');
+      }
       ratingDetails.push({
         platform: 'rottentomatoes_audience',
         originalRating: rt.audience_score,
@@ -201,16 +207,11 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
         contribution: rating * audienceCount
       });
     }
-    
-    if (hasValidRt) {
-      validPlatforms.push('rottentomatoes');
-    }
   }
 
   // Metacritic评分
   if (ratingData.metacritic?.overall) {
     const mc = ratingData.metacritic.overall;
-    let hasValidMc = false;
     // 专业评分
     if (isValidRatingData(mc.metascore)) {
       const rating = normalizeRating(mc.metascore, 'metacritic', 'metascore') ?? 0;
@@ -219,7 +220,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
         : medianVoteCount;
       ratingTimesVoteSum += rating * criticsCount;
       totalVoteCount += criticsCount;
-      hasValidMc = true;
+      if (!validPlatforms.includes('metacritic')) {
+        validPlatforms.push('metacritic');
+      }
       ratingDetails.push({
         platform: 'metacritic_critics',
         originalRating: mc.metascore,
@@ -236,7 +239,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
         : medianVoteCount;
       ratingTimesVoteSum += rating * usersCount;
       totalVoteCount += usersCount;
-      hasValidMc = true;
+      if (!validPlatforms.includes('metacritic')) {
+        validPlatforms.push('metacritic');
+      }
       ratingDetails.push({
         platform: 'metacritic_users',
         originalRating: mc.userscore,
@@ -244,9 +249,6 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
         voteCount: usersCount,
         contribution: rating * usersCount
       });
-    }
-    if (hasValidMc) {
-      validPlatforms.push('metacritic');
     }
   }
 
@@ -256,7 +258,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
     const voteCount = ratingData.tmdb?.voteCount ?? medianVoteCount;
     ratingTimesVoteSum += rating * voteCount;
     totalVoteCount += voteCount;
-    validPlatforms.push('tmdb');
+    if (!validPlatforms.includes('tmdb')) {
+      validPlatforms.push('tmdb');
+    }
     ratingDetails.push({
       platform: 'tmdb',
       originalRating: ratingData.tmdb?.rating,
@@ -272,7 +276,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
     const voteCount = ratingData.trakt?.votes ?? medianVoteCount;
     ratingTimesVoteSum += rating * voteCount;
     totalVoteCount += voteCount;
-    validPlatforms.push('trakt');
+    if (!validPlatforms.includes('trakt')) {
+      validPlatforms.push('trakt');
+    }
     ratingDetails.push({
       platform: 'trakt',
       originalRating: ratingData.trakt?.rating,
@@ -290,7 +296,9 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
       : medianVoteCount;
     ratingTimesVoteSum += rating * voteCount;
     totalVoteCount += voteCount;
-    validPlatforms.push('letterboxd');
+    if (!validPlatforms.includes('letterboxd')) {
+      validPlatforms.push('letterboxd');
+    }
     ratingDetails.push({
       platform: 'letterboxd',
       originalRating: ratingData.letterboxd?.rating,
