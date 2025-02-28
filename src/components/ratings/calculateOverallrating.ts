@@ -161,7 +161,9 @@ export function calculateOverallRating(
         : medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('douban');
+      if (!validPlatforms.includes('douban')) {
+        validPlatforms.push('douban');
+      }
       ratingDetails.push({
         platform: 'douban',
         originalRating: ratingData.douban?.rating,
@@ -179,7 +181,9 @@ export function calculateOverallRating(
         : medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('imdb');
+      if (!validPlatforms.includes('imdb')) {
+        validPlatforms.push('imdb');
+      }
       ratingDetails.push({
         platform: 'imdb',
         originalRating: ratingData.imdb?.rating,
@@ -200,7 +204,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
-        validPlatforms.push('rottentomatoes');
+        if (!validPlatforms.includes('rottentomatoes')) {
+          validPlatforms.push('rottentomatoes');
+        }
         ratingDetails.push({
           platform: 'rottentomatoes_critics',
           originalRating: rt.critics_avg || rt.tomatometer,
@@ -215,7 +221,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
-        validPlatforms.push('rottentomatoes');
+        if (!validPlatforms.includes('rottentomatoes')) {
+          validPlatforms.push('rottentomatoes');
+        }
         ratingDetails.push({
           platform: 'rottentomatoes_critics',
           originalRating: rt.tomatometer,
@@ -232,7 +240,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
-        validPlatforms.push('rottentomatoes');
+        if (!validPlatforms.includes('rottentomatoes')) {
+          validPlatforms.push('rottentomatoes');
+        }
         ratingDetails.push({
           platform: 'rottentomatoes_audience',
           originalRating: rt.audience_avg || rt.audience_score,
@@ -247,7 +257,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
-        validPlatforms.push('rottentomatoes');
+        if (!validPlatforms.includes('rottentomatoes')) {
+          validPlatforms.push('rottentomatoes');
+        }
         ratingDetails.push({
           platform: 'rottentomatoes_audience',
           originalRating: rt.audience_score,
@@ -255,9 +267,6 @@ export function calculateOverallRating(
           voteCount,
           contribution: rating * voteCount
         });
-      }
-      if ((rt.critics_avg || rt.tomatometer || rt.audience_avg || rt.audience_score)) {
-        validPlatforms.push('rottentomatoes');
       }
     }
 
@@ -272,6 +281,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
+        if (!validPlatforms.includes('metacritic')) {
+          validPlatforms.push('metacritic');
+        }
         ratingDetails.push({
           platform: 'metacritic_critics',
           originalRating: mc.metascore,
@@ -288,6 +300,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
+        if (!validPlatforms.includes('metacritic')) {
+          validPlatforms.push('metacritic');
+        }
         ratingDetails.push({
           platform: 'metacritic_users',
           originalRating: mc.userscore,
@@ -295,9 +310,6 @@ export function calculateOverallRating(
           voteCount,
           contribution: rating * voteCount
         });
-      }
-      if (mc.metascore || mc.userscore) {
-        validPlatforms.push('metacritic');
       }
     }
 
@@ -307,7 +319,9 @@ export function calculateOverallRating(
       const voteCount = ratingData.tmdb?.voteCount ?? medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('tmdb');
+      if (!validPlatforms.includes('tmdb')) {
+        validPlatforms.push('tmdb');
+      }
       ratingDetails.push({
         platform: 'tmdb',
         originalRating: ratingData.tmdb?.rating,
@@ -323,7 +337,9 @@ export function calculateOverallRating(
       const voteCount = ratingData.trakt?.votes ?? medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('trakt');
+      if (!validPlatforms.includes('trakt')) {
+        validPlatforms.push('trakt');
+      }
       ratingDetails.push({
         platform: 'trakt',
         originalRating: ratingData.trakt?.rating,
@@ -341,7 +357,9 @@ export function calculateOverallRating(
         : medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('letterboxd');
+      if (!validPlatforms.includes('letterboxd')) {
+        validPlatforms.push('letterboxd');
+      }
       ratingDetails.push({
         platform: 'letterboxd',
         originalRating: ratingData.letterboxd?.rating,
@@ -364,7 +382,9 @@ export function calculateOverallRating(
         : medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('douban');
+      if (!validPlatforms.includes('douban')) {
+        validPlatforms.push('douban');
+      }
       ratingDetails.push({
         platform: 'douban',
         originalRating: tvData.douban?.rating,
@@ -382,7 +402,9 @@ export function calculateOverallRating(
         : medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('imdb');
+      if (!validPlatforms.includes('imdb')) {
+        validPlatforms.push('imdb');
+      }
       ratingDetails.push({
         platform: 'imdb',
         originalRating: tvData.imdb?.rating,
@@ -402,6 +424,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
+        if (!validPlatforms.includes('rottentomatoes')) {
+          validPlatforms.push('rottentomatoes');
+        }
         ratingDetails.push({
           platform: 'rottentomatoes_critics',
           originalRating: rt.critics_avg,
@@ -416,6 +441,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
+        if (!validPlatforms.includes('rottentomatoes')) {
+          validPlatforms.push('rottentomatoes');
+        }
         ratingDetails.push({
           platform: 'rottentomatoes_critics',
           originalRating: rt.tomatometer,
@@ -432,6 +460,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
+        if (!validPlatforms.includes('rottentomatoes')) {
+          validPlatforms.push('rottentomatoes');
+        }
         ratingDetails.push({
           platform: 'rottentomatoes_audience',
           originalRating: rt.audience_avg,
@@ -446,6 +477,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
+        if (!validPlatforms.includes('rottentomatoes')) {
+          validPlatforms.push('rottentomatoes');
+        }
         ratingDetails.push({
           platform: 'rottentomatoes_audience',
           originalRating: rt.audience_score,
@@ -453,10 +487,6 @@ export function calculateOverallRating(
           voteCount,
           contribution: rating * voteCount
         });
-      }
-
-      if ((rt.critics_avg || rt.tomatometer || rt.audience_avg || rt.audience_score)) {
-        validPlatforms.push('rottentomatoes');
       }
     }
 
@@ -470,6 +500,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
+        if (!validPlatforms.includes('metacritic')) {
+          validPlatforms.push('metacritic');
+        }
         ratingDetails.push({
           platform: 'metacritic_critics',
           originalRating: mc.metascore,
@@ -485,6 +518,9 @@ export function calculateOverallRating(
           : medianVoteCount;
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
+        if (!validPlatforms.includes('metacritic')) {
+          validPlatforms.push('metacritic');
+        }
         ratingDetails.push({
           platform: 'metacritic_users',
           originalRating: mc.userscore,
@@ -492,9 +528,6 @@ export function calculateOverallRating(
           voteCount,
           contribution: rating * voteCount
         });
-      }
-      if (mc.metascore || mc.userscore) {
-        validPlatforms.push('metacritic');
       }
     }
 
@@ -506,7 +539,9 @@ export function calculateOverallRating(
         : medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('letterboxd');
+      if (!validPlatforms.includes('letterboxd')) {
+        validPlatforms.push('letterboxd');
+      }
       ratingDetails.push({
         platform: 'letterboxd',
         originalRating: tvData.letterboxd?.rating,
@@ -522,7 +557,9 @@ export function calculateOverallRating(
       const voteCount = tvData.tmdb?.voteCount ?? medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('tmdb');
+      if (!validPlatforms.includes('tmdb')) {
+        validPlatforms.push('tmdb');
+      }
       ratingDetails.push({
         platform: 'tmdb',
         originalRating: tvData.tmdb?.rating,
@@ -538,7 +575,9 @@ export function calculateOverallRating(
       const voteCount = tvData.trakt?.votes ?? medianVoteCount;
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
-      validPlatforms.push('trakt');
+      if (!validPlatforms.includes('trakt')) {
+        validPlatforms.push('trakt');
+      }
       ratingDetails.push({
         platform: 'trakt',
         originalRating: tvData.trakt?.rating,
@@ -584,6 +623,9 @@ export function calculateOverallRating(
             : medianVoteCount;
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
+          if (!validPlatforms.includes('rottentomatoes')) {
+            validPlatforms.push('rottentomatoes');
+          }
           ratingDetails.push({
             platform: 'rottentomatoes_critics',
             season: season.season_number,
@@ -599,6 +641,9 @@ export function calculateOverallRating(
             : medianVoteCount;
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
+          if (!validPlatforms.includes('rottentomatoes')) {
+            validPlatforms.push('rottentomatoes');
+          }
           ratingDetails.push({
             platform: 'rottentomatoes_critics',
             season: season.season_number,
@@ -616,6 +661,9 @@ export function calculateOverallRating(
             : medianVoteCount;
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
+          if (!validPlatforms.includes('rottentomatoes')) {
+            validPlatforms.push('rottentomatoes');
+          }
           ratingDetails.push({
             platform: 'rottentomatoes_audience',
             season: season.season_number,
@@ -631,6 +679,9 @@ export function calculateOverallRating(
             : medianVoteCount;
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
+          if (!validPlatforms.includes('rottentomatoes')) {
+            validPlatforms.push('rottentomatoes');
+          }
           ratingDetails.push({
             platform: 'rottentomatoes_audience',
             season: season.season_number,
@@ -639,12 +690,6 @@ export function calculateOverallRating(
             voteCount,
             contribution: rating * voteCount
           });
-        }
-
-        if ((season.critics_avg || season.tomatometer || 
-             season.audience_avg || season.audience_score) && 
-            !validPlatforms.includes('rottentomatoes')) {
-          validPlatforms.push('rottentomatoes');
         }
       });
     }
@@ -659,6 +704,9 @@ export function calculateOverallRating(
             : medianVoteCount;
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
+          if (!validPlatforms.includes('metacritic')) {
+            validPlatforms.push('metacritic');
+          }
           ratingDetails.push({
             platform: 'metacritic_critics',
             season: season.season_number,
@@ -675,6 +723,9 @@ export function calculateOverallRating(
             : medianVoteCount;
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
+          if (!validPlatforms.includes('metacritic')) {
+            validPlatforms.push('metacritic');
+          }
           ratingDetails.push({
             platform: 'metacritic_users',
             season: season.season_number,
@@ -683,9 +734,6 @@ export function calculateOverallRating(
             voteCount,
             contribution: rating * voteCount
           });
-        }
-        if ((season.metascore || season.userscore) && !validPlatforms.includes('metacritic')) {
-          validPlatforms.push('metacritic');
         }
       });
     }
