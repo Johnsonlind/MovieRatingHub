@@ -1151,7 +1151,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                     url = await link.get_attribute('href')
                     title = await link.inner_text()
                     
-                    year_elem = await item.query_selector('.metadata')
+                    year_elem = await item.query_selector('small.metadata a')
                     year = await year_elem.inner_text() if year_elem else ""
                     
                     if url:
@@ -1173,16 +1173,18 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                     await page.goto(result["url"], wait_until='domcontentloaded')
                     await asyncio.sleep(0.3)  # 减少每个结果的等待时间
                     
-                    tmdb_link = await page.query_selector('a.micro-button[data-track-action="TMDb"]')
-                    if tmdb_link:
-                        tmdb_href = await tmdb_link.get_attribute('href')
-                        if tmdb_href:
-                            tmdb_id = tmdb_href.rstrip('/').split('/')[-1]
-                            print(f"找到TMDB ID: {tmdb_id}")
-                            if tmdb_id == str(tmdb_info.get("tmdb_id")):
-                                print("TMDB ID匹配成功!")
-                                result["match_score"] = 100
-                                return [result]
+                    # 获取页面源代码
+                    content = await page.content()
+                    
+                    # 使用正则表达式匹配TMDB链接
+                    tmdb_match = re.search(r'https://www\.themoviedb\.org/(?:movie|tv)/(\d+)', content)
+                    if tmdb_match:
+                        tmdb_id = tmdb_match.group(1)
+                        print(f"找到TMDB ID: {tmdb_id}")
+                        if tmdb_id == str(tmdb_info.get("tmdb_id")):
+                            print("TMDB ID匹配成功!")
+                            result["match_score"] = 100
+                            return [result]
                 except Exception as e:
                     print(f"检查结果时出错: {e}")
                     continue
@@ -2371,7 +2373,7 @@ async def main():
             # 等待用户输入,最多2秒
             media_type = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, input),
-                timeout=0.2
+                timeout=5.0
             )
             # 验证输入的类型是否有效
             if media_type not in ["movie", "tv"]:
@@ -2390,7 +2392,7 @@ async def main():
             # 等待用户输入,最多2秒
             platforms_input = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, input),
-                timeout=0.2
+                timeout=5.0
             )
             
             # 处理平台输入
