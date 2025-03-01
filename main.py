@@ -8,7 +8,7 @@ import ssl
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request, Depends, status, APIRouter
+from fastapi import FastAPI, HTTPException, Request, Depends, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
@@ -24,8 +24,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
 import secrets
-import httpx
-from fastapi.responses import StreamingResponse
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -579,41 +577,3 @@ async def reset_password(
     db.commit()
     
     return {"message": "密码重置成功"}
-
-router = APIRouter()
-
-TMDB_API_KEY = "4f681fa7b5ab7346a4e184bbf2d41715"
-TMDB_BASE_URL = "https://api.themoviedb.org/3"
-TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p"
-
-@router.get("/api/tmdb-proxy/{path:path}")
-async def tmdb_api_proxy(path: str, request: Request):
-    """代理 TMDB API 请求"""
-    # 获取所有查询参数
-    params = dict(request.query_params)
-    # 添加 API 密钥
-    params["api_key"] = TMDB_API_KEY
-    
-    # 构建完整的 URL
-    url = f"{TMDB_BASE_URL}/{path}"
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, params=params)
-        return response.json()
-
-@router.get("/api/tmdb-image-proxy/{path:path}")
-async def tmdb_image_proxy(path: str):
-    """代理 TMDB 图片请求"""
-    url = f"{TMDB_IMAGE_BASE_URL}/{path}"
-    
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-        
-        # 创建流式响应，直接传递图片数据
-        return StreamingResponse(
-            content=response.aiter_bytes(),
-            status_code=response.status_code,
-            media_type=response.headers.get("content-type")
-        )
-
-app.include_router(router)
