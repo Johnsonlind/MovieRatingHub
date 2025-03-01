@@ -1,3 +1,6 @@
+# ==========================================
+# 数据库模型
+# ==========================================
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.mysql import LONGTEXT
@@ -7,7 +10,7 @@ from datetime import datetime
 SQLALCHEMY_DATABASE_URL = "mysql+pymysql://ratefuse_user:L1994z0912x.@localhost/ratefuse"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
-Base = declarative_base()  # 依旧可以使用，但已通过正确的方式导入
+Base = declarative_base()
 
 class User(Base):
     __tablename__ = "users"
