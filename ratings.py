@@ -354,11 +354,12 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
         
         # 专门针对豆瓣平台
         if platform == "douban":
+            
             # 1. 提取豆瓣标题中的所有可能部分
             result_title = result.get("title", "").lower()
             # 分离中英文标题，去掉年份部分
             parts = result_title.split('(')[0].strip()
-            title_parts = parts.split(' ')  # 按空格分割
+            title_parts = parts.split(' ')
             
             # 2. 尝试匹配 TMDB 中的各种标题
             tmdb_titles = [
@@ -369,47 +370,71 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
             
             # 计算最高匹配分数
             title_scores = []
+            
+            # 2.1 先计算整体标题匹配度
+            for tmdb_title in tmdb_titles:
+                if tmdb_title:
+                    whole_score = fuzz.ratio(tmdb_title, result_title)
+                    title_scores.append(whole_score)
+                    
+                    # 添加部分匹配算法
+                    partial_score = fuzz.partial_ratio(tmdb_title, result_title)
+                    title_scores.append(partial_score)
+            
+            # 2.2 再计算分词后的匹配度
             for tmdb_title in tmdb_titles:
                 if tmdb_title:
                     # 对每个标题部分计算匹配度
                     for part in title_parts:
-                        if part and len(part) > 1:  # 确保部分不为空且长度大于1
-                            score = fuzz.ratio(tmdb_title, part)
-                            title_scores.append(score)
+                        if part and len(part) > 1:
+                            part_score = fuzz.ratio(tmdb_title, part)
+                            title_scores.append(part_score)
             
             if title_scores:
-                score = max(title_scores) * 0.6  # 标题匹配占60分
+                max_title_score = max(title_scores)
+                score = max_title_score * 0.6
             
             # 3. 如果是剧集，额外检查季数
             if tmdb_info.get("type") == "tv":
+                # 中文季数格式
                 season_match = re.search(r'第([一二三四五六七八九十百]+)季', result_title)
                 if season_match:
                     chinese_season_number = season_match.group(1)
                     result_season_number = chinese_to_arabic(chinese_season_number)
-                    
+                else:
+                    # 英文季数格式
+                    season_match = re.search(r'season\s*(\d+)', result_title.lower())
+                    if season_match:
+                        result_season_number = int(season_match.group(1))
+                    else:
+                        result_season_number = None
+                
+                if result_season_number is not None:
                     for season in tmdb_info.get("seasons", []):
                         if season.get("season_number") == result_season_number:
-                            score += 30  # 季数匹配加30分
+                            score += 30
                             break
             
             # 4. 年份匹配（电影30分，剧集10分）
             try:
                 tmdb_year = str(tmdb_info.get("year", ""))
                 result_year = str(result.get("year", ""))
+                
                 if tmdb_year and result_year:
                     year_diff = abs(int(tmdb_year) - int(result_year))
                     if year_diff == 0:
-                        score += 30 if tmdb_info.get("type") == "movie" else 10
-                    elif year_diff == 1 and tmdb_info.get("type") == "movie":
-                        score += 15  # 电影年份差1年时给15分
+                        year_score = 30 if tmdb_info.get("type") == "movie" else 20
+                        score += year_score
+                    elif year_diff == 1:
+                        year_score = 15 if tmdb_info.get("type") == "movie" else 10
+                        score += year_score
             except (ValueError, TypeError) as e:
                 print(f"年份比较出错: {e}")
             
             # 5. IMDB ID匹配（10分）
             if tmdb_info.get("imdb_id") and result.get("imdb_id"):
                 if tmdb_info["imdb_id"] == result["imdb_id"]:
-                    score += 10
-                    
+                    score += 10   
         else:
             # 其他平台或非剧集的匹配逻辑
             # 获取所有可能的标题
@@ -419,6 +444,9 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                 tmdb_info.get("zh_title", "").lower() if platform == "douban" else ""
             ]
             result_title = result.get("title", "").lower()
+            
+            # 清理标题中的年份信息
+            result_title = re.sub(r'\s*\(\d{4}\)\s*', '', result_title)
             
             # 1. 标题匹配度计算（60分）
             title_scores = [fuzz.ratio(t, result_title) for t in tmdb_titles if t]
@@ -456,13 +484,16 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
         
         # 返回匹配结果
         if score >= threshold:
-            print("匹配成功!")
+            print(f"匹配成功! 最终分数: {score}, 阈值: {threshold}")
             return score
         else:
+            print(f"匹配失败! 最终分数: {score}, 阈值: {threshold}")
             return 0
             
     except Exception as e:
         print(f"计算匹配度时出错: {e}")
+        import traceback
+        print(traceback.format_exc())
         return 0
 
 async def check_rate_limit(page, platform: str) -> dict | None:
@@ -604,13 +635,12 @@ async def search_platform(platform, tmdb_info, request=None):
     """在各平台搜索并返回搜索结果"""
     browser = None
     context = None
-    page = None
-    
+
     try:
         # 检查请求是否已被取消
         if request and await request.is_disconnected():
             return {"status": "cancelled"}
-            
+
         # 对于IMDB,如果有IMDB ID则直接返回详情页URL
         if platform == "imdb" and tmdb_info.get("imdb_id"):
             imdb_id = tmdb_info["imdb_id"]
@@ -621,19 +651,19 @@ async def search_platform(platform, tmdb_info, request=None):
                 "imdb_id": imdb_id,
                 "direct_match": True
             }]
-            
+
         if platform == "douban":
             search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
         else:
             search_title = tmdb_info["title"] or tmdb_info["original_title"]
-        
+
         media_type = tmdb_info["type"]
         search_url = construct_search_url(search_title, media_type, platform)
-        
+
         async with async_playwright() as p:
             # 先选择 User-Agent
             selected_user_agent = random.choice(USER_AGENTS)
-            
+
             # 优化浏览器启动配置
             browser_args = [
                 '--disable-dev-shm-usage',
@@ -673,12 +703,12 @@ async def search_platform(platform, tmdb_info, request=None):
                 timeout=30000,
                 ignore_default_args=['--enable-automation']
             )
-            
+
             # 检查请求状态
             if request and await request.is_disconnected():
                 print("请求已被取消,停止执行")
                 return {"status": "cancelled"}
-                
+
             # 优化上下文配置
             context_options = {
                 'viewport': {'width': 1920, 'height': 1080},
@@ -703,21 +733,21 @@ async def search_platform(platform, tmdb_info, request=None):
                     'Sec-Fetch-User': '?1'
                 }
             }
-            
+
             # 创建上下文
             context = await browser.new_context(**context_options)
-            
+
             # 添加请求拦截
             await context.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,ttf}", lambda route: route.abort())
             await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
             await context.route("**/beacon/**", lambda route: route.abort())
             await context.route("**/telemetry/**", lambda route: route.abort())
             await context.route("**/stats/**", lambda route: route.abort())
-            
+
             # 创建页面并设置
             page = await context.new_page()
             page.set_default_timeout(20000) 
-            
+
             # 如果是豆瓣，设置用户IP
             if platform == "douban" and request:
                 client_ip = get_client_ip(request)
@@ -726,7 +756,7 @@ async def search_platform(platform, tmdb_info, request=None):
                     'X-Forwarded-For': client_ip,
                     'X-Real-IP': client_ip
                 })
-        
+
             print(f"正在搜索 {platform}: {search_url}")
 
             # 添加请求监控
@@ -734,7 +764,7 @@ async def search_platform(platform, tmdb_info, request=None):
                 if request.resource_type == "document":
                     pass
                 page.remove_listener('request', log_request)
-                
+
             page.on('request', log_request)
             try:
                 # 在每个关键操作前检查请求状态
@@ -755,7 +785,7 @@ async def search_platform(platform, tmdb_info, request=None):
                     results = await retry_request(handle_rt_search, page, search_url, tmdb_info)
                 elif platform == "metacritic":
                     results = await retry_request(handle_metacritic_search, page, search_url)
-                
+
                 # 检查访问限制
                 await check_request()
                 if isinstance(results, dict) and "status" in results:
@@ -771,7 +801,7 @@ async def search_platform(platform, tmdb_info, request=None):
                     elif results["status"] == RATING_STATUS["NO_FOUND"]:
                         print(f"{platform}平台未收录此影视")
                         return {"status": RATING_STATUS["NO_FOUND"]}
-                
+
                 # 检查搜索结果
                 await check_request()
                 if not isinstance(results, list):
@@ -781,9 +811,9 @@ async def search_platform(platform, tmdb_info, request=None):
                     else:
                         print(f"{platform} 获取失败")
                         return create_error_rating_data(platform, media_type)
-                
+
                 print(f"找到 {len(results)} 个 {platform} 搜索结果")
-                
+
                 # 根据匹配度过滤结果
                 await check_request()
                 threshold = {
@@ -793,7 +823,7 @@ async def search_platform(platform, tmdb_info, request=None):
                     "rottentomatoes": 70,
                     "metacritic": 70
                 }.get(platform, 70)
-                
+
                 matched_results = []
                 for result in results:
                     await check_request()
@@ -802,16 +832,16 @@ async def search_platform(platform, tmdb_info, request=None):
                         match_score = result["match_score"]
                     else:
                         match_score = await calculate_match_degree(tmdb_info, result, platform)
-                    
+
                     if match_score >= threshold:
                         matched_results.append(result)
-                
+
                 if not matched_results:
                     print(f"{platform} 未找到足够匹配的结果")
                     return []
-                
+
                 return matched_results
-                
+
             except RequestCancelledException:
                 print("所有请求已取消")
                 return {"status": "cancelled"}
@@ -821,32 +851,25 @@ async def search_platform(platform, tmdb_info, request=None):
                 if "Timeout" in str(e):
                     return {"status": RATING_STATUS["TIMEOUT"]} 
                 return {"status": RATING_STATUS["FETCH_FAILED"]}
-            
+
     except Exception as e:
         print(f"搜索 {platform} 时出错: {e}")
         print(traceback.format_exc())
         return []
-        
+
     finally:
         # 确保资源被正确清理
-        if page:
-            try:
-                await page.unroute_all(behavior='ignoreErrors')
-                await page.close()
-            except Exception as e:
-                print(f"关闭页面时出错: {e}")
-                
         if context:
             try:
                 await context.close()
-            except Exception as e:
-                print(f"关闭上下文时出错: {e}")
-                
+            except Exception:
+                pass
+
         if browser:
             try:
                 await browser.close()
-            except Exception as e:
-                print(f"关闭浏览器时出错: {e}")
+            except Exception:
+                pass
 
 @smart_retry(RetryConfig(
     max_retries=2,
@@ -1225,15 +1248,13 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
     async def _extract_rating_with_retry():
         browser = None
         context = None
-        page = None
-        
         try:
             await random_delay()  # 添加随机延时
             # 检查请求是否已被取消
             if request and await request.is_disconnected():
                 print("请求已被取消,停止执行")
                 return {"status": "cancelled"}
-        
+
             # 处理特殊状态
             if isinstance(search_results, dict) and "status" in search_results:
                 status = search_results["status"]
@@ -1245,29 +1266,29 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     return create_rating_data(RATING_STATUS["TIMEOUT"], "获取超时")
                 elif status == RATING_STATUS["FETCH_FAILED"]:
                     return create_rating_data(RATING_STATUS["FETCH_FAILED"], "获取失败")
-        
+
             # 检查请求状态
             if request and await request.is_disconnected():
                 print("请求已被取消,停止执行")
                 return {"status": "cancelled"}
-            
+
             # 只有在确实执行了搜索但没有结果时才返回 NO_FOUND
             if isinstance(search_results, list) and not search_results:
                 print(f"\n{platform}平台未收录此影视")
                 return create_rating_data(RATING_STATUS["NO_FOUND"])
-            
+
             # 计算最佳匹配
             best_match = None
             highest_score = 0
             for result in search_results:
                 if isinstance(result, str):
                     result = {"title": result}
-                    
+
                 # 检查请求状态
                 if request and await request.is_disconnected():
                     print("请求已被取消,停止执行")
                     return {"status": "cancelled"}
-                    
+
                 score = await calculate_match_degree(tmdb_info, result, platform)
                 if score > highest_score:
                     highest_score = score
@@ -1276,16 +1297,16 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             if not best_match:
                 print(f"在{platform}平台未找到匹配的结果")
                 return create_empty_rating_data(platform, media_type, RATING_STATUS["NO_FOUND"])
-        
+
             detail_url = best_match["url"]
             print(f"找到最佳匹配结果: {best_match['title']} ({best_match.get('year', '')})")
             print(f"访问详情页: {detail_url}")
-    
+
             try:
                 async with async_playwright() as p:
                     # 选择 User-Agent
                     selected_user_agent = random.choice(USER_AGENTS)
-                
+
                     # 浏览器启动配置
                     browser_args = [
                         '--disable-dev-shm-usage',
@@ -1312,14 +1333,14 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         '--window-size=1920,1080',
                         f'--user-agent={selected_user_agent}'
                     ]
-                
+
                     browser = await p.chromium.launch(
                         headless=True,
                         args=browser_args,
                         timeout=60000,
                         ignore_default_args=['--enable-automation']
                     )
-                
+
                     # 上下文配置
                     context_options = {
                         'viewport': {'width': 1920, 'height': 1080},
@@ -1344,7 +1365,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                             'Sec-Fetch-User': '?1'
                         }
                     }
-                
+
                     context = await browser.new_context(**context_options)
                     page = await context.new_page()
                     page.set_default_timeout(30000)
@@ -1357,12 +1378,12 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                             'X-Forwarded-For': client_ip,
                             'X-Real-IP': client_ip
                         })
-                
+
                     # 检查请求状态
                     if request and await request.is_disconnected():
                         print("请求已被取消,停止执行")
                         return {"status": "cancelled"}
-                
+
                     # 根据平台特点设置不同的加载策略
                     if platform == "imdb":
                         # IMDB 评分是动态加载的
@@ -1388,7 +1409,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         # 默认策略
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
                         await asyncio.sleep(2)  # 增加到2秒确保页面完全加载
-            
+
                     try:
                         if platform == "douban":
                             rating_data = await extract_douban_rating(page, media_type, search_results)
@@ -1400,21 +1421,21 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                             rating_data = await extract_rt_rating(page, media_type, tmdb_info)
                         elif platform == "metacritic":
                             rating_data = await extract_metacritic_rating(page, media_type, tmdb_info)
-                    
+
                         # 检查请求状态
                         if request and await request.is_disconnected():
                             print("请求已被取消,停止执行")
                             return {"status": "cancelled"}
-                    
+
                         if rating_data:
                             # 检查评分数据是否完整
                             if media_type == "movie":
                                 status = check_movie_status(rating_data, platform)
                             else:
                                 status = check_tv_status(rating_data, platform)
-                            
+
                             rating_data["status"] = status
-                        
+
                             # 对于特殊平台的子数据状态设置
                             if platform in ["rottentomatoes", "metacritic"]:
                                 if "series" in rating_data:
@@ -1424,48 +1445,39 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                         season["status"] = status
                         else:
                             rating_data = create_empty_rating_data(platform, media_type, RATING_STATUS["NO_RATING"])
-                
+
                     except Exception as e:
                         print(f"提取{platform}评分数据时出错: {e}")
                         print(traceback.format_exc())
                         rating_data = create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
-            
+
                     return rating_data
-            
+
             except Exception as e:
                 print(f"访问{platform}详情页时出错: {e}")
                 print(traceback.format_exc())
                 return create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
-                
+
         except Exception as e:
             print(f"执行评分提取时出错: {e}")
             print(traceback.format_exc())
             return create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
-            
         finally:
-            # 确保资源被正确释放
-            if page:
-                try:
-                    await page.unroute_all(behavior='ignoreErrors')
-                    await page.close()
-                except Exception as e:
-                    print(f"关闭页面时出错: {e}")
-            if context:
-                try:
+            try:
+                if context:
                     await context.close()
-                except Exception as e:
-                    print(f"关闭上下文时出错: {e}")
-            if browser:
-                try:
+                if browser:
                     await browser.close()
-                except Exception as e:
-                    print(f"关闭浏览器时出错: {e}")
+            except Exception:
+                pass
 
     # 调用带重试的内部函数
     return await _extract_rating_with_retry()
 
 async def extract_douban_rating(page, media_type, matched_results):
     try:
+        # 等待页面加载完成
+        await page.wait_for_load_state("networkidle", timeout=10000)
         content = await page.content()
         
         # 使用正则表达式匹配评分数据
@@ -1497,7 +1509,19 @@ async def extract_douban_rating(page, media_type, matched_results):
             "seasons": []
         }
         
-        all_seasons_no_rating = True  # 用于跟踪是否所有季都暂无评分
+        # 检查是否有季选择器
+        season_selector = await page.query_selector('div.season-selector')
+        
+        # 如果没有季选择器，这可能是单季剧集
+        if not season_selector and rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
+            # 对于单季剧集，直接使用总体评分
+            return {
+                "status": RATING_STATUS["SUCCESSFUL"],
+                "rating": rating,
+                "rating_people": rating_people
+            }
+        
+        all_seasons_no_rating = True
         
         for result in matched_results:
             try:
@@ -1514,6 +1538,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                     continue
                 
                 await page.goto(url)
+                await page.wait_for_load_state("networkidle", timeout=10000)
                 season_content = await page.content()
                 
                 # 提取分季评分
@@ -1545,7 +1570,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                 continue
         
         # 根据所有季的状态设置整体状态
-        if all_seasons_no_rating:
+        if all_seasons_no_rating and ratings["seasons"]:
             ratings["status"] = RATING_STATUS["NO_RATING"]
         elif not ratings["seasons"]:
             ratings["status"] = RATING_STATUS["FETCH_FAILED"]
@@ -1556,7 +1581,7 @@ async def extract_douban_rating(page, media_type, matched_results):
         print(f"提取豆瓣评分数据时出错: {e}")
         return create_empty_rating_data("douban", media_type, RATING_STATUS["FETCH_FAILED"])
 
-async def extract_imdb_rating(page):
+async def extract_imdb_rating(page,media_type):
     """从IMDB详情页提取评分数据"""
     try:
         # 检查是否有评分元素
@@ -1589,12 +1614,8 @@ async def extract_imdb_rating(page):
     
     except Exception as e:
         print(f"提取IMDB评分数据时出错: {e}")
-        return {
-            "rating": "暂无",
-            "rating_people": "暂无",
-            "status": "Fail"
-        }
-
+        return create_empty_rating_data("imdb", media_type, RATING_STATUS["FETCH_FAILED"])
+        
 @dataclass
 class RTRating:
     tomatometer: str = "暂无"
