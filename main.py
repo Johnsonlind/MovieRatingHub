@@ -8,7 +8,7 @@ import ssl
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request, Depends, status
+from fastapi import FastAPI, HTTPException, Request, Depends, status, APIRouter, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
@@ -24,6 +24,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
 import secrets
+import aiohttp
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
@@ -577,3 +578,64 @@ async def reset_password(
     db.commit()
     
     return {"message": "密码重置成功"}
+
+router = APIRouter()
+
+@router.get("/api/tmdb-proxy/{path:path}")
+async def tmdb_proxy(path: str, request: Request):
+    """代理 TMDB API 请求并缓存结果"""
+    try:
+        # 构建缓存键
+        cache_key = f"tmdb:{path}:{request.query_params}"
+        
+        # 尝试从缓存获取
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            return cached_data
+            
+        # 获取原始查询参数
+        params = dict(request.query_params)
+        params["api_key"] = "4f681fa7b5ab7346a4e184bbf2d41715"
+        
+        # 构建完整的 TMDB URL
+        tmdb_url = f"https://api.themoviedb.org/3/{path}"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(tmdb_url, params=params) as response:
+                if response.status != 200:
+                    return HTTPException(status_code=response.status, detail="TMDB API 请求失败")
+                
+                # 获取响应数据
+                data = await response.json()
+                
+                # 缓存结果
+                await set_cache(cache_key, data)
+                
+                return data
+                
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
+
+@app.get("/api/image-proxy")
+async def image_proxy(url: str):
+    """代理图片请求"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=response.status, detail="图片获取失败")
+                
+                # 获取内容类型
+                content_type = response.headers.get("Content-Type", "image/jpeg")
+                
+                # 读取图片数据
+                image_data = await response.read()
+                
+                # 返回图片，设置正确的内容类型
+                return Response(content=image_data, media_type=content_type)
+                
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"图片代理失败: {str(e)}")
+
+# 在主应用中添加路由
+app.include_router(router)
