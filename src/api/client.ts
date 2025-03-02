@@ -2,13 +2,16 @@
 // TMDB API 客户端
 // ==========================================
 import axios from 'axios';
-import { TMDB } from './api';
 
 export const tmdbClient = axios.create({
-  baseURL: TMDB.baseUrl,
-  params: {
-    api_key: TMDB.apiKey,
-  },
+  baseURL: '/api/tmdb-proxy',
+});
+
+tmdbClient.interceptors.request.use((config) => {
+  if (config.params && config.params.api_key) {
+    delete config.params.api_key;
+  }
+  return config;
 });
 
 // 解析搜索查询,提取年份和语言
