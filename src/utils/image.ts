@@ -4,15 +4,13 @@
 import { TMDB } from '../api/api';
 
 type ImageSize = keyof typeof TMDB.posterSizes;
+type ImageType = 'poster' | 'profile' | 'backdrop';
 
-export function getImageUrl(path: string | null, size: ImageSize = '中', type: 'poster' | 'profile' = 'poster'): string {
+export function getImageUrl(path: string | null, size: ImageSize, type: ImageType): string {
   if (!path) {
-    return type === 'poster' ? '/placeholder-poster.png' : '/placeholder-avatar.png';
+    return type === 'profile' ? '/placeholder-avatar.png' : '/placeholder-poster.png';
   }
-  
-  // 使用代理
-  const tmdbImageUrl = `${TMDB.imageBaseUrl}/${TMDB.posterSizes[size]}${path}`;
-  return `/api/image-proxy?url=${encodeURIComponent(tmdbImageUrl)}`;
+  return `${TMDB.imageBaseUrl}/${TMDB.posterSizes[size]}${path}`;
 }
 
 export async function getBase64Image(input: string | File): Promise<string> {
