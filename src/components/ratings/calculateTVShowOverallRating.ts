@@ -12,6 +12,26 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
   
   const medianVoteCount = calculateMedianVoteCount(ratingData);
 
+// 豆瓣评分
+if (isValidRatingData(ratingData.douban?.rating)) {
+  const rating = parseFloat(ratingData.douban?.rating || '0');
+  const voteCount = ratingData.douban?.rating_people 
+    ? parseFloat(ratingData.douban.rating_people.replace(/[^0-9]/g, ''))
+    : medianVoteCount;
+  ratingTimesVoteSum += rating * voteCount;
+  totalVoteCount += voteCount;
+  if (!validPlatforms.includes('douban')) {
+    validPlatforms.push('douban');
+  }
+  ratingDetails.push({
+    platform: 'douban',
+    originalRating: ratingData.douban?.rating,
+    normalizedRating: rating,
+    voteCount,
+    contribution: rating * voteCount
+  });
+}
+
   // IMDB评分
   if (isValidRatingData(ratingData.imdb?.rating)) {
     const rating = normalizeRating(ratingData.imdb?.rating, 'imdb') ?? 0;
@@ -220,6 +240,7 @@ export function calculateTVShowOverallRating(ratingData: TVShowRatingData) {
     参与计算的平台: validPlatforms,
     最终评分: finalRating,
     原始评分数据: {
+      douban: ratingData.douban,
       imdb: ratingData.imdb,
       rottenTomatoes: ratingData.rottentomatoes?.series,
       metacritic: ratingData.metacritic?.overall,
