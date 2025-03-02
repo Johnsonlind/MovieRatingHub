@@ -2,7 +2,8 @@
 // API 配置
 // ==========================================
 export const TMDB = {
-  baseUrl: '/api/tmdb-proxy',
+  apiKey: '4f681fa7b5ab7346a4e184bbf2d41715',
+  baseUrl: 'https://api.themoviedb.org/3',
   imageBaseUrl: 'https://image.tmdb.org/t/p',
   posterSizes: {
     小: 'w185',
