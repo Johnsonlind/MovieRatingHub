@@ -25,6 +25,7 @@ import { HomeButton } from '../utils/HomeButton';
 import { ExportButton } from '../utils/ExportButton';
 import { FavoriteButton } from '../utils/FavoriteButton';
 import { UserButton } from '../utils/UserButton';
+import { ErrorMessage } from '../utils/ErrorMessage';
 
 // 添加 TMDB 和 Trakt 评分类型定义
 interface TMDBRating {
@@ -50,6 +51,13 @@ const PRELOAD_IMAGES = [
   `${CDN_URL}/logos/tmdb.png`,
   `${CDN_URL}/logos/trakt.png`
 ];
+
+const formatQueryError = (error: unknown): { status: FetchStatus; detail: string } => {
+  return {
+    status: 'error',
+    detail: error instanceof Error ? error.message : String(error)
+  };
+};
 
 export default function TVShowPage() {
   const { id } = useParams();
@@ -80,6 +88,8 @@ export default function TVShowPage() {
 
   // 添加一个导出专用的状态
   const exportSeasonRef = useRef<number | undefined>(undefined);
+
+  const [retryCount, setRetryCount] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const fetchAllRatings = async () => {
@@ -303,6 +313,11 @@ export default function TVShowPage() {
   ];
 
   const handleRetry = async (platform: string) => {
+    setRetryCount(prev => ({
+      ...prev,
+      [platform]: (prev[platform] || 0) + 1
+    }));
+
     if (platform === 'tmdb') {
       setTmdbStatus('loading');
       try {
@@ -530,6 +545,18 @@ export default function TVShowPage() {
           )}
         </div>
       </div>
+
+      {queryError && (
+        <ErrorMessage
+          status={formatQueryError(queryError).status}
+          errorDetail={formatQueryError(queryError).detail}
+          onRetry={() => {
+            const platformToRetry = backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown';
+            handleRetry(platformToRetry);
+          }}
+          retryCount={retryCount[backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown'] || 0}
+        />
+      )}
     </div>
   );
 }
