@@ -7,7 +7,7 @@ export const messages = {
     loadMovieFailed: '加载电影详情失败',
     loadTVShowFailed: '加载剧集详情失败',
     loadRatingsFailed: '加载评分失败',
-    noResults: '未找到相关电影',
+    noResults: '未找到相关影视作品',
   },
   loading: '加载中...',
   search: {
