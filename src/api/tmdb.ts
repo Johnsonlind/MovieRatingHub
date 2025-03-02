@@ -145,3 +145,31 @@ export async function getTVShow(id: number): Promise<TVShow> {
     throw error;
   }
 }
+
+export async function searchByImdbId(imdbId: string): Promise<{ movies: Movie[], tvShows: TVShow[] }> {
+  try {
+    // 确保IMDB ID格式正确
+    const formattedId = imdbId.startsWith('tt') ? imdbId : `tt${imdbId}`;
+    
+    const response = await fetch(
+      `${TMDB.baseUrl}/find/${formattedId}?external_source=imdb_id&language=zh-CN`
+    );
+
+    if (!response.ok) {
+      throw new Error('查找IMDB ID失败');
+    }
+
+    const data = await response.json();
+    
+    // 打印返回数据以便调试
+    console.log('TMDB find response:', data);
+    
+    return {
+      movies: (data.movie_results || []).map(transformTMDBMovie),
+      tvShows: (data.tv_results || []).map(transformTMDBTVShow)
+    };
+  } catch (error) {
+    console.error('通过IMDB ID搜索失败:', error);
+    return { movies: [], tvShows: [] };
+  }
+}
