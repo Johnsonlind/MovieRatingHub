@@ -7,7 +7,7 @@ import { TMDB, TRAKT } from './api';
 async function getImdbId(mediaType: 'movies' | 'shows', tmdbId: string) {
   try {
     const response = await fetch(
-      `${TMDB.baseUrl}/${mediaType === 'movies' ? 'movie' : 'tv'}/${tmdbId}/external_ids?api_key=${TMDB.apiKey}`
+      `${TMDB.baseUrl}/${mediaType === 'movies' ? 'movie' : 'tv'}/${tmdbId}/external_ids`
     );
 
     if (!response.ok) {
@@ -28,7 +28,7 @@ export async function fetchTMDBRating(mediaType: 'movie' | 'tv', id: string) {
   try {
     // 获取整体评分
     const response = await fetch(
-      `${TMDB.baseUrl}/${mediaType}/${id}?api_key=${TMDB.apiKey}&language=zh-CN`
+      `${TMDB.baseUrl}/${mediaType}/${id}?language=zh-CN`
     );
     const data = await response.json();
     
@@ -44,7 +44,7 @@ export async function fetchTMDBRating(mediaType: 'movie' | 'tv', id: string) {
     if (data.seasons?.length > 0) {
       for (const season of data.seasons) {
         const seasonResponse = await fetch(
-          `${TMDB.baseUrl}/${mediaType}/${id}/season/${season.season_number}?api_key=${TMDB.apiKey}&language=zh-CN`
+          `${TMDB.baseUrl}/${mediaType}/${id}/season/${season.season_number}?language=zh-CN`
         );
         const seasonData = await seasonResponse.json();
         
@@ -106,7 +106,7 @@ export async function fetchTraktRating(mediaType: 'movies' | 'shows', tmdbId: st
     // 如果是电视剧，继续获取季度评分
     // 从TMDB获取季数信息
     const tmdbResponse = await fetch(
-      `${TMDB.baseUrl}/tv/${tmdbId}?api_key=${TMDB.apiKey}&language=zh-CN`
+      `${TMDB.baseUrl}/tv/${tmdbId}?language=zh-CN`
     );
 
     if (!tmdbResponse.ok) {
