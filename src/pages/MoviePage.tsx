@@ -25,6 +25,7 @@ import { HomeButton } from '../utils/HomeButton';
 import { ExportButton } from '../utils/ExportButton';
 import { FavoriteButton } from '../utils/FavoriteButton';
 import { UserButton } from '../utils/UserButton';
+import { ErrorMessage } from '../utils/ErrorMessage';
 
 interface PlatformStatus {
   status: FetchStatus;
@@ -48,6 +49,13 @@ const PRELOAD_IMAGES = [
   `${CDN_URL}/logos/trakt.png`
 ];
 
+const formatQueryError = (error: unknown): { status: FetchStatus; detail: string } => {
+  return {
+    status: 'error',
+    detail: error instanceof Error ? error.message : String(error)
+  };
+};
+
 export default function MoviePage() {
   const { id } = useParams();
   const [isExporting, setIsExporting] = useState(false);
@@ -66,7 +74,7 @@ export default function MoviePage() {
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const { data: movie, isLoading, error } = useQuery({
+  const { data: movie, isLoading, error: queryError } = useQuery({
     queryKey: ['movie', id],
     queryFn: () => getMovie(id!),
     enabled: !!id,
@@ -74,6 +82,7 @@ export default function MoviePage() {
   });
 
   const [posterBase64, setPosterBase64] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const fetchAllRatings = async () => {
@@ -286,6 +295,12 @@ export default function MoviePage() {
   ];
 
   const handleRetry = async (platform: string) => {
+    // 更新重试次数
+    setRetryCount(prev => ({
+      ...prev,
+      [platform]: (prev[platform] || 0) + 1
+    }));
+
     if (platform === 'tmdb') {
       setTmdbStatus('loading');
       try {
@@ -393,7 +408,7 @@ export default function MoviePage() {
     );
   }
 
-  if (error || !movie) {
+  if (queryError || !movie) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--page-bg)]">
         <div className="text-center">
@@ -465,6 +480,18 @@ export default function MoviePage() {
           )}
         </div>
       </div>
+
+      {queryError && (
+        <ErrorMessage
+          status={formatQueryError(queryError).status}
+          errorDetail={formatQueryError(queryError).detail}
+          onRetry={() => {
+            const platformToRetry = backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown';
+            handleRetry(platformToRetry);
+          }}
+          retryCount={retryCount[backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown'] || 0}
+        />
+      )}
     </div>
   );
 }
