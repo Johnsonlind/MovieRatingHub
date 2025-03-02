@@ -9,7 +9,6 @@ import { getImageUrl } from '../utils/image';
 const api = axios.create({
   baseURL: TMDB.baseUrl,
   params: {
-    api_key: TMDB.apiKey,
     language: TMDB.language,
   },
 });
@@ -75,7 +74,7 @@ export async function searchMedia(query: string): Promise<{ movies: Movie[], tvS
 
 export async function fetchTMDBRating(type: 'movie' | 'tv', id: number) {
   const response = await fetch(
-    `${TMDB.baseUrl}/${type}/${id}?api_key=${TMDB.apiKey}&language=zh-CN&append_to_response=reviews`
+    `${TMDB.baseUrl}/${type}/${id}?language=zh-CN&append_to_response=reviews`
   );
 
   if (!response.ok) {
@@ -99,7 +98,7 @@ export async function fetchTMDBRating(type: 'movie' | 'tv', id: number) {
 
 export async function getTVShowCredits(id: number) {
   const response = await fetch(
-    `${TMDB.baseUrl}/tv/${id}/credits?api_key=${TMDB.apiKey}&language=zh-CN`
+    `${TMDB.baseUrl}/tv/${id}/credits?language=zh-CN`
   );
   
   if (!response.ok) {
@@ -127,7 +126,7 @@ export async function getTVShow(id: number): Promise<TVShow> {
   try {
     const [details, credits] = await Promise.all([
       fetch(
-        `${TMDB.baseUrl}/tv/${id}?api_key=${TMDB.apiKey}&language=zh-CN&append_to_response=credits`
+        `${TMDB.baseUrl}/tv/${id}?language=zh-CN&append_to_response=credits`
       ),
       getTVShowCredits(id)
     ]);
