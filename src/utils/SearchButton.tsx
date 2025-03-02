@@ -4,13 +4,30 @@
 import { useState } from 'react';
 import { Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { searchByImdbId } from '../api/tmdb';
 
 export function SearchButton() {
   const [showSearch, setShowSearch] = useState(false);
   const navigate = useNavigate();
 
-  const handleSearch = (query: string) => {
+  const handleSearch = async (query: string) => {
     if (query.trim()) {
+      // 检查是否是IMDB ID格式
+      const imdbIdMatch = query.match(/^(?:tt)?(\d{7,8})$/);
+      
+      if (imdbIdMatch) {
+        // 如果是IMDB ID，使用find接口搜索
+        const results = await searchByImdbId(imdbIdMatch[0]);
+        if (results.movies.length > 0) {
+          navigate(`/movie/${results.movies[0].id}`);
+          return;
+        } else if (results.tvShows.length > 0) {
+          navigate(`/tv/${results.tvShows[0].id}`);
+          return;
+        }
+      }
+      
+      // 如果不是IMDB ID或没有找到结果，使用普通搜索
       navigate('/', { state: { searchQuery: query.trim() } });
     }
   };
