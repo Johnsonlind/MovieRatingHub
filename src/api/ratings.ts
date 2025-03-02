@@ -1,147 +1,165 @@
 // ==========================================
-// TMDB API
+// 评分 API
 // ==========================================
-import axios from 'axios';
-import { TMDB } from './api';
-import type { Movie, TVShow } from '../types/media';
-import { getImageUrl } from '../utils/image';
+import { TMDB, TRAKT } from './api';
 
-const api = axios.create({
-  baseURL: TMDB.baseUrl,
-  params: {
-    language: TMDB.language,
-  },
-});
-
-function transformTMDBMovie(data: any): Movie {
-  return {
-    type: 'movie',
-    id: data.id,
-    title: data.title,
-    originalTitle: data.original_title,
-    year: new Date(data.release_date).getFullYear(),
-    poster: getImageUrl(data.poster_path, '大', 'poster'),
-    backdrop: getImageUrl(data.backdrop_path, '大', 'poster'),
-    overview: data.overview,
-    releaseDate: data.release_date,
-    runtime: data.runtime,
-    genres: data.genres?.map((g: any) => g.name) || [],
-    credits: data.credits,
-  };
-}
-
-function transformTMDBTVShow(data: any): TVShow {
-  return {
-    type: 'tv',
-    id: data.id,
-    title: data.name,
-    originalTitle: data.original_name,
-    year: new Date(data.first_air_date).getFullYear(),
-    poster: getImageUrl(data.poster_path, '大', 'poster'),
-    backdrop: getImageUrl(data.backdrop_path, '大', 'poster'),
-    overview: data.overview,
-    firstAirDate: data.first_air_date,
-    lastAirDate: data.last_air_date,
-    numberOfSeasons: data.number_of_seasons,
-    status: data.status,
-    genres: data.genres?.map((g: any) => g.name) || [],
-    seasons: data.seasons?.map((s: any) => ({
-      seasonNumber: s.season_number,
-      name: s.name,
-      episodeCount: s.episode_count,
-      airDate: s.air_date,
-      poster: getImageUrl(s.poster_path, '大', 'poster'),
-    })) || [],
-    credits: data.credits,
-  };
-}
-
-export async function searchMedia(query: string): Promise<{ movies: Movie[], tvShows: TVShow[] }> {
-  const [movieResponse, tvResponse] = await Promise.all([
-    api.get('/search/movie', {
-      params: { query, page: 1, include_adult: false },
-    }),
-    api.get('/search/tv', {
-      params: { query, page: 1, include_adult: false },
-    }),
-  ]);
-
-  return {
-    movies: movieResponse.data.results.slice(0, 10).map(transformTMDBMovie),
-    tvShows: tvResponse.data.results.slice(0, 10).map(transformTMDBTVShow),
-  };
-}
-
-export async function fetchTMDBRating(type: 'movie' | 'tv', id: number) {
-  const response = await fetch(
-    `${TMDB.baseUrl}/${type}/${id}?language=zh-CN?append_to_response=reviews`
-  );
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch TMDB rating');
-  }
-
-  const data = await response.json();
-
-  return {
-    rating: data.vote_average,
-    voteCount: data.vote_count,
-    ...(type === 'tv' && data.seasons && {
-      seasons: data.seasons.map((s: any) => ({
-        season_number: s.season_number,
-        rating: s.vote_average,
-        voteCount: s.vote_count
-      }))
-    })
-  };
-}
-
-export async function getTVShowCredits(id: number) {
-  const response = await fetch(
-    `${TMDB.baseUrl}/tv/${id}/credits?language=zh-CN`
-  );
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch TV show credits');
-  }
-
-  const data = await response.json();
-  
-  return {
-    cast: data.cast.map((member: any) => ({
-      name: member.name,
-      character: member.character,
-      profilePath: member.profile_path,
-      order: member.order
-    })),
-    crew: data.crew.map((member: any) => ({
-      name: member.name,
-      job: member.job,
-      profilePath: member.profile_path
-    }))
-  };
-}
-
-export async function getTVShow(id: number): Promise<TVShow> {
+// 获取 IMDb ID
+async function getImdbId(mediaType: 'movies' | 'shows', tmdbId: string) {
   try {
-    const [details, credits] = await Promise.all([
-      fetch(
-        `${TMDB.baseUrl}/tv/${id}?language=zh-CN?append_to_response=credits`
-      ),
-      getTVShowCredits(id)
-    ]);
+    const response = await fetch(
+      `${TMDB.baseUrl}/${mediaType === 'movies' ? 'movie' : 'tv'}/${tmdbId}/external_ids?api_key=${TMDB.apiKey}`
+    );
 
-    if (!details.ok) {
-      throw new Error('Failed to fetch TV show details');
+    if (!response.ok) {
+      throw new Error(`Failed to get IMDb ID: ${response.status}`);
     }
 
-    const detailsData = await details.json();
-    return transformTMDBTVShow({
-      ...detailsData,
-      credits
-    });
+    const data = await response.json();
+
+    return data.imdb_id;
   } catch (error) {
-    console.error('Error fetching TV show:', error);
-    throw error;
+    console.error('Error getting IMDb ID:', error);
+    return null;
+  }
+} 
+
+// 获取 TMDB 评分
+export async function fetchTMDBRating(mediaType: 'movie' | 'tv', id: string) {
+  try {
+    // 获取整体评分
+    const response = await fetch(
+      `${TMDB.baseUrl}/${mediaType}/${id}?api_key=${TMDB.apiKey}&language=zh-CN`
+    );
+    const data = await response.json();
+    
+    if (mediaType === 'movie') {
+      return {
+        rating: data.vote_average,
+        voteCount: data.vote_count
+      };
+    }
+
+    // 如果是电视剧，获取所有季度（包括特别篇）的评分
+    const seasons = [];
+    if (data.seasons?.length > 0) {
+      for (const season of data.seasons) {
+        const seasonResponse = await fetch(
+          `${TMDB.baseUrl}/${mediaType}/${id}/season/${season.season_number}?api_key=${TMDB.apiKey}&language=zh-CN`
+        );
+        const seasonData = await seasonResponse.json();
+        
+        // 使用季度自己的评分数据
+        seasons.push({
+          season_number: season.season_number,
+          rating: seasonData.vote_average || 0,
+          voteCount: seasonData.vote_count || 0
+        });
+      }
+    }
+
+    return {
+      rating: data.vote_average,
+      voteCount: data.vote_count,
+      seasons
+    };
+  } catch (error) {
+    console.error('获取 TMDB 评分失败:', error);
+    return null;
+  }
+}
+
+// 获取 Trakt 评分
+export async function fetchTraktRating(mediaType: 'movies' | 'shows', tmdbId: string) {
+  try {
+    // 获取IMDb ID
+    const imdbId = await getImdbId(mediaType, tmdbId);
+    if (!imdbId) return null;
+
+    // 获取整体评分
+    const endpoint = mediaType === 'shows' ? 'shows' : 'movies';
+    const response = await fetch(
+      `${TRAKT.baseUrl}/${endpoint}/${imdbId}/ratings`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'trakt-api-version': '2',
+          'trakt-api-key': TRAKT.clientId
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`${endpoint} ratings failed with status: ${response.status}`);
+    }
+
+    const ratingData = await response.json();
+
+    // 如果是电影，直接返回评分数据
+    if (mediaType === 'movies') {
+      return {
+        rating: ratingData.rating,
+        votes: ratingData.votes,
+        distribution: ratingData.distribution
+      };
+    }
+
+    // 如果是电视剧，继续获取季度评分
+    // 从TMDB获取季数信息
+    const tmdbResponse = await fetch(
+      `${TMDB.baseUrl}/tv/${tmdbId}?api_key=${TMDB.apiKey}&language=zh-CN`
+    );
+
+    if (!tmdbResponse.ok) {
+      throw new Error('Failed to fetch TMDB season info');
+    }
+
+    const tmdbData = await tmdbResponse.json();
+    const seasons = tmdbData.seasons || [];
+
+    // 获取每季评分
+    const seasonPromises = seasons.map(async (season: any) => {
+      try {
+        const seasonResponse = await fetch(
+          `${TRAKT.baseUrl}/shows/${imdbId}/seasons/${season.season_number}/ratings`,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'trakt-api-version': '2',
+              'trakt-api-key': TRAKT.clientId
+            }
+          }
+        );
+
+        if (!seasonResponse.ok) {
+          console.warn(`Failed to fetch season ${season.season_number} ratings`);
+          return null;
+        }
+
+        const seasonData = await seasonResponse.json();
+
+        return {
+          season_number: season.season_number,
+          rating: seasonData.rating || 0,
+          votes: seasonData.votes || 0,
+          distribution: seasonData.distribution || {}
+        };
+      } catch (error) {
+        console.error(`Error fetching season ${season.season_number} ratings:`, error);
+        return null;
+      }
+    });
+
+    const validSeasons = (await Promise.all(seasonPromises)).filter(Boolean);
+
+    return {
+      rating: ratingData.rating,
+      votes: ratingData.votes,
+      distribution: ratingData.distribution,
+      seasons: validSeasons
+    };
+
+  } catch (error) {
+    console.error('获取Trakt评分失败:', error);
+    return null;
   }
 }
