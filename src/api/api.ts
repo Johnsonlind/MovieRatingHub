@@ -11,6 +11,7 @@ export const TMDB = {
     原始: 'original'
   } as const,
   language: 'zh-CN',
+  findEndpoint: '/find'
 } as const;
 
 export const TRAKT = {
