@@ -1581,7 +1581,7 @@ async def extract_douban_rating(page, media_type, matched_results):
         print(f"提取豆瓣评分数据时出错: {e}")
         return create_empty_rating_data("douban", media_type, RATING_STATUS["FETCH_FAILED"])
 
-async def extract_imdb_rating(page,media_type):
+async def extract_imdb_rating(page):
     """从IMDB详情页提取评分数据"""
     try:
         # 检查是否有评分元素
@@ -1595,26 +1595,30 @@ async def extract_imdb_rating(page,media_type):
 
         # 等待评分元素加载
         await page.wait_for_selector('.sc-d541859f-1.imUuxf', timeout=2000)
-        
+
         # 提取评分
         rating = await page.query_selector('.sc-d541859f-1.imUuxf')
         rating_text = await rating.inner_text() if rating else "暂无"
-        
+
         # 提取评分人数
         rating_people = await page.query_selector('.sc-d541859f-3.dwhNqC')
         rating_people_text = await rating_people.inner_text() if rating_people else "暂无"
-        
+
         print(f"IMDB评分: {rating_text}")
         print(f"IMDB评分人数: {rating_people_text}")
-        
+
         return {
             "rating": rating_text,
             "rating_people": rating_people_text
         }
-    
+
     except Exception as e:
         print(f"提取IMDB评分数据时出错: {e}")
-        return create_empty_rating_data("imdb", media_type, RATING_STATUS["FETCH_FAILED"])
+        return {
+            "rating": "暂无",
+            "rating_people": "暂无",
+            "status": "Fail"
+        }
         
 @dataclass
 class RTRating:
