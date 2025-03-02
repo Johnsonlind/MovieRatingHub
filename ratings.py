@@ -604,6 +604,7 @@ async def search_platform(platform, tmdb_info, request=None):
     """在各平台搜索并返回搜索结果"""
     browser = None
     context = None
+    page = None
     
     try:
         # 检查请求是否已被取消
@@ -828,17 +829,24 @@ async def search_platform(platform, tmdb_info, request=None):
         
     finally:
         # 确保资源被正确清理
+        if page:
+            try:
+                await page.unroute_all(behavior='ignoreErrors')
+                await page.close()
+            except Exception as e:
+                print(f"关闭页面时出错: {e}")
+                
         if context:
             try:
                 await context.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"关闭上下文时出错: {e}")
                 
         if browser:
             try:
                 await browser.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"关闭浏览器时出错: {e}")
 
 @smart_retry(RetryConfig(
     max_retries=2,
@@ -1217,6 +1225,8 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
     async def _extract_rating_with_retry():
         browser = None
         context = None
+        page = None
+        
         try:
             await random_delay()  # 添加随机延时
             # 检查请求是否已被取消
@@ -1431,14 +1441,25 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             print(f"执行评分提取时出错: {e}")
             print(traceback.format_exc())
             return create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
+            
         finally:
-            try:
-                if context:
+            # 确保资源被正确释放
+            if page:
+                try:
+                    await page.unroute_all(behavior='ignoreErrors')
+                    await page.close()
+                except Exception as e:
+                    print(f"关闭页面时出错: {e}")
+            if context:
+                try:
                     await context.close()
-                if browser:
+                except Exception as e:
+                    print(f"关闭上下文时出错: {e}")
+            if browser:
+                try:
                     await browser.close()
-            except Exception:
-                pass
+                except Exception as e:
+                    print(f"关闭浏览器时出错: {e}")
 
     # 调用带重试的内部函数
     return await _extract_rating_with_retry()
