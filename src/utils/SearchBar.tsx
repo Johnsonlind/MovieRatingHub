@@ -32,8 +32,7 @@ export function SearchBar({ onSearch }: SearchBarProps) {
         <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
       </div>
       <div className="mt-2 text-sm text-gray-500 text-center">
-        <p>支持多语言搜索 (中文/日文/韩文/英文)</p>
-        <p>可以添加年份进行搜索，例如: "星际穿越 2014"</p>
+        <p>支持多语言搜索、年份 ("星际穿越 2014") 和 IMDB ID (tt1234567)</p>
       </div>
     </form>
   );
