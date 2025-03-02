@@ -1619,7 +1619,7 @@ async def extract_imdb_rating(page):
             "rating_people": "暂无",
             "status": "Fail"
         }
-
+        
 @dataclass
 class RTRating:
     tomatometer: str = "暂无"
