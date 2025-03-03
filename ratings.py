@@ -14,6 +14,7 @@ from urllib.parse import quote
 from dataclasses import dataclass, field
 from fastapi import Request
 from asyncio import Semaphore
+import unicodedata
 
 
 TMDB_API_KEY = "4f681fa7b5ab7346a4e184bbf2d41715"
@@ -221,6 +222,13 @@ async def retry_request(func, *args, max_retries=3, delay=1):
 def construct_search_url(title, media_type, platform):
     """根据影视类型构造各平台搜索URL"""
     encoded_title = quote(title)
+    # 为 Metacritic 特别处理标题
+    if platform == "metacritic":
+        # 移除重音符号并简化标题
+        simplified_title = ''.join(c for c in unicodedata.normalize('NFD', title)
+                                  if unicodedata.category(c) != 'Mn')
+        encoded_title = quote(simplified_title)
+    
     search_urls = {
         "douban": {
             "movie": f"https://search.douban.com/movie/subject_search?search_text={encoded_title}",
@@ -1414,7 +1422,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         if platform == "douban":
                             rating_data = await extract_douban_rating(page, media_type, search_results)
                         elif platform == "imdb":
-                            rating_data = await extract_imdb_rating(page)
+                            rating_data = await extract_imdb_rating(page, media_type)
                         elif platform == "letterboxd":
                             rating_data = await extract_letterboxd_rating(page)
                         elif platform == "rottentomatoes":
@@ -1581,7 +1589,7 @@ async def extract_douban_rating(page, media_type, matched_results):
         print(f"提取豆瓣评分数据时出错: {e}")
         return create_empty_rating_data("douban", media_type, RATING_STATUS["FETCH_FAILED"])
 
-async def extract_imdb_rating(page):
+async def extract_imdb_rating(page, media_type):
     """从IMDB详情页提取评分数据"""
     try:
         # 检查是否有评分元素
