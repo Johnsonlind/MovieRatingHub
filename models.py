@@ -23,20 +23,41 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     favorites = relationship("Favorite", back_populates="user")
+    favorite_lists = relationship("FavoriteList", back_populates="user")
+
+class FavoriteList(Base):
+    __tablename__ = "favorite_lists"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    name = Column(String(255))
+    description = Column(Text, nullable=True)
+    is_public = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    original_list_id = Column(Integer, ForeignKey("favorite_lists.id"), nullable=True)
+    
+    user = relationship("User", back_populates="favorite_lists")
+    favorites = relationship("Favorite", back_populates="favorite_list")
 
 class Favorite(Base):
     __tablename__ = "favorites"
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
+    list_id = Column(Integer, ForeignKey("favorite_lists.id"))
     media_id = Column(String(255))
     media_type = Column(String(50))
     title = Column(String(255))
     poster = Column(String(255))
     year = Column(String(50))
+    overview = Column(Text, nullable=True)
+    note = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    sort_order = Column(Integer, nullable=True)
     
     user = relationship("User", back_populates="favorites")
+    favorite_list = relationship("FavoriteList", back_populates="favorites")
 
 class PasswordReset(Base):
     __tablename__ = "password_resets"
