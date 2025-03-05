@@ -105,25 +105,23 @@ class RetryConfig:
     base_delay: float
     platform: str
     error_types: dict = field(default_factory=lambda: {
-        'rate_limit': {'max_retries': 3, 'delay': 60},  # 访问频率限制
+        'rate_limit': {'max_retries': 3, 'delay': 10},  # 访问频率限制
         'timeout': {'max_retries': 3, 'delay': 5},      # 超时
         'network_error': {'max_retries': 3, 'delay': 2}, # 网络错误
-        'parse_error': {'max_retries': 2, 'delay': 1},   # 解析错误
-        'fail': {'max_retries': 2, 'delay': 3},          # 获取失败
-        'error': {'max_retries': 2, 'delay': 2},          # 其他错误
-        'no_found': {'max_retries': 1, 'delay': 2}      # 未找到时重试一次
+        'parse_error': {'max_retries': 3, 'delay': 2},   # 解析错误
+        'fail': {'max_retries': 3, 'delay': 2},          # 获取失败
+        'error': {'max_retries': 3, 'delay': 2},          # 其他错误
+        'no_found': {'max_retries': 3, 'delay': 2}      # 未找到时重试一次
     })
 
 def smart_retry(retry_config: RetryConfig):
     """智能重试装饰器"""
     def decorator(func):
         async def wrapper(*args, **kwargs):
-            # 从函数参数中获取 platform
             platform = None
             if 'platform' in kwargs:
                 platform = kwargs['platform']
             else:
-                # 假设 platform 是第二个参数 (media_type, platform, ...)
                 if len(args) > 1:
                     platform = args[1]
             
@@ -194,6 +192,16 @@ def smart_retry(retry_config: RetryConfig):
                     raise e
                     
             # 所有重试都失败
+            # 如果是已知的特定状态，保留原始状态
+            if isinstance(result, dict) and 'status' in result:
+                status = result['status']
+                if status in [RATING_STATUS["RATE_LIMIT"], RATING_STATUS["TIMEOUT"], RATING_STATUS["NO_FOUND"]]:
+                    return {
+                        "status": status,
+                        "error_detail": f"重试{retry_config.max_retries}次后仍然失败: {str(last_error)}"
+                    }
+            
+            # 其他情况返回获取失败
             return {
                 "status": RATING_STATUS["FETCH_FAILED"],
                 "error_detail": str(last_error)
@@ -664,13 +672,13 @@ async def check_rate_limit(page, platform: str) -> dict | None:
         page_text = await page.content()
         if "error code: 008" in page_text:
             print("豆瓣访问频率限制: error code 008")
-            return {"status": RATING_STATUS["RATE_LIMIT"]}
+            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"}
     
     # 首先检查页面全文是否包含特定文本
     page_text = await page.locator('body').text_content()
     if any(phrase in page_text for phrase in rules["phrases"]):
         print(f"{platform} 访问频率限制: 检测到限制文本")
-        return {"status": RATING_STATUS["RATE_LIMIT"]}
+        return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"}
     
     # 然后检查特定选择器
     for selector in rules["selectors"]:
@@ -679,7 +687,7 @@ async def check_rate_limit(page, platform: str) -> dict | None:
             text = await elem.inner_text()
             if any(phrase.lower() in text.lower() for phrase in rules["phrases"]):
                 print(f"{platform} 访问频率限制: {text}")
-                return {"status": RATING_STATUS["RATE_LIMIT"]}
+                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"}
     
     return None
     
@@ -862,16 +870,16 @@ async def search_platform(platform, tmdb_info, request=None):
                 if isinstance(results, dict) and "status" in results:
                     if results["status"] == RATING_STATUS["RATE_LIMIT"]:
                         print(f"{platform} 访问频率限制")
-                        return {"status": RATING_STATUS["RATE_LIMIT"]} 
+                        return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
                     elif results["status"] == RATING_STATUS["TIMEOUT"]:
                         print(f"{platform} 请求超时")
-                        return {"status": RATING_STATUS["TIMEOUT"]}
+                        return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
                     elif results["status"] == RATING_STATUS["FETCH_FAILED"]:
                         print(f"{platform} 获取失败")
-                        return {"status": RATING_STATUS["FETCH_FAILED"]}
+                        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
                     elif results["status"] == RATING_STATUS["NO_FOUND"]:
                         print(f"{platform}平台未收录此影视")
-                        return {"status": RATING_STATUS["NO_FOUND"]}
+                        return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
 
                 # 检查搜索结果
                 await check_request()
@@ -920,8 +928,8 @@ async def search_platform(platform, tmdb_info, request=None):
                 print(f"处理 {platform} 搜索时出错: {e}")
                 print(traceback.format_exc())
                 if "Timeout" in str(e):
-                    return {"status": RATING_STATUS["TIMEOUT"]} 
-                return {"status": RATING_STATUS["FETCH_FAILED"]}
+                    return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"} 
+                return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
     except Exception as e:
         print(f"搜索 {platform} 时出错: {e}")
@@ -941,11 +949,6 @@ async def search_platform(platform, tmdb_info, request=None):
             except Exception:
                 pass
 
-@smart_retry(RetryConfig(
-    max_retries=2,
-    base_delay=1,
-    platform="douban"
-))
 async def handle_douban_search(page, search_url):
     """处理豆瓣搜索"""
     try:
@@ -958,7 +961,7 @@ async def handle_douban_search(page, search_url):
         rate_limit = await check_rate_limit(page, "douban")
         if rate_limit:
             print("检测到豆瓣访问限制")
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
+            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
             # 检查搜索结果
@@ -967,7 +970,7 @@ async def handle_douban_search(page, search_url):
             
             # 如果没有搜索结果
             if not items:
-                return {"status": RATING_STATUS["NO_FOUND"]}
+                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
             for item in items:
                 try:
@@ -981,16 +984,9 @@ async def handle_douban_search(page, search_url):
                             title = title_match.group(1).strip()
                             year = title_match.group(2)
                             
-                            meta_elem = await item.query_selector('.meta')
-                            director = ""
-                            if meta_elem:
-                                meta_text = await meta_elem.inner_text()
-                                director = meta_text.split('/')[0].strip()
-                            
                             results.append({
                                 "title": title,
                                 "year": year,
-                                "director": director,
                                 "url": url
                             })
                 except Exception as e:
@@ -1002,20 +998,15 @@ async def handle_douban_search(page, search_url):
         except Exception as e:
             print(f"等待豆瓣搜索结果时出错: {e}")
             if "Timeout" in str(e):
-                return {"status": RATING_STATUS["TIMEOUT"]}
-            return {"status": RATING_STATUS["FETCH_FAILED"]}
+                return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
             
     except Exception as e:
         print(f"访问豆瓣搜索页面失败: {e}")
         if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
+            return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
-@smart_retry(RetryConfig(
-    max_retries=2,
-    base_delay=1,
-    platform="imdb"
-))
 async def handle_imdb_search(page, search_url):
     """处理IMDB搜索"""
     try:
@@ -1028,7 +1019,7 @@ async def handle_imdb_search(page, search_url):
         rate_limit = await check_rate_limit(page, "imdb")
         if rate_limit:
             print("检测到IMDB访问限制")
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
+            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
             # 检查搜索结果
@@ -1037,7 +1028,7 @@ async def handle_imdb_search(page, search_url):
             
             # 如果没有搜索结果
             if not items:
-                return {"status": RATING_STATUS["NO_FOUND"]}
+                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
                     
             for item in items:
                 try:
@@ -1066,20 +1057,15 @@ async def handle_imdb_search(page, search_url):
         except Exception as e:
             print(f"等待IMDB搜索结果超时: {e}")
             if "Timeout" in str(e):
-                return {"status": RATING_STATUS["TIMEOUT"]}
-            return {"status": RATING_STATUS["FETCH_FAILED"]}
+                return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
             
     except Exception as e:
         print(f"访问IMDB搜索页面失败: {e}")
         if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
+            return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
-@smart_retry(RetryConfig(
-    max_retries=2,
-    base_delay=1,
-    platform="rottentomatoes"
-))
 async def handle_rt_search(page, search_url, tmdb_info):
     try:
         await random_delay()
@@ -1091,7 +1077,7 @@ async def handle_rt_search(page, search_url, tmdb_info):
         rate_limit = await check_rate_limit(page, "rottentomatoes")
         if rate_limit:
             print("检测到Rotten Tomatoes访问限制")
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
+            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
             # 确保从tmdb_info中正确获取media_type
@@ -1127,7 +1113,7 @@ async def handle_rt_search(page, search_url, tmdb_info):
             
             if not section:
                 print(f"未找到{media_type}类型的搜索结果区域")
-                return {"status": RATING_STATUS["NO_FOUND"]}
+                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
             # 在对应区域内查找结果
             items = await section.query_selector_all('search-page-media-row')
@@ -1136,7 +1122,7 @@ async def handle_rt_search(page, search_url, tmdb_info):
             # 如果没有搜索结果
             if not items:
                 print(f"在{media_type}区域未找到任何结果")
-                return {"status": RATING_STATUS["NO_FOUND"]}
+                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
             print(f"找到 {len(items)} 个{media_type}类型结果")
             
@@ -1238,20 +1224,15 @@ async def handle_rt_search(page, search_url, tmdb_info):
         except Exception as e:
             print(f"等待Rotten Tomatoes搜索结果超时: {e}")
             if "Timeout" in str(e):
-                return {"status": RATING_STATUS["TIMEOUT"]}
-            return {"status": RATING_STATUS["FETCH_FAILED"]}
+                return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
             
     except Exception as e:
         print(f"访问Rotten Tomatoes搜索页面失败: {e}")
         if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
+            return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
-@smart_retry(RetryConfig(
-    max_retries=2,
-    base_delay=1,
-    platform="metacritic"
-))
 async def handle_metacritic_search(page, search_url):
     """处理Metacritic搜索"""
     try:
@@ -1264,7 +1245,7 @@ async def handle_metacritic_search(page, search_url):
         rate_limit = await check_rate_limit(page, "metacritic")
         if rate_limit:
             print("检测到Metacritic访问限制")
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
+            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
             # 检查搜索结果
@@ -1273,7 +1254,7 @@ async def handle_metacritic_search(page, search_url):
             
             # 如果没有搜索结果
             if not items:
-                return {"status": RATING_STATUS["NO_FOUND"]}
+                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
             for item in items:
                 try:
@@ -1299,20 +1280,15 @@ async def handle_metacritic_search(page, search_url):
         except Exception as e:
             print(f"等待Metacritic搜索结果超时: {e}")
             if "Timeout" in str(e):
-                return {"status": RATING_STATUS["TIMEOUT"]}
-            return {"status": RATING_STATUS["FETCH_FAILED"]}
+                return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
             
     except Exception as e:
         print(f"访问Metacritic搜索页面失败: {e}")
         if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
+            return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
-@smart_retry(RetryConfig(
-    max_retries=2,
-    base_delay=1,
-    platform="letterboxd"
-))
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     try:
@@ -1324,14 +1300,14 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
             print("检测到Letterboxd访问限制")
-            return {"status": RATING_STATUS["RATE_LIMIT"]} 
+            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
             # 获取所有搜索结果
             items = await page.query_selector_all('.results li .film-title-wrapper')
             if not items:
                 print("Letterboxd: 未找到搜索结果")
-                return {"status": RATING_STATUS["NO_FOUND"]}
+                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
             # 一次性收集所有结果信息
             results = []
@@ -1383,27 +1359,22 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                     continue
             
             print("Letterboxd: 未找到TMDB ID匹配的结果")
-            return {"status": RATING_STATUS["NO_FOUND"]}
+            return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
         except Exception as e:
             print(f"处理Letterboxd搜索结果时出错: {e}")
             if "Timeout" in str(e):
-                return {"status": RATING_STATUS["TIMEOUT"]}
-            return {"status": RATING_STATUS["FETCH_FAILED"]}
+                return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
             
     except Exception as e:
         print(f"访问Letterboxd搜索页面失败: {e}")
         if "Timeout" in str(e):
-            return {"status": RATING_STATUS["TIMEOUT"]}
-        return {"status": RATING_STATUS["FETCH_FAILED"]}
-
+            return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
+    
 async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None):
     """从各平台详情页HTML中提取对应评分数据"""
-    @smart_retry(RetryConfig(
-        max_retries=3,
-        base_delay=2,
-        platform=platform
-    ))
     async def _extract_rating_with_retry():
         browser = None
         context = None
@@ -2338,11 +2309,13 @@ def create_empty_rating_data(platform, media_type, status):
             "status": status
         }
 
-def create_error_rating_data(platform, media_type="movie"):
+def create_error_rating_data(platform, media_type="movie", status=RATING_STATUS["FETCH_FAILED"], status_reason="获取失败"):
     """为出错的平台创建数据结构    
     Args:
         platform: 平台名称
         media_type: 媒体类型，'movie' 或 'tv'
+        status: 状态码，默认为获取失败
+        status_reason: 状态原因，默认为获取失败
     """
     if platform == "douban":
         if media_type == "tv":
@@ -2350,27 +2323,31 @@ def create_error_rating_data(platform, media_type="movie"):
                 "seasons": [],
                 "rating": "出错",
                 "rating_people": "出错",
-                "status": "Fail"
+                "status": status,
+                "status_reason": status_reason
             }
         else:
             return {
                 "rating": "出错",
                 "rating_people": "出错",
-                "status": "Fail"
+                "status": status,
+                "status_reason": status_reason
             }
             
     elif platform == "imdb":
         return {
             "rating": "出错",
             "rating_people": "出错",
-            "status": "Fail"
+            "status": status,
+            "status_reason": status_reason
         }
         
     elif platform == "letterboxd":
         return {
             "rating": "出错",
             "rating_count": "出错",
-            "status": "Fail"
+            "status": status,
+            "status_reason": status_reason
         }
         
     elif platform == "rottentomatoes":
@@ -2383,10 +2360,12 @@ def create_error_rating_data(platform, media_type="movie"):
                     "audience_avg": "出错",
                     "critics_count": "出错",
                     "audience_count": "出错",
-                    "status": "Fail"
+                    "status": status,
+                    "status_reason": status_reason
                 },
                 "seasons": [],
-                "status": "Fail"
+                "status": status,
+                "status_reason": status_reason
             }
         else:
             return {
@@ -2397,9 +2376,11 @@ def create_error_rating_data(platform, media_type="movie"):
                     "audience_avg": "出错",
                     "critics_count": "出错",
                     "audience_count": "出错",
-                    "status": "Fail"
+                    "status": status,
+                    "status_reason": status_reason
                 },
-                "status": "Fail"
+                "status": status,
+                "status_reason": status_reason
             }
             
     elif platform == "metacritic":
@@ -2410,10 +2391,12 @@ def create_error_rating_data(platform, media_type="movie"):
                     "critics_count": "出错",
                     "userscore": "出错",
                     "users_count": "出错",
-                    "status": "Fail"
+                    "status": status,
+                    "status_reason": status_reason
                 },
                 "seasons": [],
-                "status": "Fail"
+                "status": status,
+                "status_reason": status_reason
             }
         else:
             return {
@@ -2422,16 +2405,19 @@ def create_error_rating_data(platform, media_type="movie"):
                     "critics_count": "出错",
                     "userscore": "出错",
                     "users_count": "出错",
-                    "status": "Fail"
+                    "status": status,
+                    "status_reason": status_reason
                 },
-                "status": "Fail"
+                "status": status,
+                "status_reason": status_reason
             }
     
     # 默认返回基础错误数据结构
     return {
         "rating": "出错",
         "rating_people": "出错",
-        "status": "Fail"
+        "status": status,
+        "status_reason": status_reason
     }
 
 def format_rating_output(all_ratings, media_type):
@@ -2612,7 +2598,15 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None):
         except Exception as e:
             print(f"处理 {platform} 平台时出错: {e}")
             print(traceback.format_exc())
-            return platform, create_error_rating_data(platform, media_type)
+            
+            # 检查是否是已知的特定错误类型
+            error_str = str(e).lower()
+            if "rate limit" in error_str or "频率限制" in error_str:
+                return platform, create_error_rating_data(platform, media_type, RATING_STATUS["RATE_LIMIT"], "访问频率限制")
+            elif "timeout" in error_str or "超时" in error_str:
+                return platform, create_error_rating_data(platform, media_type, RATING_STATUS["TIMEOUT"], "请求超时")
+            else:
+                return platform, create_error_rating_data(platform, media_type)
     
     # 使用信号量限制并发数
     sem = asyncio.Semaphore(5)
@@ -2734,7 +2728,7 @@ async def main():
             # 只有在all_ratings不为空时才调用format_rating_output
             if all_ratings:
                 formatted_ratings = format_rating_output(all_ratings, media_type)
-                return formatted_ratings
+                return formatted_ratings                
             else:
                 print("\n=== 评分信息汇总 ===\n未能获取到任何平台的评分信息")
                 return {}
