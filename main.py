@@ -5,17 +5,19 @@ import os
 from dotenv import load_dotenv
 import time
 import ssl
+from typing import List
+from pydantic import BaseModel
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request, Depends, status, APIRouter, Response
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import FastAPI, HTTPException, Request, Depends, APIRouter, Response
+from fastapi.security import OAuth2PasswordBearer, OAuth2
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from typing import Optional
-from models import User, Favorite, SessionLocal, PasswordReset
+from models import User, Favorite, FavoriteList, SessionLocal, PasswordReset
 from sqlalchemy.orm import Session
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
 from redis import asyncio as aioredis
@@ -25,21 +27,48 @@ from email.mime.multipart import MIMEMultipart
 import smtplib
 import secrets
 import aiohttp
+from fastapi.security.utils import get_authorization_scheme_param
+from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 
 # Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
 CACHE_EXPIRE_TIME = 24 * 60 * 60
 redis = None
 
-# 添加 JWT 配置
+# 定义 OAuth2PasswordBearerOptional 类
+class OAuth2PasswordBearerOptional(OAuth2):
+    def __init__(
+        self,
+        tokenUrl: str,
+        scheme_name: Optional[str] = None,
+        scopes: Optional[dict] = None,
+        auto_error: bool = True,
+    ):
+        if not scopes:
+            scopes = {}
+        flows = OAuthFlowsModel(password={"tokenUrl": tokenUrl, "scopes": scopes})
+        super().__init__(flows=flows, scheme_name=scheme_name, auto_error=auto_error)
+
+    async def __call__(self, request: Request) -> Optional[str]:
+        authorization: str = request.headers.get("Authorization")
+        if not authorization:
+            return None
+            
+        scheme, param = get_authorization_scheme_param(authorization)
+        if not authorization or scheme.lower() != "bearer":
+            return None
+            
+        return param
+
+# 定义认证相关的配置
 SECRET_KEY = "L1994z0912x."
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # token 有效期7天
-REMEMBER_ME_TOKEN_EXPIRE_DAYS = 30  # 记住我的token有效期为30天
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+REMEMBER_ME_TOKEN_EXPIRE_DAYS = 30
 
-# 密码加密工具
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme_optional = OAuth2PasswordBearerOptional(tokenUrl="token", auto_error=False)
 
 # 数据库依赖
 def get_db():
@@ -321,6 +350,24 @@ async def get_current_user(
         raise credentials_exception
     return user
 
+async def get_current_user_or_none(
+    token: str = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    if not token:
+        return None
+    
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            return None
+    except JWTError:
+        return None
+        
+    user = db.query(User).filter(User.email == email).first()
+    return user
+
 # 收藏相关路由
 @app.post("/api/favorites")
 async def add_favorite(
@@ -328,36 +375,85 @@ async def add_favorite(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    data = await request.json()
-    
-    # 检查是否已收藏
-    existing_favorite = db.query(Favorite).filter(
-        Favorite.user_id == current_user.id,
-        Favorite.media_id == data["media_id"],
-        Favorite.media_type == data["media_type"]
-    ).first()
-    
-    if existing_favorite:
-        # 如果已收藏，则取消收藏
-        db.delete(existing_favorite)
+    try:
+        data = await request.json()
+        
+        # 验证必要字段
+        required_fields = ["media_id", "media_type", "title", "poster", "list_id"]
+        for field in required_fields:
+            if field not in data:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"缺少必要字段: {field}"
+                )
+        
+        # 验证收藏列表存在且属于当前用户
+        favorite_list = db.query(FavoriteList).filter(
+            FavoriteList.id == data["list_id"],
+            FavoriteList.user_id == current_user.id
+        ).first()
+        
+        if not favorite_list:
+            raise HTTPException(
+                status_code=404,
+                detail="收藏列表不存在或无权限访问"
+            )
+        
+        # 检查是否已收藏到该列表
+        existing_favorite = db.query(Favorite).filter(
+            Favorite.user_id == current_user.id,
+            Favorite.list_id == data["list_id"],
+            Favorite.media_id == data["media_id"],
+            Favorite.media_type == data["media_type"]
+        ).first()
+        
+        if existing_favorite:
+            # 更新备注
+            if "note" in data:
+                existing_favorite.note = data["note"]
+                db.commit()
+                return {"message": "收藏备注已更新"}
+            else:
+                return {"message": "已经收藏到该列表"}
+        
+        # 创建新收藏
+        favorite = Favorite(
+            user_id=current_user.id,
+            list_id=data["list_id"],
+            media_id=data["media_id"],
+            media_type=data["media_type"],
+            title=data["title"],
+            poster=data["poster"],
+            year=data.get("year", ""),
+            note=data.get("note"),
+            overview=data.get("overview", "")
+        )
+        
+        db.add(favorite)
         db.commit()
-        return {"message": "已取消收藏"}
-    
-    # 添加收藏
-    favorite = Favorite(
-        user_id=current_user.id,
-        media_id=data["media_id"],
-        media_type=data["media_type"],
-        title=data["title"],
-        poster=data["poster"],
-        year=data.get("year", "")
-    )
-    
-    db.add(favorite)
-    db.commit()
-    db.refresh(favorite)
-    
-    return {"message": "收藏成功"}
+        db.refresh(favorite)
+        
+        return {
+            "message": "收藏成功",
+            "favorite": {
+                "id": favorite.id,
+                "media_id": favorite.media_id,
+                "media_type": favorite.media_type,
+                "title": favorite.title,
+                "poster": favorite.poster,
+                "year": favorite.year,
+                "note": favorite.note,
+                "overview": favorite.overview
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"添加收藏失败: {str(e)}"
+        )
 
 @app.get("/user/me")
 async def read_user_me(current_user: User = Depends(get_current_user)):
@@ -379,16 +475,33 @@ async def get_current_user_info(
         "avatar": current_user.avatar
     }
 
-# 获取用户收藏列表
+# 获取用户的所有收藏
 @app.get("/api/favorites")
 async def get_favorites(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    favorites = db.query(Favorite).filter(
-        Favorite.user_id == current_user.id
-    ).all()
-    return favorites
+    try:
+        favorites = db.query(Favorite).filter(
+            Favorite.user_id == current_user.id
+        ).all()
+        
+        return [{
+            "id": fav.id,
+            "media_id": fav.media_id,
+            "media_type": fav.media_type,
+            "title": fav.title,
+            "poster": fav.poster,
+            "year": fav.year,
+            "overview": fav.overview,
+            "note": fav.note
+        } for fav in favorites]
+    except Exception as e:
+        print(f"获取收藏失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取收藏失败: {str(e)}"
+        )
 
 # 上传用户头像
 @app.put("/api/user/profile")
@@ -637,5 +750,391 @@ async def image_proxy(url: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"图片代理失败: {str(e)}")
 
+# 获取用户的所有收藏列表
+@app.get("/api/favorite-lists")
+async def get_favorite_lists(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        lists = db.query(FavoriteList).filter(
+            FavoriteList.user_id == current_user.id
+        ).all()
+        
+        return [{
+            "id": list.id,
+            "name": list.name,
+            "description": list.description,
+            "is_public": list.is_public,
+            "created_at": list.created_at,
+            "favorites": [{
+                "id": fav.id,
+                "media_id": fav.media_id,
+                "media_type": fav.media_type,
+                "title": fav.title,
+                "poster": fav.poster,
+                "year": fav.year,
+                "overview": fav.overview,
+                "note": fav.note
+            } for fav in list.favorites]
+        } for list in lists]
+    except Exception as e:
+        print(f"获取收藏列表失败: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取收藏列表失败: {str(e)}"
+        )
+
+# 创建新的收藏列表
+@app.post("/api/favorite-lists")
+async def create_favorite_list(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        data = await request.json()
+        
+        # 验证必要字段
+        if not data.get("name"):
+            raise HTTPException(
+                status_code=400,
+                detail="列表名称不能为空"
+            )
+            
+        # 检查是否已存在同名列表
+        existing_list = db.query(FavoriteList).filter(
+            FavoriteList.user_id == current_user.id,
+            FavoriteList.name == data["name"]
+        ).first()
+        
+        if existing_list:
+            raise HTTPException(
+                status_code=400,
+                detail="已存在同名收藏列表"
+            )
+        
+        # 创建新列表
+        new_list = FavoriteList(
+            user_id=current_user.id,
+            name=data["name"],
+            description=data.get("description"),
+            is_public=data.get("is_public", False)
+        )
+        
+        db.add(new_list)
+        db.commit()
+        db.refresh(new_list)
+        
+        return {
+            "id": new_list.id,
+            "name": new_list.name,
+            "description": new_list.description,
+            "is_public": new_list.is_public,
+            "created_at": new_list.created_at,
+            "favorites": []
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"创建收藏列表失败: {str(e)}"
+        )
+
+# 获取特定收藏列表详情
+@app.get("/api/favorite-lists/{list_id}")
+async def get_favorite_list(
+    list_id: int,
+    current_user: User = Depends(get_current_user_or_none),
+    db: Session = Depends(get_db)
+):
+    try:
+        favorite_list = db.query(FavoriteList).filter(
+            FavoriteList.id == list_id
+        ).first()
+        
+        if not favorite_list:
+            raise HTTPException(
+                status_code=404,
+                detail="收藏列表不存在"
+            )
+        
+        # 检查访问权限：未登录用户只能访问公开列表
+        if not favorite_list.is_public and (not current_user or current_user.id != favorite_list.user_id):
+            raise HTTPException(
+                status_code=403,
+                detail="没有权限访问该收藏列表"
+            )
+        
+        # 添加是否已收藏的信息
+        is_collected = False
+        if current_user:
+            is_collected = db.query(FavoriteList).filter(
+                FavoriteList.user_id == current_user.id,
+                FavoriteList.original_list_id == list_id
+            ).first() is not None
+        
+        return {
+            "id": favorite_list.id,
+            "name": favorite_list.name,
+            "description": favorite_list.description,
+            "is_public": favorite_list.is_public,
+            "user_id": favorite_list.user_id,
+            "created_at": favorite_list.created_at,
+            "is_collected": is_collected,
+            "favorites": [{
+                "id": fav.id,
+                "media_id": fav.media_id,
+                "media_type": fav.media_type,
+                "title": fav.title,
+                "poster": fav.poster,
+                "year": fav.year,
+                "overview": fav.overview,
+                "note": fav.note
+            } for fav in favorite_list.favorites]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取收藏列表详情失败: {str(e)}"
+        )
+
+# 更新收藏列表
+@app.put("/api/favorite-lists/{list_id}")
+async def update_favorite_list(
+    list_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        data = await request.json()
+        
+        favorite_list = db.query(FavoriteList).filter(
+            FavoriteList.id == list_id,
+            FavoriteList.user_id == current_user.id
+        ).first()
+        
+        if not favorite_list:
+            raise HTTPException(
+                status_code=404,
+                detail="收藏列表不存在或无权限修改"
+            )
+        
+        # 检查是否有同名列表
+        if data.get("name") and data["name"] != favorite_list.name:
+            existing_list = db.query(FavoriteList).filter(
+                FavoriteList.user_id == current_user.id,
+                FavoriteList.name == data["name"],
+                FavoriteList.id != list_id
+            ).first()
+            
+            if existing_list:
+                raise HTTPException(
+                    status_code=400,
+                    detail="已存在同名收藏列表"
+                )
+            
+            favorite_list.name = data["name"]
+        
+        if "description" in data:
+            favorite_list.description = data["description"]
+        
+        if "is_public" in data:
+            favorite_list.is_public = data["is_public"]
+        
+        db.commit()
+        db.refresh(favorite_list)
+        
+        return {
+            "id": favorite_list.id,
+            "name": favorite_list.name,
+            "description": favorite_list.description,
+            "is_public": favorite_list.is_public,
+            "user_id": favorite_list.user_id,
+            "created_at": favorite_list.created_at,
+            "favorites": [{
+                "id": fav.id,
+                "media_id": fav.media_id,
+                "media_type": fav.media_type,
+                "title": fav.title,
+                "poster": fav.poster,
+                "year": fav.year,
+                "overview":fav.overview,
+                "note": fav.note
+            } for fav in favorite_list.favorites]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"更新收藏列表失败: {str(e)}"
+        )
+
+# 删除收藏列表
+@app.delete("/api/favorite-lists/{list_id}")
+async def delete_favorite_list(
+    list_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        favorite_list = db.query(FavoriteList).filter(
+            FavoriteList.id == list_id,
+            FavoriteList.user_id == current_user.id
+        ).first()
+        
+        if not favorite_list:
+            raise HTTPException(
+                status_code=404,
+                detail="收藏列表不存在或无权限删除"
+            )
+        
+        # 删除列表及其所有收藏项目
+        db.delete(favorite_list)
+        db.commit()
+        
+        return {"message": "收藏列表删除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"删除收藏列表失败: {str(e)}"
+        )
+
+# 删除收藏
+@app.delete("/api/favorites/{favorite_id}")
+async def delete_favorite(
+    favorite_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        favorite = db.query(Favorite).filter(
+            Favorite.id == favorite_id,
+            Favorite.user_id == current_user.id
+        ).first()
+        
+        if not favorite:
+            raise HTTPException(
+                status_code=404,
+                detail="收藏不存在或无权限删除"
+            )
+        
+        db.delete(favorite)
+        db.commit()
+        
+        return {"message": "收藏删除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"删除收藏失败: {str(e)}"
+        )
+
+# 添加收藏整个列表的接口
+@app.post("/api/favorite-lists/{list_id}/collect")
+async def collect_favorite_list(
+    list_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        source_list = db.query(FavoriteList).filter(
+            FavoriteList.id == list_id
+        ).first()
+        
+        if not source_list:
+            raise HTTPException(
+                status_code=404,
+                detail="收藏列表不存在"
+            )
+            
+        if not source_list.is_public:
+            raise HTTPException(
+                status_code=403,
+                detail="该列表不是公开列表"
+            )
+            
+        # 创建新的收藏列表
+        new_list = FavoriteList(
+            user_id=current_user.id,
+            name=f"{source_list.name} (收藏)",
+            description=source_list.description,
+            is_public=False,
+            original_list_id=list_id
+        )
+        
+        db.add(new_list)
+        db.commit()
+        db.refresh(new_list)
+        
+        # 复制所有收藏项目
+        for fav in source_list.favorites:
+            new_favorite = Favorite(
+                user_id=current_user.id,
+                list_id=new_list.id,
+                media_id=fav.media_id,
+                media_type=fav.media_type,
+                title=fav.title,
+                poster=fav.poster,
+                year=fav.year,
+                overview=fav.overview
+            )
+            db.add(new_favorite)
+            
+        db.commit()
+        
+        return {"message": "收藏列表成功", "list_id": new_list.id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"收藏列表失败: {str(e)}"
+        )
+
 # 在主应用中添加路由
 app.include_router(router)
+
+# 添加请求体模型
+class ReorderFavoritesRequest(BaseModel):
+    favorite_ids: List[int]
+
+@app.put("/api/favorite-lists/{list_id}/reorder")
+async def reorder_favorites(
+    list_id: int,
+    request: ReorderFavoritesRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    favorite_list = db.query(FavoriteList).filter(
+        FavoriteList.id == list_id,
+        FavoriteList.user_id == current_user.id
+    ).first()
+    
+    if not favorite_list:
+        raise HTTPException(status_code=404, detail="收藏列表未找到")
+    
+    # 更新排序
+    for index, favorite_id in enumerate(request.favorite_ids):
+        favorite = db.query(Favorite).filter(
+            Favorite.id == favorite_id,
+            Favorite.list_id == list_id
+        ).first()
+        if favorite:
+            favorite.sort_order = index
+    
+    db.commit()
+    return {"message": "排序更新成功"}
