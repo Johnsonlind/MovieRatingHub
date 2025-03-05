@@ -71,10 +71,12 @@ export function normalizeRating(
       }
       
     case 'metacritic':
-      if (type === 'percentage') {
+      if (type === 'metascore') {
         return numericRating / 10;
-      } else {
+      } else if (type === 'userscore') {
         return numericRating;
+      } else {
+        return numericRating / 10;
       }
       
     case 'tmdb':
