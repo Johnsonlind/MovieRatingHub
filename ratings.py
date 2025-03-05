@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from fastapi import Request
 from asyncio import Semaphore
 import unicodedata
-
+from datetime import datetime
 
 TMDB_API_KEY = "4f681fa7b5ab7346a4e184bbf2d41715"
 TMDB_API_BASE_URL = "https://api.themoviedb.org/3/"
@@ -1019,7 +1019,6 @@ async def handle_imdb_search(page, search_url):
     platform="rottentomatoes"
 ))
 async def handle_rt_search(page, search_url, tmdb_info):
-    """处理Rotten Tomatoes搜索"""
     try:
         await random_delay()  # 添加随机延时
         print(f"访问 Rotten Tomatoes 搜索页面: {search_url}")
@@ -1029,17 +1028,55 @@ async def handle_rt_search(page, search_url, tmdb_info):
         # 立即检查是否出现访问频率限制
         rate_limit = await check_rate_limit(page, "rottentomatoes")
         if rate_limit:
-            print("检测到IMDB访问限制")
+            print("检测到Rotten Tomatoes访问限制")
             return {"status": RATING_STATUS["RATE_LIMIT"]} 
         
         try:
-            # 检查搜索结果
-            items = await page.query_selector_all('search-page-media-row')
+            # 确保从tmdb_info中正确获取media_type
+            media_type = tmdb_info.get('type', 'movie')
+            result_type = 'movie' if media_type == 'movie' else 'tvSeries'
+            
+            # 根据媒体类型点击对应标签
+            try:
+                # 首先等待搜索过滤器加载完成
+                filter_elements = await page.query_selector_all('span[data-qa="search-filter-text"]')
+                
+                for elem in filter_elements:
+                    text = await elem.inner_text()
+                
+                if media_type == 'movie':
+                    movies_tab = await page.wait_for_selector('span[data-qa="search-filter-text"]:has-text("Movies")', timeout=5000)
+                    if movies_tab:
+                        await movies_tab.click()
+                else:
+                    tv_tab = await page.wait_for_selector('span[data-qa="search-filter-text"]:has-text("TV Shows")', timeout=5000)
+                    if tv_tab:
+                        await tv_tab.click()
+                
+                await asyncio.sleep(2)
+            
+            except Exception as e:
+                print(f"切换媒体类型标签失败: {str(e)}")
+                print(f"错误类型: {type(e)}")
+            
+            # 根据媒体类型选择对应的结果区域并等待其可见
+            result_section = f'search-page-result[type="{result_type}"]:not([hidden])'
+            section = await page.wait_for_selector(result_section, timeout=5000)
+            
+            if not section:
+                print(f"未找到{media_type}类型的搜索结果区域")
+                return {"status": RATING_STATUS["NO_FOUND"]}
+            
+            # 在对应区域内查找结果
+            items = await section.query_selector_all('search-page-media-row')
             results = []
             
             # 如果没有搜索结果
             if not items:
+                print(f"在{media_type}区域未找到任何结果")
                 return {"status": RATING_STATUS["NO_FOUND"]}
+            
+            print(f"找到 {len(items)} 个{media_type}类型结果")
             
             for item in items:
                 try:
@@ -1048,36 +1085,88 @@ async def handle_rt_search(page, search_url, tmdb_info):
                     if title_elem:
                         title = (await title_elem.inner_text()).strip()
                         url = await title_elem.get_attribute('href')
-                    
-                        # 获取年份
-                        year_elem = await item.query_selector('span[data-qa="info-year"]')
-                        if year_elem:
-                            year_text = await year_elem.inner_text()
-                            year_match = re.search(r'\((\d{4})', year_text)
-                            year = year_match.group(1) if year_match else None
+                        
+                        # 根据媒体类型获取年份
+                        if media_type == 'movie':
+                            year = await item.get_attribute('releaseyear')
                         else:
-                            year = None
-                    
-                        print(f"找到结果: {title} ({year})")
+                            year = await item.get_attribute('startyear')
+                        
+                        print(f"找到{media_type}结果: {title} ({year})")
+                        
+                        # 验证URL是否匹配正确的媒体类型
+                        url_type_match = ('/m/' in url) if media_type == 'movie' else ('/tv/' in url)
+                        if not url_type_match:
+                            print(f"跳过不匹配的媒体类型: {url}")
+                            continue
                     
                         # 精准匹配标题和年份
-                        if (title.lower() == tmdb_info['title'].lower() and 
-                            year == tmdb_info['year']):
-                            return [{
+                        if title_elem:
+                            title = (await title_elem.inner_text()).strip()
+                            url = await title_elem.get_attribute('href')
+                            
+                            # 根据媒体类型获取年份
+                            if media_type == 'movie':
+                                year = await item.get_attribute('releaseyear')
+                            else:
+                                year = await item.get_attribute('startyear')
+                            
+                            print(f"找到{media_type}结果: {title} ({year})")
+                            
+                            # 验证URL是否匹配正确的媒体类型
+                            url_type_match = ('/m/' in url) if media_type == 'movie' else ('/tv/' in url)
+                            if not url_type_match:
+                                print(f"跳过不匹配的媒体类型: {url}")
+                                continue
+
+                            # 修改匹配逻辑
+                            title_match = title.lower() == tmdb_info['title'].lower()
+                            year_match = False
+                            
+                            if year:
+                                year_match = year == tmdb_info['year']
+                            else:
+                                # 对于未来播出的剧集，如果标题完全匹配就认为是正确结果
+                                current_year = datetime.now().year
+                                target_year = int(tmdb_info['year'])
+                                if target_year > current_year and title_match:
+                                    year_match = True
+                            
+                            if title_match and year_match:
+                                return [{
+                                    "title": title,
+                                    "year": year or tmdb_info['year'],
+                                    "url": url,
+                                    "match_score": 100,
+                                    "number_of_seasons": tmdb_info.get("number_of_seasons", 0)
+                                }]
+
+                            # 如果不是精确匹配，添加到结果列表用于模糊匹配
+                            result_data = {
                                 "title": title,
-                                "year": year,
+                                "year": year or tmdb_info['year'],
                                 "url": url,
-                                "match_score": 100,
                                 "number_of_seasons": tmdb_info.get("number_of_seasons", 0)
-                            }]
-                    
-                        results.append({
-                            "title": title,
-                            "year": year,
-                            "url": url,
-                            "match_score": await calculate_match_degree(tmdb_info, {"title": title, "year": year}),
-                            "number_of_seasons": tmdb_info.get("number_of_seasons", 0)
-                        })
+                            }
+                            
+                            # 计算匹配度时也考虑未来剧集的特殊情况
+                            if not year and target_year > current_year:
+                                # 对于未来剧集，增加标题匹配的权重
+                                result_data["match_score"] = await calculate_match_degree(
+                                    tmdb_info, 
+                                    result_data,
+                                    platform="rottentomatoes",
+                                    title_weight=0.9
+                                )
+                            else:
+                                result_data["match_score"] = await calculate_match_degree(
+                                    tmdb_info, 
+                                    result_data,
+                                    platform="rottentomatoes"
+                                )
+                            
+                            results.append(result_data)
+                            print(f"找到{media_type}结果: {title} ({year})")
                 except Exception as e:
                     print(f"处理Rotten Tomatoes单个搜索结果时出错: {e}")
                     continue
