@@ -847,15 +847,15 @@ async def search_platform(platform, tmdb_info, request=None):
                 # 获取搜索结果
                 await check_request()
                 if platform == "douban":
-                    results = await smart_retry(handle_douban_search, page, search_url)
+                    results = await handle_douban_search(page, search_url)
                 elif platform == "imdb":
-                    results = await smart_retry(handle_imdb_search, page, search_url)
+                    results = await handle_imdb_search(page, search_url)
                 elif platform == "letterboxd":
-                    results = await smart_retry(handle_letterboxd_search, page, search_url, tmdb_info)
+                    results = await handle_letterboxd_search(page, search_url, tmdb_info)
                 elif platform == "rottentomatoes":
-                    results = await smart_retry(handle_rt_search, page, search_url, tmdb_info)
+                    results = await handle_rt_search(page, search_url, tmdb_info)
                 elif platform == "metacritic":
-                    results = await smart_retry(handle_metacritic_search, page, search_url)
+                    results = await handle_metacritic_search(page, search_url)
 
                 # 检查访问限制
                 await check_request()
