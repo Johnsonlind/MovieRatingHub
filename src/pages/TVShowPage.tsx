@@ -15,28 +15,24 @@ import { RatingSection } from '../components/ratings/RatingSection';
 import { preloadImages } from '../utils/export';
 import { fetchTMDBRating, fetchTraktRating } from '../api/ratings';
 import type { FetchStatus, BackendPlatformStatus } from '../types/status';
-import { TVShowRatingData } from '../types/ratings';
 import { ThemeToggle } from '../utils/ThemeToggle';
 import { CDN_URL } from '../api/api';
 import { getBase64Image } from '../api/image';
 import { SearchButton } from '../utils/SearchButton';
-import { TraktRating } from '../types/ratings';
+import { TMDBRating, TraktRating, TVShowRatingData } from '../types/ratings';
 import { ExportButton } from '../utils/ExportButton';
 import { FavoriteButton } from '../utils/FavoriteButton';
 import { UserButton } from '../utils/UserButton';
 import { ErrorMessage } from '../utils/ErrorMessage';
 
-// 添加 TMDB 和 Trakt 评分类型定义
-interface TMDBRating {
-  rating: number;
-  voteCount: number;
-  seasons?: {
-    season_number: number;
-    rating: number;
-    voteCount: number;
-  }[];
+interface PlatformStatus {
+  status: FetchStatus;
+  data: any;
 }
 
+interface PlatformStatuses {
+  [key: string]: PlatformStatus;
+}
 
 const PRELOAD_IMAGES = [
   `${CDN_URL}/background.png`,
@@ -67,7 +63,7 @@ export default function TVShowPage() {
   
   const [tmdbStatus, setTmdbStatus] = useState<FetchStatus>('pending');
   const [traktStatus, setTraktStatus] = useState<FetchStatus>('pending');
-  const [platformStatuses, setPlatformStatuses] = useState<Record<string, { status: FetchStatus; data: any }>>({
+  const [platformStatuses, setPlatformStatuses] = useState<PlatformStatuses>({
     douban: { status: 'pending', data: null },
     imdb: { status: 'pending', data: null },
     letterboxd: { status: 'pending', data: null },
