@@ -36,18 +36,6 @@
 - Redis
 - PostgreSQL
 
-## 项目结构 📁
-
-```
-├── alembic/            # 数据库迁移文件
-├── src/               # 前端源代码
-├── public/            # 静态资源
-├── main.py           # 后端主程序
-├── models.py         # 数据模型
-├── ratings.py        # 评分相关功能
-└── ...
-```
-
 ## 主要功能模块 🔧
 
 1. 用户系统
