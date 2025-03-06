@@ -1,10 +1,11 @@
 # ==========================================
 # 数据库模型
 # ==========================================
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.mysql import LONGTEXT
 from datetime import datetime
+from sqlalchemy.sql import text
 
 # 数据库连接配置
 SQLALCHEMY_DATABASE_URL = "mysql+pymysql://ratefuse_user:L1994z0912x.@localhost/ratefuse"
@@ -15,15 +16,17 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
     
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True)
     username = Column(String(255), unique=True, index=True)
     hashed_password = Column(String(255))
-    avatar = Column(LONGTEXT)
+    avatar = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     favorites = relationship("Favorite", back_populates="user")
     favorite_lists = relationship("FavoriteList", back_populates="user")
+    following = relationship("Follow", foreign_keys="Follow.follower_id", back_populates="follower")
+    followers = relationship("Follow", foreign_keys="Follow.following_id", back_populates="following")
 
 class FavoriteList(Base):
     __tablename__ = "favorite_lists"
@@ -45,16 +48,16 @@ class Favorite(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    list_id = Column(Integer, ForeignKey("favorite_lists.id"))
-    media_id = Column(String(255))
-    media_type = Column(String(50))
-    title = Column(String(255))
-    poster = Column(String(255))
-    year = Column(String(50))
-    overview = Column(Text, nullable=True)
+    list_id = Column(Integer, ForeignKey("favorite_lists.id", ondelete="CASCADE"))
+    media_id = Column(String)
+    media_type = Column(String)
+    title = Column(String)
+    poster = Column(String)
+    year = Column(String)
+    overview = Column(Text)
     note = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
     sort_order = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
     
     user = relationship("User", back_populates="favorites")
     favorite_list = relationship("FavoriteList", back_populates="favorites")
@@ -68,6 +71,23 @@ class PasswordReset(Base):
     expires_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     used = Column(Boolean, default=False)
+
+class Follow(Base):
+    __tablename__ = "follows"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    follower_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    following_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    
+    # 添加唯一约束，确保一个用户不能重复关注同一个用户
+    __table_args__ = (
+        UniqueConstraint('follower_id', 'following_id', name='follower_id'),
+    )
+    
+    follower = relationship("User", foreign_keys=[follower_id], back_populates="following")
+    following = relationship("User", foreign_keys=[following_id], back_populates="followers")
 
 # 创建数据库表
 def init_db():
