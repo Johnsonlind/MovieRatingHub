@@ -1,3 +1,6 @@
+// ==========================================
+// 用户详情页
+// ==========================================
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../components/auth/AuthContext';
