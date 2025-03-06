@@ -14,12 +14,25 @@
 /* 声明字体 */
 @font-face {
   font-family: '尚古等宽';
-  src: url('/fonts/尚古等宽-Normal.woff2') format('woff2'),
-       url('/fonts/尚古等宽-Normal.woff') format('woff'),
-       url('/fonts/尚古等宽-Normal.ttf') format('truetype');
+  src: url('/fonts/尚古等宽-Normal.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
+  unicode-range: U+4E00-9FFF; /* 仅用于中文字符 */
+}
+
+@font-face {
+  font-family: 'Mplus-1m';
+  src: url('/fonts/Mplus-1m-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-007F; /* 仅用于基本拉丁字符（英文和数字） */
+}
+
+/* 专门针对数字和英文的样式 */
+.latin-nums {
+  font-family: 'Mplus-1m', var(--font-sans);
 }
 
 /* 自定义样式 */
@@ -31,7 +44,7 @@
   --page-bg: #f9fafb;
   --gradient-start: #4f46e5;
   --gradient-end: #7c3aed;
-  --font-sans: '尚古等宽', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-sans: 'Mplus-1m', '尚古等宽', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
 :root[data-theme='dark'] {
