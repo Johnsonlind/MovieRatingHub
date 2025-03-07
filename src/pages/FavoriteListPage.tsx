@@ -708,11 +708,11 @@ export default function FavoriteListPage() {
                         >
                           <div className="flex flex-row">
                             {/* 海报 */}
-                            <div className="w-32 sm:w-48 flex-shrink-0">
+                            <div className="w-32 sm:w-48 h-48 sm:h-72 flex-shrink-0 overflow-hidden">
                               <img
                                 src={favorite.poster}
                                 alt={favorite.title}
-                                className="w-full h-[150px] sm:h-72 object-cover"
+                                className="w-full h-full object-contain"
                                 onClick={() => navigate(`/detail/${favorite.media_type}/${favorite.media_id}`)}
                               />
                             </div>
