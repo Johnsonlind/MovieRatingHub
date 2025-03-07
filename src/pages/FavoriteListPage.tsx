@@ -626,13 +626,16 @@ export default function FavoriteListPage() {
                 </>
               ) : (
                 list?.is_public && !list?.is_collected && (
-                  <Button 
+                  <button 
                     onClick={handleCollectList}
                     disabled={user?.id === list?.user_id}
                     title={user?.id === list?.user_id ? '不能收藏自己的列表' : '收藏列表'}
+                    className="p-2 text-gray-500 hover:text-blue-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                   >
-                    收藏列表
-                  </Button>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                  </button>
                 )
               )}
             </div>
@@ -703,22 +706,22 @@ export default function FavoriteListPage() {
                           className={`bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden mb-4
                             ${snapshot.isDragging ? 'ring-2 ring-blue-500' : ''}`}
                         >
-                          <div className="flex flex-col sm:flex-row">
+                          <div className="flex flex-row">
                             {/* 海报 */}
-                            <div className="w-full sm:w-48 flex-shrink-0">
+                            <div className="w-32 sm:w-48 flex-shrink-0">
                               <img
                                 src={favorite.poster}
                                 alt={favorite.title}
-                                className="w-full h-[200px] sm:h-72 object-cover"
-                                onClick={() => navigate(`${favorite.media_type}/${favorite.media_id}`)}
+                                className="w-full h-[150px] sm:h-72 object-cover"
+                                onClick={() => navigate(`/detail/${favorite.media_type}/${favorite.media_id}`)}
                               />
                             </div>
 
                             {/* 内容信息 */}
-                            <div className="flex-1 p-4 sm:p-6 relative flex flex-col">
+                            <div className="flex-1 p-3 sm:p-6 relative flex flex-col">
                               {/* 列表模式下的按钮 */}
                               {isOwner && (
-                                <div className="absolute top-4 right-4 flex gap-2">
+                                <div className="absolute top-2 sm:top-4 right-2 sm:right-4 flex gap-1 sm:gap-2">
                                   {/* 编辑备注按钮 */}
                                   <button
                                     onClick={(e) => {
@@ -726,11 +729,11 @@ export default function FavoriteListPage() {
                                       setEditingFavorite(favorite);
                                       setShowNoteDialog(true);
                                     }}
-                                    className="w-8 h-8 flex items-center justify-center rounded-full 
+                                    className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
                                       bg-black/50 text-white hover:bg-black/70 
                                       transition-colors"
                                   >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
                                         d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                     </svg>
@@ -742,11 +745,11 @@ export default function FavoriteListPage() {
                                       e.stopPropagation();
                                       handleRemoveFavorite(favorite.id);
                                     }}
-                                    className="w-8 h-8 flex items-center justify-center rounded-full 
+                                    className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
                                       bg-black/50 text-white hover:bg-black/70 
                                       transition-colors"
                                   >
-                                    ×
+                                    <span className="text-lg sm:text-xl leading-none">×</span>
                                   </button>
                                 </div>
                               )}
@@ -815,7 +818,7 @@ export default function FavoriteListPage() {
                                 />
                               </div>
                               {isOwner && (
-                                <div className="absolute top-2 left-2 flex gap-2">
+                                <div className="absolute top-1 sm:top-2 left-1 sm:left-2 flex gap-1 sm:gap-2">
                                   {/* 编辑备注按钮 */}
                                   <button
                                     onClick={(e) => {
@@ -823,11 +826,11 @@ export default function FavoriteListPage() {
                                       setEditingFavorite(favorite);
                                       setShowNoteDialog(true);
                                     }}
-                                    className="w-8 h-8 flex items-center justify-center rounded-full 
+                                    className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
                                       bg-black/50 text-white hover:bg-black/70 
                                       transition-colors"
                                   >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
                                         d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                     </svg>
@@ -839,11 +842,11 @@ export default function FavoriteListPage() {
                                       e.stopPropagation();
                                       handleRemoveFavorite(favorite.id);
                                     }}
-                                    className="w-8 h-8 flex items-center justify-center rounded-full 
+                                    className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
                                       bg-black/50 text-white hover:bg-black/70 
                                       transition-colors"
                                   >
-                                    ×
+                                    <span className="text-lg sm:text-xl leading-none">×</span>
                                   </button>
                                 </div>
                               )}
@@ -851,7 +854,7 @@ export default function FavoriteListPage() {
                                 <h3 className="text-sm font-medium dark:text-white truncate">
                                   {favorite.title}
                                 </h3>
-                                <p className="text-xs text-black dark:text-gray-400">
+                                <p className="text-xs text-black dark:text-white">
                                   {favorite.year}
                                 </p>
                               </div>
