@@ -16,14 +16,14 @@ import { preloadImages } from '../utils/export';
 import { fetchTMDBRating, fetchTraktRating } from '../api/ratings';
 import type { FetchStatus, BackendPlatformStatus } from '../types/status';
 import { ThemeToggle } from '../utils/ThemeToggle';
+import { NavBar } from '../utils/NavBar';
 import { CDN_URL } from '../api/api';
 import { getBase64Image } from '../api/image';
-import { SearchButton } from '../utils/SearchButton';
 import { TMDBRating, TraktRating, TVShowRatingData } from '../types/ratings';
 import { ExportButton } from '../utils/ExportButton';
 import { FavoriteButton } from '../utils/FavoriteButton';
-import { UserButton } from '../utils/UserButton';
 import { ErrorMessage } from '../utils/ErrorMessage';
+import { ScrollToTopButton } from '../utils/ScrollToTopButton';
 
 interface PlatformStatus {
   status: FetchStatus;
@@ -467,91 +467,93 @@ export default function TVShowPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--page-bg)]">
-      <ThemeToggle />
-      <UserButton />
-      <SearchButton />
-      <FavoriteButton 
-        mediaId={id || ''}
-        mediaType="tv"
-        title={tvShow.title || ''}
-        poster={`https://image.tmdb.org/t/p/w500${tvShow.backdrop}`}
-        year={String(tvShow.year || '')}
-        overview={tvShow.overview}
-      />
-      <ExportButton 
-        onExport={handleExport}
-        seasons={tvShow?.seasons}
-        selectedSeason={selectedSeason}
-        onSeasonChange={handleSeasonChange}
-        isExporting={isExporting}
-      />
-    
-      <div className="tv-show-content">
-        
-        <TVShowHero 
-          tvShow={tvShow} 
-          backdropUrl={tvShow.backdrop}
-          ratingData={allRatings}
-          isAllDataFetched={backendPlatforms.filter(p => 
-            p.status === 'successful'
-          ).length >= 2 || (
-            tmdbStatus === 'successful' && 
-            traktStatus === 'successful'
-          )}
+    <>
+      <NavBar />
+      <div className="min-h-screen bg-[var(--page-bg)] pt-16">
+        <ThemeToggle />
+        <ScrollToTopButton />
+        <FavoriteButton 
+          mediaId={id || ''}
+          mediaType="tv"
+          title={tvShow.title || ''}
+          poster={`https://image.tmdb.org/t/p/w500${tvShow.backdrop}`}
+          year={String(tvShow.year || '')}
+          overview={tvShow.overview}
         />
-        <TVShowMetadata
-          status={tvShow?.status || ''}
-          firstAirDate={tvShow?.firstAirDate || ''}
-          lastAirDate={tvShow?.lastAirDate || ''}
-          episodeCount={episodeCount}
-          seasonCount={seasonCount}
-          genres={tvShow?.genres || []}
+        <ExportButton 
+          onExport={handleExport}
+          seasons={tvShow?.seasons}
+          selectedSeason={selectedSeason}
+          onSeasonChange={handleSeasonChange}
+          isExporting={isExporting}
         />
-        
-        <RatingSection 
-          media={tvShow}
-          ratingData={allRatings}
-          isLoading={false}
-          error={undefined}
-          tmdbStatus={tmdbStatus}
-          traktStatus={traktStatus}
-          backendPlatforms={backendPlatforms}
-          onRetry={handleRetry}
-        />
+      
+        <div className="tv-show-content">
+          
+          <TVShowHero 
+            tvShow={tvShow} 
+            backdropUrl={tvShow.backdrop}
+            ratingData={allRatings}
+            isAllDataFetched={backendPlatforms.filter(p => 
+              p.status === 'successful'
+            ).length >= 2 || (
+              tmdbStatus === 'successful' && 
+              traktStatus === 'successful'
+            )}
+          />
+          <TVShowMetadata
+            status={tvShow?.status || ''}
+            firstAirDate={tvShow?.firstAirDate || ''}
+            lastAirDate={tvShow?.lastAirDate || ''}
+            episodeCount={episodeCount}
+            seasonCount={seasonCount}
+            genres={tvShow?.genres || []}
+          />
+          
+          <RatingSection 
+            media={tvShow}
+            ratingData={allRatings}
+            isLoading={false}
+            error={undefined}
+            tmdbStatus={tmdbStatus}
+            traktStatus={traktStatus}
+            backendPlatforms={backendPlatforms}
+            onRetry={handleRetry}
+          />
 
-        <Credits
-          cast={tvShow.credits.cast}
-          crew={tvShow.credits.crew}
-        />
-      </div>
-
-      <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
-        <div id="export-content" className="bg-white">
-          {tvShow && (
-            <ExportTVShowRatingCard
-              tvShow={{
-                ...tvShow,
-                poster: posterBase64 || tvShow.poster
-              }}
-              ratingData={allRatings}
-              selectedSeason={selectedSeason}
-            />
-          )}
+          <Credits
+            cast={tvShow.credits.cast}
+            crew={tvShow.credits.crew}
+          />
         </div>
-      </div>
 
-      {queryError && (
-        <ErrorMessage
-          status={formatQueryError(queryError).status}
-          errorDetail={formatQueryError(queryError).detail}
-          onRetry={() => {
-            const platformToRetry = backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown';
-            handleRetry(platformToRetry);
-          }}
-          retryCount={retryCount[backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown'] || 0}
-        />
-      )}
-    </div>
+        <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
+          <div id="export-content" className="bg-white">
+            {tvShow && (
+              <ExportTVShowRatingCard
+                tvShow={{
+                  ...tvShow,
+                  poster: posterBase64 || tvShow.poster
+                }}
+                ratingData={allRatings}
+                selectedSeason={selectedSeason}
+              />
+            )}
+          </div>
+        </div>
+
+        {queryError && (
+          <ErrorMessage
+            status={formatQueryError(queryError).status}
+            errorDetail={formatQueryError(queryError).detail}
+            onRetry={() => {
+              const platformToRetry = backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown';
+              handleRetry(platformToRetry);
+            }}
+            retryCount={retryCount[backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown'] || 0}
+          />
+        )}
+      </div>
+    </>
   );
 }
