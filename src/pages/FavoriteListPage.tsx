@@ -4,7 +4,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ThemeToggle } from '../utils/ThemeToggle';
-import { SearchButton } from '../utils/SearchButton';
 import { Dialog } from '../components/ui/Dialog';
 import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
@@ -15,7 +14,8 @@ import { toast } from "sonner";
 import { AuthModal } from '../components/auth/AuthModal';
 import { DragDropContext, Draggable, DropResult } from '@hello-pangea/dnd';
 import { StrictModeDroppable } from '../utils/StrictModeDroppable';
-import { UserButton } from '../utils/UserButton';
+import { NavBar } from '../utils/NavBar';
+import { ScrollToTopButton } from '../utils/ScrollToTopButton';
 
 interface Creator {
   id: number;
@@ -517,275 +517,182 @@ export default function FavoriteListPage() {
   const isOwner = user?.id === list.user_id;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 p-4">
-      <ThemeToggle />
-      <SearchButton />
-      <UserButton />
+    <>
+      <NavBar />
+      <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 pt-16 p-4">
+        <ThemeToggle />
+        <ScrollToTopButton />
 
-      <div className="max-w-5xl mx-auto space-y-6">
-        {/* 列表标题和控制栏 */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-4 sm:p-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl sm:text-3xl font-bold dark:text-white">{list.name}</h1>
-                {!list.is_public && (
-                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                )}
-                {list.original_list_id && (
-                  <span className="text-sm px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
-                    收藏的列表
-                  </span>
-                )}
-              </div>
-              {/* 创建者信息 */}
-              <div className="flex items-center gap-2">
-                {/* 创建者头像 */}
-                <div 
-                  className="w-6 h-6 rounded-full overflow-hidden cursor-pointer"
-                  onClick={() => navigate(`/profile/${list.original_list_id ? list.original_creator?.id : list.creator.id}`)}
-                >
-                  <img 
-                    src={(list.original_list_id ? list.original_creator?.avatar : list.creator.avatar) || '/default-avatar.png'} 
-                    alt={(list.original_list_id ? list.original_creator?.username : list.creator.username)}
-                    className="w-full h-full object-cover"
-                  />
+        <div className="max-w-5xl mx-auto space-y-6">
+          {/* 列表标题和控制栏 */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl sm:text-3xl font-bold dark:text-white">{list.name}</h1>
+                  {!list.is_public && (
+                    <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  )}
+                  {list.original_list_id && (
+                    <span className="text-sm px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
+                      收藏的列表
+                    </span>
+                  )}
                 </div>
-                {/* 创建者昵称 */}
-                <button
-                  onClick={() => navigate(`/profile/${list.original_list_id ? list.original_creator?.id : list.creator.id}`)}
-                  className="text-sm text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
-                >
-                  {list.original_list_id ? list.original_creator?.username : list.creator.username}
-                </button>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  的列表
-                </span>
-                {/* 关注按钮 */}
-                {(user && (user.id !== (list.original_list_id ? list.original_creator?.id : list.creator.id))) && (
-                  <button
-                    onClick={handleFollow}
-                    className={`
-                      px-3 py-1 rounded-full text-sm
-                      ${user && (list.original_list_id ? list.original_creator?.is_following : list.creator.is_following)
-                        ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                        : 'bg-blue-500 text-white'}
-                      hover:opacity-80 transition-opacity
-                    `}
+                {/* 创建者信息 */}
+                <div className="flex items-center gap-2">
+                  {/* 创建者头像 */}
+                  <div 
+                    className="w-6 h-6 rounded-full overflow-hidden cursor-pointer"
+                    onClick={() => navigate(`/profile/${list.original_list_id ? list.original_creator?.id : list.creator.id}`)}
                   >
-                    {user && (list.original_list_id ? list.original_creator?.is_following : list.creator.is_following) 
-                      ? '取消关注' 
-                      : '关注'}
+                    <img 
+                      src={(list.original_list_id ? list.original_creator?.avatar : list.creator.avatar) || '/default-avatar.png'} 
+                      alt={(list.original_list_id ? list.original_creator?.username : list.creator.username)}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  {/* 创建者昵称 */}
+                  <button
+                    onClick={() => navigate(`/profile/${list.original_list_id ? list.original_creator?.id : list.creator.id}`)}
+                    className="text-sm text-gray-600 dark:text-gray-300 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+                  >
+                    {list.original_list_id ? list.original_creator?.username : list.creator.username}
                   </button>
-                )}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {isOwner ? (
-                <>
-                  {list.is_public && !list.original_list_id && (
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    的列表
+                  </span>
+                  {/* 关注按钮 */}
+                  {(user && (user.id !== (list.original_list_id ? list.original_creator?.id : list.creator.id))) && (
                     <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(window.location.href)
-                          .then(() => {
-                            toast.success("链接已复制到剪贴板");
-                          })
-                          .catch(() => {
-                            toast.error("复制链接失败");
-                          });
-                      }}
+                      onClick={handleFollow}
+                      className={`
+                        px-3 py-1 rounded-full text-sm
+                        ${user && (list.original_list_id ? list.original_creator?.is_following : list.creator.is_following)
+                          ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                          : 'bg-blue-500 text-white'}
+                        hover:opacity-80 transition-opacity
+                      `}
+                    >
+                      {user && (list.original_list_id ? list.original_creator?.is_following : list.creator.is_following) 
+                        ? '取消关注' 
+                        : '关注'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {isOwner ? (
+                  <>
+                    {list.is_public && !list.original_list_id && (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(window.location.href)
+                            .then(() => {
+                              toast.success("链接已复制到剪贴板");
+                            })
+                            .catch(() => {
+                              toast.error("复制链接失败");
+                            });
+                        }}
+                        className="p-2 text-gray-500 hover:text-blue-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" />
+                        </svg>
+                      </button>
+                    )}
+                    {!list.original_list_id && (
+                      <>
+                        <button
+                          onClick={() => setShowEditDialog(true)}
+                          className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={handleDeleteList}
+                          className="p-2 text-gray-500 hover:text-red-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  list?.is_public && !list?.is_collected && (
+                    <button 
+                      onClick={handleCollectList}
+                      disabled={user?.id === list?.user_id}
+                      title={user?.id === list?.user_id ? '不能收藏自己的列表' : '收藏列表'}
                       className="p-2 text-gray-500 hover:text-blue-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" />
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                       </svg>
                     </button>
-                  )}
-                  {!list.original_list_id && (
-                    <>
-                      <button
-                        onClick={() => setShowEditDialog(true)}
-                        className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={handleDeleteList}
-                        className="p-2 text-gray-500 hover:text-red-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                      </button>
-                    </>
-                  )}
-                </>
-              ) : (
-                list?.is_public && !list?.is_collected && (
-                  <button 
-                    onClick={handleCollectList}
-                    disabled={user?.id === list?.user_id}
-                    title={user?.id === list?.user_id ? '不能收藏自己的列表' : '收藏列表'}
-                    className="p-2 text-gray-500 hover:text-blue-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  )
+                )}
+              </div>
+            </div>
+            
+            {list.description && (
+              <p className="text-gray-600 dark:text-gray-300 mt-2">{list.description}</p>
+            )}
+
+            {/* 排序和视图控制 - 修改为放在右下角并排成一行 */}
+            <div className="mt-6 flex justify-end items-center">
+              <div className="flex items-center gap-4">
+                <select
+                  value={sortType}
+                  onChange={(e) => setSortType(e.target.value as SortType)}
+                  className="px-4 py-2 rounded-lg bg-white dark:bg-gray-700 border border-gray-300 
+                    dark:border-gray-600 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="custom">默认排序</option>
+                  <option value="time_asc">最早添加</option>
+                  <option value="time_desc">最新添加</option>
+                  <option value="name_asc">名称正序</option>
+                  <option value="name_desc">名称倒序</option>
+                  {isOwner && !list.original_list_id && <option value="custom_edit">自定义排序</option>}
+                </select>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-2 rounded ${viewMode === 'list' ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
                   </button>
-                )
-              )}
-            </div>
-          </div>
-          
-          {list.description && (
-            <p className="text-gray-600 dark:text-gray-300 mt-2">{list.description}</p>
-          )}
-
-          {/* 排序和视图控制 - 修改为放在右下角并排成一行 */}
-          <div className="mt-6 flex justify-end items-center">
-            <div className="flex items-center gap-4">
-              <select
-                value={sortType}
-                onChange={(e) => setSortType(e.target.value as SortType)}
-                className="px-4 py-2 rounded-lg bg-white dark:bg-gray-700 border border-gray-300 
-                  dark:border-gray-600 text-gray-900 dark:text-gray-100"
-              >
-                <option value="custom">默认排序</option>
-                <option value="time_asc">最早添加</option>
-                <option value="time_desc">最新添加</option>
-                <option value="name_asc">名称正序</option>
-                <option value="name_desc">名称倒序</option>
-                {isOwner && !list.original_list_id && <option value="custom_edit">自定义排序</option>}
-              </select>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`p-2 rounded ${viewMode === 'list' ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded ${viewMode === 'grid' ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                  </svg>
-                </button>
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-2 rounded ${viewMode === 'grid' ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* 内容区域 */}
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <StrictModeDroppable droppableId="favorites-list">
-            {(provided) => (
-              <div {...provided.droppableProps} ref={provided.innerRef}>
-                {viewMode === 'list' ? (
-                  // 列表模式
-                  sortedFavorites.map((favorite, index) => (
-                    <Draggable
-                      key={`favorite-${favorite.id}`}
-                      draggableId={`favorite-${favorite.id}`}
-                      index={index}
-                      isDragDisabled={sortType !== 'custom_edit' || !isOwner}
-                    >
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                          className={`bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden mb-4
-                            ${snapshot.isDragging ? 'ring-2 ring-blue-500' : ''}`}
-                        >
-                          <div className="flex flex-row">
-                            {/* 海报 */}
-                            <div className="w-32 sm:w-48 h-48 sm:h-72 flex-shrink-0 overflow-hidden">
-                              <img
-                                src={favorite.poster}
-                                alt={favorite.title}
-                                className="w-full h-full object-contain"
-                                onClick={() => navigate(`/detail/${favorite.media_type}/${favorite.media_id}`)}
-                              />
-                            </div>
-
-                            {/* 内容信息 */}
-                            <div className="flex-1 p-3 sm:p-6 relative flex flex-col">
-                              {/* 列表模式下的按钮 */}
-                              {isOwner && (
-                                <div className="absolute top-2 sm:top-4 right-2 sm:right-4 flex gap-1 sm:gap-2">
-                                  {/* 编辑备注按钮 */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditingFavorite(favorite);
-                                      setShowNoteDialog(true);
-                                    }}
-                                    className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
-                                      bg-black/50 text-white hover:bg-black/70 
-                                      transition-colors"
-                                  >
-                                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                    </svg>
-                                  </button>
-                                  
-                                  {/* 删除按钮 */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRemoveFavorite(favorite.id);
-                                    }}
-                                    className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
-                                      bg-black/50 text-white hover:bg-black/70 
-                                      transition-colors"
-                                  >
-                                    <span className="text-lg sm:text-xl leading-none">×</span>
-                                  </button>
-                                </div>
-                              )}
-                              
-                              <div className="flex-grow">
-                                <div className="flex items-baseline gap-3 mb-2">
-                                  <h2 className="text-xl font-bold dark:text-white">
-                                    {favorite.title}
-                                  </h2>
-                                  <span className="text-black dark:text-white">
-                                    {favorite.year}
-                                  </span>
-                                </div>
-                                
-                                <p className="text-gray-600 dark:text-gray-300 line-clamp-4 sm:line-clamp-[7]">
-                                  {favorite.overview}
-                                </p>
-                              </div>
-
-                              {favorite.note && (
-                                <div className="mt-4 p-3 bg-gray-400 dark:bg-gray-700 rounded-lg">
-                                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                                    {favorite.note}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </Draggable>
-                  ))
-                ) : (
-                  // 网格模式
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {sortedFavorites.map((favorite, index) => (
+          {/* 内容区域 */}
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <StrictModeDroppable droppableId="favorites-list">
+              {(provided) => (
+                <div {...provided.droppableProps} ref={provided.innerRef}>
+                  {viewMode === 'list' ? (
+                    // 列表模式
+                    sortedFavorites.map((favorite, index) => (
                       <Draggable
                         key={`favorite-${favorite.id}`}
                         draggableId={`favorite-${favorite.id}`}
@@ -797,173 +704,268 @@ export default function FavoriteListPage() {
                             ref={provided.innerRef}
                             {...provided.draggableProps}
                             {...provided.dragHandleProps}
-                            className={`relative group ${snapshot.isDragging ? 'z-50' : ''}`}
+                            className={`bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden mb-4
+                              ${snapshot.isDragging ? 'ring-2 ring-blue-500' : ''}`}
                           >
-                            <div 
-                              className={`
-                                relative cursor-pointer
-                                ${snapshot.isDragging ? 'ring-2 ring-blue-500 rounded-lg' : ''}
-                              `}
-                              onClick={() => {
-                                if (sortType !== 'custom_edit') {
-                                  navigate(`/detail/${favorite.media_type}/${favorite.media_id}`);
-                                }
-                              }}
-                            >
-                              <div className="aspect-[2/3] rounded-lg overflow-hidden">
+                            <div className="flex flex-row">
+                              {/* 海报 */}
+                              <div className="w-32 sm:w-48 h-48 sm:h-72 flex-shrink-0 overflow-hidden">
                                 <img
                                   src={favorite.poster}
                                   alt={favorite.title}
-                                  className="w-full h-full object-cover"
+                                  className="w-full h-full object-contain"
+                                  onClick={() => navigate(`/${favorite.media_type}/${favorite.media_id}`)}
                                 />
                               </div>
-                              {isOwner && (
-                                <div className="absolute top-1 sm:top-2 left-1 sm:left-2 flex gap-1 sm:gap-2">
-                                  {/* 编辑备注按钮 */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditingFavorite(favorite);
-                                      setShowNoteDialog(true);
-                                    }}
-                                    className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
-                                      bg-black/50 text-white hover:bg-black/70 
-                                      transition-colors"
-                                  >
-                                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                    </svg>
-                                  </button>
+
+                              {/* 内容信息 */}
+                              <div className="flex-1 p-3 sm:p-6 relative flex flex-col">
+                                {/* 列表模式下的按钮 */}
+                                {isOwner && (
+                                  <div className="absolute top-2 sm:top-4 right-2 sm:right-4 flex gap-1 sm:gap-2">
+                                    {/* 编辑备注按钮 */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingFavorite(favorite);
+                                        setShowNoteDialog(true);
+                                      }}
+                                      className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
+                                        bg-black/50 text-white hover:bg-black/70 
+                                        transition-colors"
+                                    >
+                                      <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                      </svg>
+                                    </button>
+                                    
+                                    {/* 删除按钮 */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRemoveFavorite(favorite.id);
+                                      }}
+                                      className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
+                                        bg-black/50 text-white hover:bg-black/70 
+                                        transition-colors"
+                                    >
+                                      <span className="text-lg sm:text-xl leading-none">×</span>
+                                    </button>
+                                  </div>
+                                )}
+                                
+                                <div className="flex-grow">
+                                  <div className="flex items-baseline gap-3 mb-2">
+                                    <h2 className="text-xl font-bold dark:text-white">
+                                      {favorite.title}
+                                    </h2>
+                                    <span className="text-black dark:text-white">
+                                      {favorite.year}
+                                    </span>
+                                  </div>
                                   
-                                  {/* 删除按钮 */}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRemoveFavorite(favorite.id);
-                                    }}
-                                    className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
-                                      bg-black/50 text-white hover:bg-black/70 
-                                      transition-colors"
-                                  >
-                                    <span className="text-lg sm:text-xl leading-none">×</span>
-                                  </button>
+                                  <p className="text-gray-600 dark:text-gray-300 line-clamp-4 sm:line-clamp-[7]">
+                                    {favorite.overview}
+                                  </p>
                                 </div>
-                              )}
-                              <div className="mt-2">
-                                <h3 className="text-sm font-medium dark:text-white truncate">
-                                  {favorite.title}
-                                </h3>
-                                <p className="text-xs text-black dark:text-white">
-                                  {favorite.year}
-                                </p>
+
+                                {favorite.note && (
+                                  <div className="mt-4 p-3 bg-gray-400 dark:bg-gray-700 rounded-lg">
+                                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                                      {favorite.note}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
                         )}
                       </Draggable>
-                    ))}
-                  </div>
-                )}
-                {provided.placeholder}
-              </div>
-            )}
-          </StrictModeDroppable>
-        </DragDropContext>
-      </div>
+                    ))
+                  ) : (
+                    // 网格模式
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                      {sortedFavorites.map((favorite, index) => (
+                        <Draggable
+                          key={`favorite-${favorite.id}`}
+                          draggableId={`favorite-${favorite.id}`}
+                          index={index}
+                          isDragDisabled={sortType !== 'custom_edit' || !isOwner}
+                        >
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              className={`relative group ${snapshot.isDragging ? 'z-50' : ''}`}
+                            >
+                              <div 
+                                className={`
+                                  relative cursor-pointer
+                                  ${snapshot.isDragging ? 'ring-2 ring-blue-500 rounded-lg' : ''}
+                                `}
+                                onClick={() => {
+                                  if (sortType !== 'custom_edit') {
+                                    navigate(`/detail/${favorite.media_type}/${favorite.media_id}`);
+                                  }
+                                }}
+                              >
+                                <div className="aspect-[2/3] rounded-lg overflow-hidden">
+                                  <img
+                                    src={favorite.poster}
+                                    alt={favorite.title}
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                {isOwner && (
+                                  <div className="absolute top-1 sm:top-2 left-1 sm:left-2 flex gap-1 sm:gap-2">
+                                    {/* 编辑备注按钮 */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingFavorite(favorite);
+                                        setShowNoteDialog(true);
+                                      }}
+                                      className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
+                                        bg-black/50 text-white hover:bg-black/70 
+                                        transition-colors"
+                                    >
+                                      <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                      </svg>
+                                    </button>
+                                    
+                                    {/* 删除按钮 */}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRemoveFavorite(favorite.id);
+                                      }}
+                                      className="w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded-full 
+                                        bg-black/50 text-white hover:bg-black/70 
+                                        transition-colors"
+                                    >
+                                      <span className="text-lg sm:text-xl leading-none">×</span>
+                                    </button>
+                                  </div>
+                                )}
+                                <div className="mt-2">
+                                  <h3 className="text-sm font-medium dark:text-white truncate">
+                                    {favorite.title}
+                                  </h3>
+                                  <p className="text-xs text-black dark:text-white">
+                                    {favorite.year}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                    </div>
+                  )}
+                  {provided.placeholder}
+                </div>
+              )}
+            </StrictModeDroppable>
+          </DragDropContext>
+        </div>
 
-      <Dialog
-        open={showEditDialog}
-        onClose={() => setShowEditDialog(false)}
-        title="编辑收藏列表"
-      >
-        {editingList && (
-          <div className="space-y-4">
-            <Input
-              label="列表名称"
-              value={editingList.name}
-              onChange={(e) => setEditingList({
-                ...editingList,
-                name: e.target.value
-              })}
-            />
-            <Textarea
-              label="列表描述（可选）"
-              value={editingList.description || ''}
-              onChange={(e) => setEditingList({
-                ...editingList,
-                description: e.target.value
-              })}
-            />
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={editingList.is_public}
-                onCheckedChange={(checked) => setEditingList({
+        <Dialog
+          open={showEditDialog}
+          onClose={() => setShowEditDialog(false)}
+          title="编辑收藏列表"
+        >
+          {editingList && (
+            <div className="space-y-4">
+              <Input
+                label="列表名称"
+                value={editingList.name}
+                onChange={(e) => setEditingList({
                   ...editingList,
-                  is_public: checked
+                  name: e.target.value
                 })}
               />
-              <span>公开列表</span>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowEditDialog(false)}
-              >
-                取消
-              </Button>
-              <Button onClick={handleEditList}>
-                保存
-              </Button>
-            </div>
-          </div>
-        )}
-      </Dialog>
-
-      <AuthModal
-        isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-      />
-
-      <Dialog
-        open={showNoteDialog}
-        onClose={() => {
-          setShowNoteDialog(false);
-          setEditingFavorite(null);
-        }}
-        title="编辑备注"
-      >
-        {editingFavorite && (
-          <div className="space-y-4">
-            <div>
-              <h3 className="font-medium mb-2">{editingFavorite.title}</h3>
               <Textarea
-                label="备注"
-                value={editingFavorite.note || ''}
-                onChange={(e) => setEditingFavorite({
-                  ...editingFavorite,
-                  note: e.target.value
+                label="列表描述（可选）"
+                value={editingList.description || ''}
+                onChange={(e) => setEditingList({
+                  ...editingList,
+                  description: e.target.value
                 })}
-                placeholder="添加你的观影感受..."
               />
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editingList.is_public}
+                  onCheckedChange={(checked) => setEditingList({
+                    ...editingList,
+                    is_public: checked
+                  })}
+                />
+                <span>公开列表</span>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowEditDialog(false)}
+                >
+                  取消
+                </Button>
+                <Button onClick={handleEditList}>
+                  保存
+                </Button>
+              </div>
             </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowNoteDialog(false);
-                  setEditingFavorite(null);
-                }}
-              >
-                取消
-              </Button>
-              <Button onClick={handleUpdateNote}>
-                保存
-              </Button>
+          )}
+        </Dialog>
+
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+        />
+
+        <Dialog
+          open={showNoteDialog}
+          onClose={() => {
+            setShowNoteDialog(false);
+            setEditingFavorite(null);
+          }}
+          title="编辑备注"
+        >
+          {editingFavorite && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-medium mb-2">{editingFavorite.title}</h3>
+                <Textarea
+                  label="备注"
+                  value={editingFavorite.note || ''}
+                  onChange={(e) => setEditingFavorite({
+                    ...editingFavorite,
+                    note: e.target.value
+                  })}
+                  placeholder="添加你的观影感受..."
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowNoteDialog(false);
+                    setEditingFavorite(null);
+                  }}
+                >
+                  取消
+                </Button>
+                <Button onClick={handleUpdateNote}>
+                  保存
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-      </Dialog>
-    </div>
+          )}
+        </Dialog>
+      </div>
+    </>
   );
 }
