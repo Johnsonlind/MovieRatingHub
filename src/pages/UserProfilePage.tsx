@@ -8,6 +8,7 @@ import { ThemeToggle } from '../utils/ThemeToggle';
 import { toast } from "sonner";
 import { AuthModal } from '../components/auth/AuthModal';
 import { NavBar } from '../utils/NavBar';
+import { ScrollToTopButton } from '../utils/ScrollToTopButton';
 
 interface Creator {
   id: number;
@@ -406,6 +407,7 @@ export default function UserProfilePage() {
       <NavBar />
       <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 pt-16 p-4">
         <ThemeToggle />
+        <ScrollToTopButton />
 
         <AuthModal 
           isOpen={showAuthModal} 
