@@ -7,13 +7,14 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Upload } from 'lucide-react';
 import { getBase64Image } from '../api/image';
 import { ThemeToggle } from '../utils/ThemeToggle';
-import { SearchButton } from '../utils/SearchButton';
+import { NavBar } from '../utils/NavBar';
 import { Dialog } from '../components/ui/Dialog';
 import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Button } from '../components/ui/Button';
 import { Switch } from '../components/ui/Switch';
 import { toast } from "sonner";
+import { ScrollToTopButton } from '../utils/ScrollToTopButton';
 
 interface Creator {
   id: number;
@@ -658,268 +659,325 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 p-4">
-      <ThemeToggle />
-      <SearchButton />
-      
-      <div className="max-w-4xl mx-auto">
-        {/* 个人资料卡片 */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 mb-8">
-          <form onSubmit={handleSubmit}>
-            <div className="flex items-center gap-6">
-              {/* 头像区域 */}
-              <div className="relative">
-                <img
-                  src={previewAvatar || user?.avatar || '/Profile.png'}
-                  alt="用户头像"
-                  className="w-24 h-24 rounded-full object-cover border-4 border-white"
-                />
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleAvatarUpload}
-                  accept="image/*"
-                  className="hidden"
-                />
+    <>
+      <NavBar />
+      <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 pt-16 p-4">
+        <ThemeToggle />
+        <ScrollToTopButton />
+        
+        <div className="max-w-4xl mx-auto">
+          {/* 个人资料卡片 */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 mb-8">
+            <form onSubmit={handleSubmit}>
+              <div className="flex items-center gap-6">
+                {/* 头像区域 */}
+                <div className="relative">
+                  <img
+                    src={previewAvatar || user?.avatar || '/Profile.png'}
+                    alt="用户头像"
+                    className="w-24 h-24 rounded-full object-cover border-4 border-white"
+                  />
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleAvatarUpload}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute bottom-0 right-0 bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                {/* 用户信息 */}
+                <div className="flex-1">
+                  {isEditing ? (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          用户名
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.username}
+                          onChange={(e) => setFormData({...formData, username: e.target.value})}
+                          className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
+                            bg-white dark:bg-gray-700 
+                            shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
+                            text-gray-900 dark:text-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          新密码
+                        </label>
+                        <input
+                          type="password"
+                          value={formData.newPassword}
+                          onChange={(e) => setFormData({...formData, newPassword: e.target.value})}
+                          className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
+                            bg-white dark:bg-gray-700 
+                            shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
+                            text-gray-900 dark:text-gray-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          确认新密码
+                        </label>
+                        <input
+                          type="password"
+                          value={formData.confirmPassword}
+                          onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                          className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
+                            bg-white dark:bg-gray-700 
+                            shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
+                            text-gray-900 dark:text-gray-100"
+                        />
+                      </div>
+                      {error && (
+                        <p className="text-red-500 text-sm">{error}</p>
+                      )}
+                      {success && (
+                        <p className="text-green-500 text-sm">{success}</p>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          type="submit"
+                          className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600"
+                        >
+                          保存
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditing(false)}
+                          className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h1 className="text-2xl font-bold dark:text-white mb-2">{user?.username}</h1>
+                      <p className="text-gray-600 dark:text-gray-300">{user?.email}</p>
+                      <div className="mt-4 flex gap-4 items-center">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditing(true)}
+                          className="text-blue-500 hover:text-blue-600"
+                        >
+                          编辑个人资料
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('确定要退出登录吗？')) {
+                              logout();
+                              navigate('/');
+                            }
+                          }}
+                          className="text-red-500 hover:text-red-600"
+                        >
+                          退出登录
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </form>
+          </div>
+
+          {/* 收藏内容区域 */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex gap-4">
                 <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-0 right-0 bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 transition-colors"
+                  onClick={() => setActiveTab('collections')}
+                  className={`text-xl font-semibold ${
+                    activeTab === 'collections'
+                      ? 'text-blue-500 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400'
+                  }`}
                 >
-                  <Upload className="w-4 h-4" />
+                  我的收藏
+                </button>
+                <button
+                  onClick={() => setActiveTab('following')}
+                  className={`text-xl font-semibold ${
+                    activeTab === 'following'
+                      ? 'text-blue-500 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400'
+                  }`}
+                >
+                  我的关注
                 </button>
               </div>
-              
-              {/* 用户信息 */}
-              <div className="flex-1">
-                {isEditing ? (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        用户名
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.username}
-                        onChange={(e) => setFormData({...formData, username: e.target.value})}
-                        className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
-                          bg-white dark:bg-gray-700 
-                          shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
-                          text-gray-900 dark:text-gray-100"
+              {activeTab === 'collections' && (
+                <button
+                  onClick={() => setShowCreateDialog(true)}
+                  className="p-2 text-gray-500 hover:text-blue-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  title="创建收藏列表"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            
+            {activeTab === 'collections' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {lists.map(list => (
+                  <FavoriteListCard key={list.id} list={list} />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {following.map(follow => (
+                  <div key={follow.id} className="bg-[#9a9cc9] rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-4">
+                      <img
+                        src={follow.avatar || '/default-avatar.png'}
+                        alt={follow.username}
+                        className="w-12 h-12 rounded-full object-cover cursor-pointer"
+                        onClick={() => navigate(`/profile/${follow.id}`)}
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        新密码
-                      </label>
-                      <input
-                        type="password"
-                        value={formData.newPassword}
-                        onChange={(e) => setFormData({...formData, newPassword: e.target.value})}
-                        className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
-                          bg-white dark:bg-gray-700 
-                          shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
-                          text-gray-900 dark:text-gray-100"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        确认新密码
-                      </label>
-                      <input
-                        type="password"
-                        value={formData.confirmPassword}
-                        onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
-                        className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
-                          bg-white dark:bg-gray-700 
-                          shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
-                          text-gray-900 dark:text-gray-100"
-                      />
-                    </div>
-                    {error && (
-                      <p className="text-red-500 text-sm">{error}</p>
-                    )}
-                    {success && (
-                      <p className="text-green-500 text-sm">{success}</p>
-                    )}
-                    <div className="flex gap-2">
-                      <button
-                        type="submit"
-                        className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600"
-                      >
-                        保存
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsEditing(false)}
-                        className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
-                      >
-                        取消
-                      </button>
+                      <div className="flex-1">
+                        <h3 
+                          className="text-lg font-medium dark:text-white cursor-pointer hover:text-blue-500"
+                          onClick={() => navigate(`/profile/${follow.id}`)}
+                        >
+                          {follow.username}
+                        </h3>
+                        {follow.note && (
+                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                            {follow.note}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            setEditingFollow(follow);
+                            setShowNoteDialog(true);
+                          }}
+                          className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleUnfollow(follow.id)}
+                          className="p-2 text-gray-500 hover:text-red-600"
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                              d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                ) : (
-                  <>
-                    <h1 className="text-2xl font-bold dark:text-white mb-2">{user?.username}</h1>
-                    <p className="text-gray-600 dark:text-gray-300">{user?.email}</p>
-                    <div className="mt-4 flex gap-4 items-center">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditing(true)}
-                        className="text-blue-500 hover:text-blue-600"
-                      >
-                        编辑个人资料
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm('确定要退出登录吗？')) {
-                            logout();
-                            navigate('/');
-                          }
-                        }}
-                        className="text-red-500 hover:text-red-600"
-                      >
-                        退出登录
-                      </button>
-                    </div>
-                  </>
-                )}
+                ))}
               </div>
-            </div>
-          </form>
-        </div>
-
-        {/* 收藏内容区域 */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex gap-4">
-              <button
-                onClick={() => setActiveTab('collections')}
-                className={`text-xl font-semibold ${
-                  activeTab === 'collections'
-                    ? 'text-blue-500 dark:text-blue-400'
-                    : 'text-gray-600 dark:text-gray-400'
-                }`}
-              >
-                我的收藏
-              </button>
-              <button
-                onClick={() => setActiveTab('following')}
-                className={`text-xl font-semibold ${
-                  activeTab === 'following'
-                    ? 'text-blue-500 dark:text-blue-400'
-                    : 'text-gray-600 dark:text-gray-400'
-                }`}
-              >
-                我的关注
-              </button>
-            </div>
-            {activeTab === 'collections' && (
-              <button
-                onClick={() => setShowCreateDialog(true)}
-                className="p-2 text-gray-500 hover:text-blue-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                title="创建收藏列表"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                </svg>
-              </button>
             )}
           </div>
-          
-          {activeTab === 'collections' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {lists.map(list => (
-                <FavoriteListCard key={list.id} list={list} />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {following.map(follow => (
-                <div key={follow.id} className="bg-[#9a9cc9] rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                  <div className="flex items-center gap-4">
-                    <img
-                      src={follow.avatar || '/default-avatar.png'}
-                      alt={follow.username}
-                      className="w-12 h-12 rounded-full object-cover cursor-pointer"
-                      onClick={() => navigate(`/profile/${follow.id}`)}
-                    />
-                    <div className="flex-1">
-                      <h3 
-                        className="text-lg font-medium dark:text-white cursor-pointer hover:text-blue-500"
-                        onClick={() => navigate(`/profile/${follow.id}`)}
-                      >
-                        {follow.username}
-                      </h3>
-                      {follow.note && (
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                          {follow.note}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          setEditingFollow(follow);
-                          setShowNoteDialog(true);
-                        }}
-                        className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleUnfollow(follow.id)}
-                        className="p-2 text-gray-500 hover:text-red-600"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                            d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+        </div>
+
+        <Dialog
+          open={showEditDialog}
+          onClose={() => {
+            setShowEditDialog(false);
+            setEditingList(null);
+          }}
+          title="编辑收藏列表"
+        >
+          {editingList && (
+            <div className="space-y-4">
+              <Input
+                label="列表名称"
+                value={editingList.name}
+                onChange={(e) => setEditingList({
+                  ...editingList,
+                  name: e.target.value
+                })}
+              />
+              <Textarea
+                label="列表描述（可选）"
+                value={editingList.description || ''}
+                onChange={(e) => setEditingList({
+                  ...editingList,
+                  description: e.target.value
+                })}
+              />
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={editingList.is_public}
+                  onCheckedChange={(checked) => setEditingList({
+                    ...editingList,
+                    is_public: checked
+                  })}
+                />
+                <span>公开列表</span>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowEditDialog(false);
+                    setEditingList(null);
+                  }}
+                >
+                  取消
+                </Button>
+                <Button onClick={() => handleEditList(editingList)}>
+                  保存
+                </Button>
+              </div>
             </div>
           )}
-        </div>
-      </div>
+        </Dialog>
 
-      <Dialog
-        open={showEditDialog}
-        onClose={() => {
-          setShowEditDialog(false);
-          setEditingList(null);
-        }}
-        title="编辑收藏列表"
-      >
-        {editingList && (
+        <Dialog
+          open={showCreateDialog}
+          onClose={() => {
+            setShowCreateDialog(false);
+            setNewList({ name: '', description: '', is_public: false });
+          }}
+          title="创建收藏列表"
+        >
           <div className="space-y-4">
             <Input
               label="列表名称"
-              value={editingList.name}
-              onChange={(e) => setEditingList({
-                ...editingList,
+              value={newList.name}
+              onChange={(e) => setNewList({
+                ...newList,
                 name: e.target.value
               })}
+              placeholder="请输入列表名称"
             />
             <Textarea
               label="列表描述（可选）"
-              value={editingList.description || ''}
-              onChange={(e) => setEditingList({
-                ...editingList,
+              value={newList.description}
+              onChange={(e) => setNewList({
+                ...newList,
                 description: e.target.value
               })}
+              placeholder="添加一些描述..."
             />
             <div className="flex items-center gap-2">
               <Switch
-                checked={editingList.is_public}
-                onCheckedChange={(checked) => setEditingList({
-                  ...editingList,
+                checked={newList.is_public}
+                onCheckedChange={(checked) => setNewList({
+                  ...newList,
                   is_public: checked
                 })}
               />
@@ -929,117 +987,63 @@ export default function ProfilePage() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  setShowEditDialog(false);
-                  setEditingList(null);
+                  setShowCreateDialog(false);
+                  setNewList({ name: '', description: '', is_public: false });
                 }}
               >
                 取消
               </Button>
-              <Button onClick={() => handleEditList(editingList)}>
-                保存
-              </Button>
-            </div>
-          </div>
-        )}
-      </Dialog>
-
-      <Dialog
-        open={showCreateDialog}
-        onClose={() => {
-          setShowCreateDialog(false);
-          setNewList({ name: '', description: '', is_public: false });
-        }}
-        title="创建收藏列表"
-      >
-        <div className="space-y-4">
-          <Input
-            label="列表名称"
-            value={newList.name}
-            onChange={(e) => setNewList({
-              ...newList,
-              name: e.target.value
-            })}
-            placeholder="请输入列表名称"
-          />
-          <Textarea
-            label="列表描述（可选）"
-            value={newList.description}
-            onChange={(e) => setNewList({
-              ...newList,
-              description: e.target.value
-            })}
-            placeholder="添加一些描述..."
-          />
-          <div className="flex items-center gap-2">
-            <Switch
-              checked={newList.is_public}
-              onCheckedChange={(checked) => setNewList({
-                ...newList,
-                is_public: checked
-              })}
-            />
-            <span>公开列表</span>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowCreateDialog(false);
-                setNewList({ name: '', description: '', is_public: false });
-              }}
-            >
-              取消
-            </Button>
-            <Button 
-              onClick={handleCreateList}
-              disabled={!newList.name.trim()}
-            >
-              创建
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-
-      {/* 添加备注对话框 */}
-      <Dialog
-        open={showNoteDialog}
-        onClose={() => {
-          setShowNoteDialog(false);
-          setEditingFollow(null);
-        }}
-        title="编辑备注"
-      >
-        {editingFollow && (
-          <div className="space-y-4">
-            <div>
-              <h3 className="font-medium mb-2">{editingFollow.username}</h3>
-              <Textarea
-                label="备注"
-                value={editingFollow.note || ''}
-                onChange={(e) => setEditingFollow({
-                  ...editingFollow,
-                  note: e.target.value
-                })}
-                placeholder="添加备注..."
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowNoteDialog(false);
-                  setEditingFollow(null);
-                }}
+              <Button 
+                onClick={handleCreateList}
+                disabled={!newList.name.trim()}
               >
-                取消
-              </Button>
-              <Button onClick={handleUpdateNote}>
-                保存
+                创建
               </Button>
             </div>
           </div>
-        )}
-      </Dialog>
-    </div>
+        </Dialog>
+
+        {/* 添加备注对话框 */}
+        <Dialog
+          open={showNoteDialog}
+          onClose={() => {
+            setShowNoteDialog(false);
+            setEditingFollow(null);
+          }}
+          title="编辑备注"
+        >
+          {editingFollow && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="font-medium mb-2">{editingFollow.username}</h3>
+                <Textarea
+                  label="备注"
+                  value={editingFollow.note || ''}
+                  onChange={(e) => setEditingFollow({
+                    ...editingFollow,
+                    note: e.target.value
+                  })}
+                  placeholder="添加备注..."
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowNoteDialog(false);
+                    setEditingFollow(null);
+                  }}
+                >
+                  取消
+                </Button>
+                <Button onClick={handleUpdateNote}>
+                  保存
+                </Button>
+              </div>
+            </div>
+          )}
+        </Dialog>
+      </div>
+    </>
   );
 } 
