@@ -29,7 +29,7 @@ export function TVShowHero({ tvShow, backdropUrl, ratingData, isAllDataFetched }
       <div className="relative min-h-[45vh] sm:min-h-[60vh]">
         {/* 背景图片 */}
         <div 
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat blur-sm"
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat blur-sm -mt-16"
           style={{ 
             backgroundImage: `url(${backdropUrl || tvShow.poster})`,
           }}
