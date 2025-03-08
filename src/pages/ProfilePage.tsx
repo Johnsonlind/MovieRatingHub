@@ -550,7 +550,7 @@ export default function ProfilePage() {
                     alt={user?.username}
                     className="w-6 h-6 rounded-full object-cover"
                   />
-                  <span className="text-sm text-gray-700 dark:text-gray-400">
+                  <span className="text-sm text-gray-700">
                     {user?.username}
                   </span>
                 </>
