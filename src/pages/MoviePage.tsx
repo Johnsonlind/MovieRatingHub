@@ -18,13 +18,13 @@ import type { FetchStatus, BackendPlatformStatus } from '../types/status';
 import { TMDBRating, TraktRating, MovieRatingData } from '../types/ratings';
 import { Movie as MediaMovie } from '../types/media';
 import { ThemeToggle } from '../utils/ThemeToggle';
+import { NavBar } from '../utils/NavBar';
 import { CDN_URL } from '../api/api';
 import { getBase64Image } from '../api/image';
-import { SearchButton } from '../utils/SearchButton';
 import { ExportButton } from '../utils/ExportButton';
 import { FavoriteButton } from '../utils/FavoriteButton';
-import { UserButton } from '../utils/UserButton';
 import { ErrorMessage } from '../utils/ErrorMessage';
+import { ScrollToTopButton } from '../utils/ScrollToTopButton';
 
 interface PlatformStatus {
   status: FetchStatus;
@@ -419,78 +419,80 @@ export default function MoviePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--page-bg)]">
-      <ThemeToggle />
-      <SearchButton />
-      <UserButton />
-      <FavoriteButton 
-        mediaId={id || ''}
-        mediaType="movie"
-        title={movie.title}
-        poster={movie.poster}
-        year={String(movie.year || '')}
-        overview={movie.overview}
-      />
-      <ExportButton onExport={handleExport} isExporting={isExporting} />
+    <>
+      <NavBar />
+      <div className="min-h-screen bg-[var(--page-bg)] pt-16">
+        <ThemeToggle />
+        <ScrollToTopButton />
+        <FavoriteButton 
+          mediaId={id || ''}
+          mediaType="movie"
+          title={movie.title}
+          poster={movie.poster}
+          year={String(movie.year || '')}
+          overview={movie.overview}
+        />
+        <ExportButton onExport={handleExport} isExporting={isExporting} />
 
-      <div className="movie-content">
-        <MovieHero 
-          movie={{
-            ...movie,
-            runtime: movie.runtime || 0
-          } as MediaMovie}
-          backdropUrl={movie.backdrop}
-          ratingData={allRatings}
-        />
-        <MovieMetadata
-          runtime={movie.runtime}
-          releaseDate={movie.releaseDate}
-          genres={movie.genres}
-        />
-        
-        <RatingSection 
-          media={movie as MediaMovie}
-          ratingData={allRatings}
-          isLoading={false}
-          error={undefined}
-          tmdbStatus={tmdbStatus}
-          traktStatus={traktStatus}
-          backendPlatforms={backendPlatforms}
-          onRetry={handleRetry}
-        />
+        <div className="movie-content">
+          <MovieHero 
+            movie={{
+              ...movie,
+              runtime: movie.runtime || 0
+            } as MediaMovie}
+            backdropUrl={movie.backdrop}
+            ratingData={allRatings}
+          />
+          <MovieMetadata
+            runtime={movie.runtime}
+            releaseDate={movie.releaseDate}
+            genres={movie.genres}
+          />
+          
+          <RatingSection 
+            media={movie as MediaMovie}
+            ratingData={allRatings}
+            isLoading={false}
+            error={undefined}
+            tmdbStatus={tmdbStatus}
+            traktStatus={traktStatus}
+            backendPlatforms={backendPlatforms}
+            onRetry={handleRetry}
+          />
 
-        <Credits
-          cast={movie.credits.cast}
-          crew={movie.credits.crew}
-        />
-      </div>
-
-      <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
-        <div id="export-content" className="bg-white">
-          {movie && (
-            <ExportRatingCard 
-              media={{
-                title: movie.title,
-                year: movie.year.toString(),
-                poster: posterBase64 || movie.poster
-              }}
-              ratingData={allRatings}
-            />
-          )}
+          <Credits
+            cast={movie.credits.cast}
+            crew={movie.credits.crew}
+          />
         </div>
-      </div>
 
-      {queryError && (
-        <ErrorMessage
-          status={formatQueryError(queryError).status}
-          errorDetail={formatQueryError(queryError).detail}
-          onRetry={() => {
-            const platformToRetry = backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown';
-            handleRetry(platformToRetry);
-          }}
-          retryCount={retryCount[backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown'] || 0}
-        />
-      )}
-    </div>
+        <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
+          <div id="export-content" className="bg-white">
+            {movie && (
+              <ExportRatingCard 
+                media={{
+                  title: movie.title,
+                  year: movie.year.toString(),
+                  poster: posterBase64 || movie.poster
+                }}
+                ratingData={allRatings}
+              />
+            )}
+          </div>
+        </div>
+
+        {queryError && (
+          <ErrorMessage
+            status={formatQueryError(queryError).status}
+            errorDetail={formatQueryError(queryError).detail}
+            onRetry={() => {
+              const platformToRetry = backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown';
+              handleRetry(platformToRetry);
+            }}
+            retryCount={retryCount[backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown'] || 0}
+          />
+        )}
+      </div>
+    </>
   );
 }
