@@ -40,10 +40,10 @@ export const ScrollToTopButton = () => {
   return (
     <button 
       onClick={scrollToTop}
-      className="fixed bottom-6 right-6 w-10 h-10 flex items-center justify-center rounded-full overflow-hidden bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20 transition-all duration-200 hover:scale-110 shadow-lg z-50"
+      className="fixed bottom-2 right-2 z-30 p-2 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20 backdrop-blur-sm transition-colors"
       aria-label="返回顶部"
     >
-      <ArrowUp className="w-5 h-5 text-gray-700 dark:text-white" />
+      <ArrowUp className="w-4 h-4" />
     </button>
   );
 }; 
