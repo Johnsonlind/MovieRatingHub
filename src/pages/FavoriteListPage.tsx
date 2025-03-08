@@ -160,8 +160,11 @@ export default function FavoriteListPage() {
 
   // 拖拽结束处理函数
   const handleDragEnd = async (result: DropResult) => {
-    if (!result.destination || !list) return;
+    // 如果是收藏的列表，不允许拖拽排序
+    if (list?.original_list_id) return;
   
+    if (!result.destination || !list) return;
+
     const { source, destination } = result;
     
     if (destination.droppableId === source.droppableId && destination.index === source.index) {
@@ -697,7 +700,7 @@ export default function FavoriteListPage() {
                         key={`favorite-${favorite.id}`}
                         draggableId={`favorite-${favorite.id}`}
                         index={index}
-                        isDragDisabled={sortType !== 'custom_edit' || !isOwner}
+                        isDragDisabled={sortType !== 'custom_edit' || !isOwner || !!list.original_list_id}
                       >
                         {(provided, snapshot) => (
                           <div
@@ -721,7 +724,7 @@ export default function FavoriteListPage() {
                               {/* 内容信息 */}
                               <div className="flex-1 p-3 sm:p-6 relative flex flex-col">
                                 {/* 列表模式下的按钮 */}
-                                {isOwner && (
+                                {isOwner && !list.original_list_id && (
                                   <div className="absolute top-2 sm:top-4 right-2 sm:right-4 flex gap-1 sm:gap-2">
                                     {/* 编辑备注按钮 */}
                                     <button
@@ -791,7 +794,7 @@ export default function FavoriteListPage() {
                           key={`favorite-${favorite.id}`}
                           draggableId={`favorite-${favorite.id}`}
                           index={index}
-                          isDragDisabled={sortType !== 'custom_edit' || !isOwner}
+                          isDragDisabled={sortType !== 'custom_edit' || !isOwner || !!list.original_list_id}
                         >
                           {(provided, snapshot) => (
                             <div
@@ -818,7 +821,7 @@ export default function FavoriteListPage() {
                                     className="w-full h-full object-cover"
                                   />
                                 </div>
-                                {isOwner && (
+                                {isOwner && !list.original_list_id && (
                                   <div className="absolute top-1 sm:top-2 left-1 sm:left-2 flex gap-1 sm:gap-2">
                                     {/* 编辑备注按钮 */}
                                     <button
