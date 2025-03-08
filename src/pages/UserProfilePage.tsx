@@ -5,10 +5,9 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../components/auth/AuthContext';
 import { ThemeToggle } from '../utils/ThemeToggle';
-import { SearchButton } from '../utils/SearchButton';
 import { toast } from "sonner";
 import { AuthModal } from '../components/auth/AuthModal';
-import { UserButton } from '../utils/UserButton';
+import { NavBar } from '../utils/NavBar';
 
 interface Creator {
   id: number;
@@ -403,61 +402,62 @@ export default function UserProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 p-4">
-      <ThemeToggle />
-      <SearchButton />
-      <UserButton />
-      
-      <AuthModal 
-        isOpen={showAuthModal} 
-        onClose={() => setShowAuthModal(false)} 
-      />
-      
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 mb-8">
-          <div className="flex items-center gap-4">
-            <div className="w-24 h-24 rounded-full overflow-hidden">
-              <img
-                src={userInfo.avatar || '/default-avatar.png'}
-                alt={userInfo.username}
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold dark:text-white">{userInfo.username}</h1>
-              {user?.id === parseInt(id!) && (
-                <p className="text-gray-600 dark:text-gray-300">{userInfo.email}</p>
+    <>
+      <NavBar />
+      <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 pt-16 p-4">
+        <ThemeToggle />
+
+        <AuthModal 
+          isOpen={showAuthModal} 
+          onClose={() => setShowAuthModal(false)} 
+        />
+        
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 mb-8">
+            <div className="flex items-center gap-4">
+              <div className="w-24 h-24 rounded-full overflow-hidden">
+                <img
+                  src={userInfo.avatar || '/default-avatar.png'}
+                  alt={userInfo.username}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold dark:text-white">{userInfo.username}</h1>
+                {user?.id === parseInt(id!) && (
+                  <p className="text-gray-600 dark:text-gray-300">{userInfo.email}</p>
+                )}
+              </div>
+              {(!user || user.id !== parseInt(id!)) && (
+                <button
+                  onClick={handleFollow}
+                  className={`
+                    px-4 py-2 rounded-full
+                    ${user && userInfo.is_following
+                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                      : 'bg-blue-500 text-white'}
+                    hover:opacity-80 transition-opacity
+                  `}
+                >
+                  {user && userInfo.is_following ? '取消关注' : '关注'}
+                </button>
               )}
             </div>
-            {(!user || user.id !== parseInt(id!)) && (
-              <button
-                onClick={handleFollow}
-                className={`
-                  px-4 py-2 rounded-full
-                  ${user && userInfo.is_following
-                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                    : 'bg-blue-500 text-white'}
-                  hover:opacity-80 transition-opacity
-                `}
-              >
-                {user && userInfo.is_following ? '取消关注' : '关注'}
-              </button>
-            )}
           </div>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-semibold dark:text-white">片单</h2>
-          </div>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {lists.filter(list => list.is_public || user?.id === parseInt(id!)).map(list => (
-              <FavoriteListCard key={list.id} list={list} />
-            ))}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold dark:text-white">片单</h2>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {lists.filter(list => list.is_public || user?.id === parseInt(id!)).map(list => (
+                <FavoriteListCard key={list.id} list={list} />
+              ))}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 } 
