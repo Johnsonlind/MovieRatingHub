@@ -138,6 +138,8 @@ export default function ProfilePage() {
   const [following, setFollowing] = useState<Following[]>([]);
   const [showNoteDialog, setShowNoteDialog] = useState(false);
   const [editingFollow, setEditingFollow] = useState<Following | null>(null);
+  const [isLoadingLists, setIsLoadingLists] = useState(true);
+  const [isLoadingFollowing, setIsLoadingFollowing] = useState(true);
   useScreenSize();
 
   useEffect(() => {
@@ -184,6 +186,8 @@ export default function ProfilePage() {
         }
       } catch (error) {
         console.error('获取收藏列表失败:', error);
+      } finally {
+        setIsLoadingLists(false);
       }
     };
 
@@ -206,6 +210,8 @@ export default function ProfilePage() {
         }
       } catch (error) {
         console.error('获取关注列表失败:', error);
+      } finally {
+        setIsLoadingFollowing(false);
       }
     };
 
@@ -670,12 +676,13 @@ export default function ProfilePage() {
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 mb-8">
             <form onSubmit={handleSubmit}>
               <div className="flex items-center gap-6">
-                {/* 头像区域 */}
+                {/* 头像区域 - 添加加载状态 */}
                 <div className="relative">
                   <img
                     src={previewAvatar || user?.avatar || '/Profile.png'}
                     alt="用户头像"
                     className="w-24 h-24 rounded-full object-cover border-4 border-white"
+                    loading="lazy" // 添加延迟加载
                   />
                   <input
                     type="file"
@@ -693,7 +700,7 @@ export default function ProfilePage() {
                   </button>
                 </div>
                 
-                {/* 用户信息 */}
+                {/* 用户信息 - 优化条件渲染 */}
                 <div className="flex-1">
                   {isEditing ? (
                     <div className="space-y-4">
@@ -704,7 +711,7 @@ export default function ProfilePage() {
                         <input
                           type="text"
                           value={formData.username}
-                          onChange={(e) => setFormData({...formData, username: e.target.value})}
+                          onChange={(e) => setFormData(prev => ({...prev, username: e.target.value}))}
                           className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
                             bg-white dark:bg-gray-700 
                             shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
@@ -718,7 +725,7 @@ export default function ProfilePage() {
                         <input
                           type="password"
                           value={formData.newPassword}
-                          onChange={(e) => setFormData({...formData, newPassword: e.target.value})}
+                          onChange={(e) => setFormData(prev => ({...prev, newPassword: e.target.value}))}
                           className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
                             bg-white dark:bg-gray-700 
                             shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
@@ -732,7 +739,7 @@ export default function ProfilePage() {
                         <input
                           type="password"
                           value={formData.confirmPassword}
-                          onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                          onChange={(e) => setFormData(prev => ({...prev, confirmPassword: e.target.value}))}
                           className="mt-1 block w-full rounded-md border-2 border-gray-400 dark:border-gray-600 
                             bg-white dark:bg-gray-700 
                             shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500 
@@ -754,7 +761,18 @@ export default function ProfilePage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setIsEditing(false)}
+                          onClick={() => {
+                            setIsEditing(false);
+                            // 重置表单数据
+                            setFormData({
+                              username: user.username,
+                              currentPassword: '',
+                              newPassword: '',
+                              confirmPassword: ''
+                            });
+                            setError('');
+                            setSuccess('');
+                          }}
                           className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600"
                         >
                           取消
@@ -777,6 +795,11 @@ export default function ProfilePage() {
                           type="button"
                           onClick={() => {
                             if (confirm('确定要退出登录吗？')) {
+                              // 清除所有缓存
+                              localStorage.removeItem('cachedFavorites');
+                              localStorage.removeItem('cachedLists');
+                              localStorage.removeItem('cachedFollowing');
+                              
                               logout();
                               navigate('/');
                             }
@@ -793,7 +816,7 @@ export default function ProfilePage() {
             </form>
           </div>
 
-          {/* 收藏内容区域 */}
+          {/* 收藏内容区域 - 添加加载状态 */}
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
             <div className="flex justify-between items-center mb-6">
               <div className="flex gap-4">
@@ -831,67 +854,106 @@ export default function ProfilePage() {
               )}
             </div>
             
+            {/* 根据活动标签和加载状态显示不同内容 */}
             {activeTab === 'collections' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {lists.map(list => (
-                  <FavoriteListCard key={list.id} list={list} />
-                ))}
-              </div>
+              isLoadingLists ? (
+                // 收藏列表骨架屏
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[1, 2, 3, 4, 5, 6].map(i => (
+                    <div key={i} className="rounded-lg p-4 bg-gray-300 dark:bg-gray-600 h-64 animate-pulse"></div>
+                  ))}
+                </div>
+              ) : lists.length === 0 ? (
+                // 空状态提示
+                <div className="text-center py-12">
+                  <p className="text-gray-500 dark:text-gray-400 mb-4">您还没有创建任何收藏列表</p>
+                  <button
+                    onClick={() => setShowCreateDialog(true)}
+                    className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600"
+                  >
+                    创建第一个收藏列表
+                  </button>
+                </div>
+              ) : (
+                // 实际列表内容
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {lists.map(list => (
+                    <FavoriteListCard key={list.id} list={list} />
+                  ))}
+                </div>
+              )
             ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {following.map(follow => (
-                  <div key={follow.id} className="bg-[#9a9cc9] rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-4">
-                      <img
-                        src={follow.avatar || '/default-avatar.png'}
-                        alt={follow.username}
-                        className="w-12 h-12 rounded-full object-cover cursor-pointer"
-                        onClick={() => navigate(`/profile/${follow.id}`)}
-                      />
-                      <div className="flex-1">
-                        <h3 
-                          className="text-lg font-medium dark:text-white cursor-pointer hover:text-blue-500"
+              isLoadingFollowing ? (
+                // 关注列表骨架屏
+                <div className="grid grid-cols-1 gap-4">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="bg-gray-300 dark:bg-gray-600 rounded-xl p-4 h-20 animate-pulse"></div>
+                  ))}
+                </div>
+              ) : following.length === 0 ? (
+                // 空状态提示
+                <div className="text-center py-12">
+                  <p className="text-gray-500 dark:text-gray-400">您还没有关注任何用户</p>
+                </div>
+              ) : (
+                // 实际关注内容
+                <div className="grid grid-cols-1 gap-4">
+                  {following.map(follow => (
+                    <div key={follow.id} className="bg-[#9a9cc9] rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-4">
+                        <img
+                          src={follow.avatar || '/default-avatar.png'}
+                          alt={follow.username}
+                          className="w-12 h-12 rounded-full object-cover cursor-pointer"
                           onClick={() => navigate(`/profile/${follow.id}`)}
-                        >
-                          {follow.username}
-                        </h3>
-                        {follow.note && (
-                          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {follow.note}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setEditingFollow(follow);
-                            setShowNoteDialog(true);
-                          }}
-                          className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => handleUnfollow(follow.id)}
-                          className="p-2 text-gray-500 hover:text-red-600"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                              d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
+                          loading="lazy" // 添加延迟加载
+                        />
+                        <div className="flex-1">
+                          <h3 
+                            className="text-lg font-medium dark:text-white cursor-pointer hover:text-blue-500"
+                            onClick={() => navigate(`/profile/${follow.id}`)}
+                          >
+                            {follow.username}
+                          </h3>
+                          {follow.note && (
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                              {follow.note}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setEditingFollow(follow);
+                              setShowNoteDialog(true);
+                            }}
+                            className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => handleUnfollow(follow.id)}
+                            className="p-2 text-gray-500 hover:text-red-600"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )
             )}
           </div>
         </div>
 
+        {/* 对话框组件 - 优化表单处理 */}
         <Dialog
           open={showEditDialog}
           onClose={() => {
@@ -905,26 +967,26 @@ export default function ProfilePage() {
               <Input
                 label="列表名称"
                 value={editingList.name}
-                onChange={(e) => setEditingList({
-                  ...editingList,
+                onChange={(e) => setEditingList(prev => ({
+                  ...prev!,
                   name: e.target.value
-                })}
+                }))}
               />
               <Textarea
                 label="列表描述（可选）"
                 value={editingList.description || ''}
-                onChange={(e) => setEditingList({
-                  ...editingList,
+                onChange={(e) => setEditingList(prev => ({
+                  ...prev!,
                   description: e.target.value
-                })}
+                }))}
               />
               <div className="flex items-center gap-2">
                 <Switch
                   checked={editingList.is_public}
-                  onCheckedChange={(checked) => setEditingList({
-                    ...editingList,
+                  onCheckedChange={(checked) => setEditingList(prev => ({
+                    ...prev!,
                     is_public: checked
-                  })}
+                  }))}
                 />
                 <span>公开列表</span>
               </div>
@@ -938,7 +1000,10 @@ export default function ProfilePage() {
                 >
                   取消
                 </Button>
-                <Button onClick={() => handleEditList(editingList)}>
+                <Button 
+                  onClick={() => handleEditList(editingList)}
+                  disabled={!editingList.name.trim()} // 禁用空名称提交
+                >
                   保存
                 </Button>
               </div>
@@ -958,28 +1023,28 @@ export default function ProfilePage() {
             <Input
               label="列表名称"
               value={newList.name}
-              onChange={(e) => setNewList({
-                ...newList,
+              onChange={(e) => setNewList(prev => ({
+                ...prev,
                 name: e.target.value
-              })}
+              }))}
               placeholder="请输入列表名称"
             />
             <Textarea
               label="列表描述（可选）"
               value={newList.description}
-              onChange={(e) => setNewList({
-                ...newList,
+              onChange={(e) => setNewList(prev => ({
+                ...prev,
                 description: e.target.value
-              })}
+              }))}
               placeholder="添加一些描述..."
             />
             <div className="flex items-center gap-2">
               <Switch
                 checked={newList.is_public}
-                onCheckedChange={(checked) => setNewList({
-                  ...newList,
+                onCheckedChange={(checked) => setNewList(prev => ({
+                  ...prev,
                   is_public: checked
-                })}
+                }))}
               />
               <span>公开列表</span>
             </div>
@@ -995,7 +1060,7 @@ export default function ProfilePage() {
               </Button>
               <Button 
                 onClick={handleCreateList}
-                disabled={!newList.name.trim()}
+                disabled={!newList.name.trim()} // 禁用空名称提交
               >
                 创建
               </Button>
@@ -1019,10 +1084,10 @@ export default function ProfilePage() {
                 <Textarea
                   label="备注"
                   value={editingFollow.note || ''}
-                  onChange={(e) => setEditingFollow({
-                    ...editingFollow,
+                  onChange={(e) => setEditingFollow(prev => ({
+                    ...prev!,
                     note: e.target.value
-                  })}
+                  }))}
                   placeholder="添加备注..."
                 />
               </div>
