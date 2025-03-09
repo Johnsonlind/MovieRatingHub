@@ -16,6 +16,7 @@ import { DragDropContext, Draggable, DropResult } from '@hello-pangea/dnd';
 import { StrictModeDroppable } from '../utils/StrictModeDroppable';
 import { NavBar } from '../utils/NavBar';
 import { ScrollToTopButton } from '../utils/ScrollToTopButton';
+import React from 'react';
 
 interface Creator {
   id: number;
@@ -69,6 +70,7 @@ export default function FavoriteListPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [showNoteDialog, setShowNoteDialog] = useState(false);
   const [editingFavorite, setEditingFavorite] = useState<Favorite | null>(null);
+  const [isDataReady, setIsDataReady] = useState(false);
 
   useEffect(() => {
     const fetchListDetails = async () => {
@@ -84,35 +86,47 @@ export default function FavoriteListPage() {
         if (response.ok) {
           const data = await response.json();
           
+          // 立即设置加载状态为false，让用户看到内容
+          setIsLoading(false);
+          
           // 添加空值检查
           if (data && Array.isArray(data.favorites)) {
-            // 检查是否存在自定义排序
-            const hasCustomSort = data.favorites.some((f: Favorite) => f.sort_order !== null);
-            
-            if (hasCustomSort) {
-              // 如果存在自定义排序，按照 sort_order 排序
-              data.favorites.sort((a: Favorite, b: Favorite) => 
-                (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity)
-              );
-            }
-            
+            // 先设置基本数据，让界面可以显示
             setList(data);
-            setEditingList(data);
             setSortedFavorites(data.favorites);
+            setIsDataReady(true);
             
-            // 设置默认排序方式
-            setSortType('custom');
+            // 然后在下一个事件循环中处理更复杂的数据操作
+            setTimeout(() => {
+              // 检查是否存在自定义排序
+              const hasCustomSort = data.favorites.some((f: Favorite) => f.sort_order !== null);
+              
+              if (hasCustomSort) {
+                // 如果存在自定义排序，按照 sort_order 排序
+                const sortedData = [...data.favorites].sort((a: Favorite, b: Favorite) => 
+                  (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity)
+                );
+                setSortedFavorites(sortedData);
+              }
+              
+              setEditingList(data);
+              setSortType('custom');
+            }, 0);
           } else {
             // 如果 favorites 不是数组，设置为空数组
             setList({...data, favorites: []});
-            setEditingList({...data, favorites: []});
             setSortedFavorites([]);
-            setSortType('custom');
+            setIsDataReady(true);
+            
+            // 延迟设置不重要的状态
+            setTimeout(() => {
+              setEditingList({...data, favorites: []});
+              setSortType('custom');
+            }, 0);
           }
         }
       } catch (error) {
         toast.error('获取列表详情失败');
-      } finally {
         setIsLoading(false);
       }
     };
@@ -120,32 +134,37 @@ export default function FavoriteListPage() {
     // 初始加载
     fetchListDetails();
 
-    // 如果是收藏的列表，设置定时轮询
+    // 如果是收藏的列表，设置定时轮询，但使用更长的间隔
     if (list?.original_list_id) {
-      const pollInterval = setInterval(fetchListDetails, 30000); // 每30秒检查一次更新
+      const pollInterval = setInterval(fetchListDetails, 60000); // 改为每60秒检查一次更新
       return () => clearInterval(pollInterval);
     }
   }, [id, user]);
 
-  // 排序函数
-  const sortFavorites = (favorites: Favorite[], type: SortType) => {
-    switch (type) {
-      case 'time_asc':
-        return [...favorites].sort((a, b) => a.id - b.id);
-      case 'time_desc':
-        return [...favorites].sort((a, b) => b.id - a.id);
-      case 'name_asc':
-        return [...favorites].sort((a, b) => a.title.localeCompare(b.title));
-      case 'name_desc':
-        return [...favorites].sort((a, b) => b.title.localeCompare(a.title));
-      default:
-        return favorites;
-    }
-  };
+  // 使用useMemo优化排序函数
+  const sortFavorites = React.useMemo(() => {
+    return (favorites: Favorite[], type: SortType) => {
+      switch (type) {
+        case 'time_asc':
+          return [...favorites].sort((a, b) => a.id - b.id);
+        case 'time_desc':
+          return [...favorites].sort((a, b) => b.id - a.id);
+        case 'name_asc':
+          return [...favorites].sort((a, b) => a.title.localeCompare(b.title));
+        case 'name_desc':
+          return [...favorites].sort((a, b) => b.title.localeCompare(a.title));
+        default:
+          return favorites;
+      }
+    };
+  }, []);
 
-  // 排序逻辑
+  // 优化排序逻辑
   useEffect(() => {
-    if (list?.favorites) {
+    if (!list?.favorites || !isDataReady) return;
+    
+    // 使用requestAnimationFrame确保在下一帧渲染前更新
+    requestAnimationFrame(() => {
       let sorted;
       if (sortType === 'custom' || sortType === 'custom_edit') {
         // 使用已排序的收藏列表
@@ -155,8 +174,8 @@ export default function FavoriteListPage() {
         sorted = sortFavorites(list.favorites, sortType);
       }
       setSortedFavorites(sorted);
-    }
-  }, [list?.favorites, sortType]);
+    });
+  }, [list?.favorites, sortType, isDataReady, sortFavorites]);
 
   // 拖拽结束处理函数
   const handleDragEnd = async (result: DropResult) => {
@@ -519,6 +538,18 @@ export default function FavoriteListPage() {
 
   const isOwner = user?.id === list.user_id;
 
+  // 修改图片加载方式
+  const renderImage = (favorite: Favorite, index: number) => {
+    return (
+      <img
+        src={favorite.poster}
+        alt={favorite.title}
+        className="w-full h-full object-cover"
+        loading={index < 5 ? "eager" : "lazy"} // 只预加载前5张图片
+      />
+    );
+  };
+
   return (
     <>
       <NavBar />
@@ -713,12 +744,7 @@ export default function FavoriteListPage() {
                             <div className="flex flex-row">
                               {/* 海报 */}
                               <div className="w-32 sm:w-48 h-48 sm:h-72 flex-shrink-0 overflow-hidden">
-                                <img
-                                  src={favorite.poster}
-                                  alt={favorite.title}
-                                  className="w-full h-full object-contain"
-                                  onClick={() => navigate(`/${favorite.media_type}/${favorite.media_id}`)}
-                                />
+                                {renderImage(favorite, index)}
                               </div>
 
                               {/* 内容信息 */}
@@ -815,11 +841,7 @@ export default function FavoriteListPage() {
                                 }}
                               >
                                 <div className="aspect-[2/3] rounded-lg overflow-hidden">
-                                  <img
-                                    src={favorite.poster}
-                                    alt={favorite.title}
-                                    className="w-full h-full object-cover"
-                                  />
+                                  {renderImage(favorite, index)}
                                 </div>
                                 {isOwner && !list.original_list_id && (
                                   <div className="absolute top-1 sm:top-2 left-1 sm:left-2 flex gap-1 sm:gap-2">
