@@ -3,15 +3,39 @@
 # ==========================================
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
-from sqlalchemy.dialects.mysql import LONGTEXT
 from datetime import datetime
 from sqlalchemy.sql import text
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
 # 数据库连接配置
 SQLALCHEMY_DATABASE_URL = "mysql+pymysql://ratefuse_user:L1994z0912x.@localhost/ratefuse"
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    pool_size=20,                # 连接池大小
+    max_overflow=30,             # 最大溢出连接数
+    pool_timeout=30,             # 连接超时时间(秒)
+    pool_recycle=1800,           # 连接回收时间(30分钟)
+    pool_pre_ping=True           # 自动检测连接是否有效
+)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
+
+# 异步数据库连接
+ASYNC_DATABASE_URL = "mysql+aiomysql://ratefuse_user:L1994z0912x.@localhost/ratefuse"
+async_engine = create_async_engine(ASYNC_DATABASE_URL)
+AsyncSessionLocal = sessionmaker(
+    bind=async_engine, 
+    class_=AsyncSession, 
+    expire_on_commit=False
+)
+
+# 异步数据库依赖
+async def get_async_db():
+    async with AsyncSessionLocal() as db:
+        try:
+            yield db
+        finally:
+            await db.close()
 
 class User(Base):
     __tablename__ = "users"
