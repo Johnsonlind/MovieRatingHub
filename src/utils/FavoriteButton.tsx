@@ -134,7 +134,9 @@ export function FavoriteButton({ mediaId, mediaType, title, poster, year, overvi
       >
         <Star 
           className={`w-4 h-4 ${
-            isFavorited ? 'text-white' : 'text-gray-700 dark:text-white'
+            isFavorited 
+              ? 'text-white' 
+              : 'text-gray-700 dark:text-gray-200'
           }`} 
           fill={isFavorited ? 'currentColor' : 'none'}
         />
@@ -181,7 +183,9 @@ export function FavoriteButton({ mediaId, mediaType, title, poster, year, overvi
               <select
                 value={selectedList || ''}
                 onChange={(e) => setSelectedList(Number(e.target.value))}
-                className="w-full rounded-md border-2 border-gray-300"
+                className="w-full rounded-md border-2 border-gray-300 dark:border-gray-600 
+                  bg-white dark:bg-gray-700 
+                  text-gray-900 dark:text-gray-100"
               >
                 {lists.map(list => (
                   <option key={list.id} value={list.id}>{list.name}</option>
