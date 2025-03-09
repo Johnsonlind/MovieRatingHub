@@ -1,7 +1,7 @@
 // ==========================================
 // 用户主页
 // ==========================================
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../components/auth/AuthContext';
 import { ThemeToggle } from '../utils/ThemeToggle';
@@ -49,48 +49,72 @@ export default function UserProfilePage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   useEffect(() => {
-    const getUserInfo = async () => {
+    // 创建一个状态标志，防止组件卸载后设置状态
+    let isMounted = true;
+    
+    const fetchData = async () => {
+      if (!id) return;
+      
       try {
         setIsLoading(true);
-        const timestamp = new Date().getTime(); // 添加时间戳防止缓存
-        const response = await fetch(`/api/users/${id}?_=${timestamp}`, {
-          headers: user ? {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          } : undefined,
-          cache: 'no-store' // 禁用缓存
-        });
+        const timestamp = new Date().getTime();
         
-        if (response.ok) {
-          const data = await response.json();
-          setUserInfo(data);
+        // 并行发起请求
+        const [userResponse, listsResponse] = await Promise.all([
+          fetch(`/api/users/${id}?_=${timestamp}`, {
+            headers: user ? {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            } : undefined,
+            cache: 'no-store'
+          }),
+          fetch(`/api/users/${id}/favorite-lists`, {
+            headers: user ? {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            } : undefined
+          })
+        ]);
+        
+        // 并行处理响应
+        const [userData, listsData] = await Promise.all([
+          userResponse.ok ? userResponse.json() : null,
+          listsResponse.ok ? listsResponse.json() : []
+        ]);
+        
+        // 确保组件仍然挂载
+        if (isMounted) {
+          if (userData) setUserInfo(userData);
+          if (listsData) setLists(listsData);
+          
+          // 预加载列表中的图片
+          if (listsData && Array.isArray(listsData)) {
+            listsData.forEach(list => {
+              if (list.favorites && Array.isArray(list.favorites)) {
+                list.favorites.slice(0, 5).forEach((favorite: { poster: string }) => {
+                  const img = new Image();
+                  img.src = favorite.poster;
+                });
+              }
+            });
+          }
         }
       } catch (error) {
-        toast.error('获取用户信息失败');
+        console.error('获取数据失败:', error);
+        if (isMounted) {
+          toast.error('获取数据失败');
+        }
       } finally {
-        setIsLoading(false);
-      }
-    };
-
-    const fetchUserLists = async () => {
-      try {
-        const response = await fetch(`/api/users/${id}/favorite-lists`, {
-          headers: user ? {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          } : undefined
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setLists(data);
+        if (isMounted) {
+          setIsLoading(false);
         }
-      } catch (error) {
-        toast.error('获取收藏列表失败');
       }
     };
-
-    if (id) {
-      getUserInfo();
-    }
-    fetchUserLists();
+    
+    fetchData();
+    
+    // 清理函数
+    return () => {
+      isMounted = false;
+    };
   }, [id, user]);
 
   const handleCollectList = async (listId: number) => {
@@ -244,30 +268,40 @@ export default function UserProfilePage() {
     return { elementRef, ...size };
   };
 
-  const FavoriteListCard = ({ list }: { list: FavoriteList }) => {
+  const FavoriteListCard = memo(({ list }: { list: FavoriteList }) => {
     const { elementRef, width } = useElementSize();
     const posterWidth = width < 300 ? 80 : 100;
     const posterGap = width < 300 ? 20 : 30;
     const rightMargin = 4;
 
-    const getSortedFavorites = (favorites: Favorite[]) => {
-      if (favorites.some(f => f.sort_order !== null)) {
-        return [...favorites].sort((a, b) => 
+    // 使用 useMemo 缓存计算结果
+    const getSortedFavorites = useMemo(() => {
+      if (!list.favorites || !Array.isArray(list.favorites)) return [];
+      
+      if (list.favorites.some(f => f.sort_order !== null)) {
+        return [...list.favorites].sort((a, b) => 
           (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity)
         );
       }
-      return [...favorites].sort((a, b) => a.id - b.id);
-    };
+      return [...list.favorites].sort((a, b) => a.id - b.id);
+    }, [list.favorites]);
 
-    const calculatePostersToShow = (containerWidth: number) => {
+    // 使用 useMemo 缓存计算结果
+    const calculatePostersToShow = useCallback((containerWidth: number) => {
       if (containerWidth <= 0) return 0;
       const availableWidth = containerWidth - rightMargin;
       return Math.max(2, Math.floor((availableWidth - posterWidth) / posterGap) + 1);
-    };
+    }, [posterWidth, posterGap, rightMargin]);
 
-    const postersToShow = width > 0 ? calculatePostersToShow(width) : 0;
-    const sortedFavorites = getSortedFavorites(list.favorites);
-    const favoritesToShow = sortedFavorites.slice(0, postersToShow);
+    const postersToShow = useMemo(() => 
+      width > 0 ? calculatePostersToShow(width) : 0, 
+      [width, calculatePostersToShow]
+    );
+    
+    const favoritesToShow = useMemo(() => 
+      getSortedFavorites.slice(0, postersToShow), 
+      [getSortedFavorites, postersToShow]
+    );
 
     return (
       <div ref={elementRef} className="text-white rounded-lg p-4 bg-[#9a9cc9] shadow-sm hover:shadow-md transition-shadow">
@@ -331,7 +365,7 @@ export default function UserProfilePage() {
                 </div>
               </div>
             ))}
-            {sortedFavorites.length > postersToShow && (
+            {getSortedFavorites.length > postersToShow && (
               <div 
                 className="absolute flex items-center justify-center text-gray-500"
                 style={{
@@ -339,7 +373,7 @@ export default function UserProfilePage() {
                   zIndex: 0
                 }}
               >
-                +{sortedFavorites.length - postersToShow}
+                +{getSortedFavorites.length - postersToShow}
               </div>
             )}
           </Link>
@@ -392,10 +426,41 @@ export default function UserProfilePage() {
         </div>
       </div>
     );
-  };
+  });
 
   if (isLoading) {
-    return <div>加载中...</div>;
+    return (
+      <>
+        <NavBar />
+        <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 pt-16 p-4">
+          <ThemeToggle />
+          <ScrollToTopButton />
+          
+          <div className="max-w-4xl mx-auto">
+            {/* 用户信息骨架屏 */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 mb-8 animate-pulse">
+              <div className="flex items-center gap-4">
+                <div className="w-24 h-24 rounded-full bg-gray-300 dark:bg-gray-600"></div>
+                <div className="space-y-2">
+                  <div className="h-6 bg-gray-300 dark:bg-gray-600 rounded w-32"></div>
+                  <div className="h-4 bg-gray-300 dark:bg-gray-600 rounded w-48"></div>
+                </div>
+              </div>
+            </div>
+            
+            {/* 列表骨架屏 */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+              <div className="h-6 bg-gray-300 dark:bg-gray-600 rounded w-24 mb-6"></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <div key={i} className="rounded-lg p-4 bg-gray-300 dark:bg-gray-600 h-64 animate-pulse"></div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
   }
 
   if (!userInfo) {
