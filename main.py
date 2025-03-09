@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import time
 import ssl
 from typing import Optional
-from contextlib import contextmanager
 
 load_dotenv()
 
@@ -16,8 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from models import User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, get_async_db
-from sqlalchemy.orm import Session, selectinload
+from models import User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow
+from sqlalchemy.orm import Session
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
 from redis import asyncio as aioredis
 import json
@@ -30,8 +29,6 @@ from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from sqlalchemy import func
 from sqlalchemy import and_
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 # ==========================================
 # 1. 配置和初始化部分
@@ -226,23 +223,6 @@ def check_following_status(db: Session, follower_id: Optional[int], following_id
     ).first()
     
     result = bool(follow)
-    
-    return result
-
-async def batch_check_following_status(db: Session, follower_id: Optional[int], following_ids: list[int]) -> dict:
-    """批量检查关注状态"""
-    if not follower_id or not following_ids:
-        return {id: False for id in following_ids}
-    
-    result = {id: False for id in following_ids}
-    
-    follows = db.query(Follow.following_id).filter(
-        Follow.follower_id == follower_id,
-        Follow.following_id.in_(following_ids)
-    ).all()
-    
-    for follow in follows:
-        result[follow.following_id] = True
     
     return result
 
@@ -731,15 +711,21 @@ async def get_favorite_lists(
     db: Session = Depends(get_db)
 ):
     try:
-        # 使用 selectinload 预加载关联数据
-        lists = db.query(FavoriteList).options(
-            selectinload(FavoriteList.favorites)
-        ).filter(
+        lists = db.query(FavoriteList).filter(
             FavoriteList.user_id == current_user.id
         ).all()
         
         result = []
         for list in lists:
+            # 获取排序后的收藏项
+            favorites = db.query(Favorite).filter(
+                Favorite.list_id == list.id
+            ).order_by(
+                Favorite.sort_order.is_(None),
+                Favorite.sort_order,
+                Favorite.id
+            ).all()
+            
             # 如果是收藏的列表，获取原创者信息
             original_creator = None
             if list.original_list_id:
@@ -765,25 +751,25 @@ async def get_favorite_lists(
             }
 
             result.append({
-                "id": list.id,
-                "name": list.name,
-                "description": list.description,
-                "is_public": list.is_public,
-                "created_at": list.created_at,
+            "id": list.id,
+            "name": list.name,
+            "description": list.description,
+            "is_public": list.is_public,
+            "created_at": list.created_at,
                 "original_list_id": list.original_list_id,
                 "original_creator": original_creator,
                 "creator": creator,
-                "favorites": [{
-                    "id": fav.id,
-                    "media_id": fav.media_id,
-                    "media_type": fav.media_type,
-                    "title": fav.title,
-                    "poster": fav.poster,
-                    "year": fav.year,
-                    "overview": fav.overview,
+            "favorites": [{
+                "id": fav.id,
+                "media_id": fav.media_id,
+                "media_type": fav.media_type,
+                "title": fav.title,
+                "poster": fav.poster,
+                "year": fav.year,
+                "overview": fav.overview,
                     "note": fav.note,
                     "sort_order": fav.sort_order
-                } for fav in sorted(list.favorites, key=lambda x: (x.sort_order is None, x.sort_order, x.id))]
+                } for fav in favorites]
             })
         
         return result
@@ -1102,63 +1088,60 @@ async def collect_favorite_list(
 async def reorder_favorites(
     list_id: int,
     request: Request,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     try:
         data = await request.json()
         favorite_orders = data.get('favorite_ids', [])
         
-        with get_db_session() as db:
-            # 验证列表所有权
-            favorite_list = db.query(FavoriteList).filter(
-                FavoriteList.id == list_id,
-                FavoriteList.user_id == current_user.id
+        # 验证列表所有权
+        favorite_list = db.query(FavoriteList).filter(
+            FavoriteList.id == list_id,
+            FavoriteList.user_id == current_user.id
+        ).first()
+        
+        if not favorite_list:
+            raise HTTPException(status_code=404, detail="收藏列表不存在或无权限")
+        
+        # 批量更新排序
+        for item in favorite_orders:
+            favorite = db.query(Favorite).filter(
+                Favorite.id == item['id'],
+                Favorite.list_id == list_id
             ).first()
             
-            if not favorite_list:
-                raise HTTPException(status_code=404, detail="收藏列表不存在或无权限")
-            
-            # 批量更新排序 - 使用事务
-            if favorite_orders:
-                # 构建批量更新语句
-                from sqlalchemy import text
-                stmt = text("""
-                    UPDATE favorites 
-                    SET sort_order = :sort_order 
-                    WHERE id = :id AND list_id = :list_id
-                """)
-                
-                # 执行批量更新
-                for item in favorite_orders:
-                    db.execute(
-                        stmt, 
-                        {"id": item["id"], "sort_order": item["sort_order"], "list_id": list_id}
-                    )
-            
-            # 返回更新后的列表数据
-            updated_favorites = db.query(Favorite).filter(
-                Favorite.list_id == list_id
-            ).order_by(
-                Favorite.sort_order.is_(None),
-                Favorite.sort_order,
-                Favorite.id
-            ).all()
-            
-            return {
-                "message": "排序更新成功",
-                "favorites": [{
-                    "id": f.id,
-                    "media_id": f.media_id,
-                    "media_type": f.media_type,
-                    "title": f.title,
-                    "poster": f.poster,
-                    "year": f.year,
-                    "overview": f.overview,
-                    "note": f.note,
-                    "sort_order": f.sort_order
-                } for f in updated_favorites]
-            }
+            if favorite:
+                favorite.sort_order = item['sort_order']
+        
+        db.commit()
+        
+        # 返回更新后的列表数据，使用 MySQL 兼容的排序语法
+        updated_favorites = db.query(Favorite).filter(
+            Favorite.list_id == list_id
+        ).order_by(
+            # 将 NULL 值排在最后
+            Favorite.sort_order.is_(None),
+            Favorite.sort_order,
+            Favorite.id
+        ).all()
+        
+        return {
+            "message": "排序更新成功",
+            "favorites": [{
+                "id": f.id,
+                "media_id": f.media_id,
+                "media_type": f.media_type,
+                "title": f.title,
+                "poster": f.poster,
+                "year": f.year,
+                "overview": f.overview,
+                "note": f.note,
+                "sort_order": f.sort_order
+            } for f in updated_favorites]
+        }
     except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"更新排序失败: {str(e)}")
 
 @app.delete("/api/favorite-lists/{list_id}/uncollect")
@@ -1193,26 +1176,57 @@ async def uncollect_favorite_list(
             status_code=500,
             detail=f"取消收藏失败: {str(e)}"
         )
+    
+# ==========================================
+# 5. 用户关系相关路由
+# ==========================================
 
-@app.get("/api/async-favorite-lists")
-async def get_async_favorite_lists(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_async_db)
+@app.get("/api/users/{user_id}")
+async def get_user_info(
+    user_id: int,
+    current_user: User = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
 ):
     try:
-        # 使用异步查询
-        query = select(FavoriteList).where(FavoriteList.user_id == current_user.id)
-        result = await db.execute(query)
-        lists = result.scalars().all()
+        user = db.query(User).filter(User.id == user_id).first()
         
-        # 处理结果...
-        return [{"id": list.id, "name": list.name} for list in lists]
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="用户不存在"
+            )
+            
+        is_following = False
+        if current_user:
+            print(f"当前用户: ID={current_user.id}, Email={current_user.email}")
+            print(f"目标用户: ID={user_id}")
+            
+            # 直接查询数据库
+            follow = db.query(Follow).filter(
+                Follow.follower_id == current_user.id,
+                Follow.following_id == user_id
+            ).first()
+            
+            is_following = follow is not None
+            
+            # 检查数据库中是否存在关注记录
+            all_follows = db.query(Follow).filter(
+                Follow.follower_id == current_user.id
+            ).all()
+            print(f"当前用户的所有关注: {all_follows}")
         
+        return {
+            "id": user.id,
+            "username": user.username,
+            "avatar": user.avatar,
+            "email": user.email if current_user and current_user.id == user_id else None,
+            "is_following": is_following
+        }
     except Exception as e:
-        print(f"获取收藏列表失败: {str(e)}")
+        print(f"获取用户信息失败: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"获取收藏列表失败: {str(e)}"
+            detail=f"获取用户信息失败: {str(e)}"
         )
 
 @app.get("/api/users/{user_id}/favorite-lists")
@@ -1231,44 +1245,31 @@ async def get_user_favorite_lists(
             
         lists = query.all()
         
-        # 获取所有列表ID
-        list_ids = [list.id for list in lists]
-        
-        # 一次性获取所有收藏项
-        all_favorites = {}
-        if list_ids:
+        result = []
+        for list in lists:
+            # 获取排序后的收藏项
             favorites = db.query(Favorite).filter(
-                Favorite.list_id.in_(list_ids)
+                Favorite.list_id == list.id
             ).order_by(
                 Favorite.sort_order.is_(None),
                 Favorite.sort_order,
                 Favorite.id
             ).all()
             
-            # 按列表ID分组
-            for fav in favorites:
-                if fav.list_id not in all_favorites:
-                    all_favorites[fav.list_id] = []
-                all_favorites[fav.list_id].append(fav)
-        
-        # 一次性检查收藏状态
-        collected_lists = set()
-        if current_user and list_ids:
-            collected = db.query(FavoriteList.original_list_id).filter(
-                FavoriteList.user_id == current_user.id,
-                FavoriteList.original_list_id.in_(list_ids)
-            ).all()
-            collected_lists = {item[0] for item in collected}
-        
-        # 构建结果
-        result = []
-        for list in lists:
+            # 检查当前用户是否已收藏该列表
+            is_collected = False
+            if current_user:
+                is_collected = db.query(FavoriteList).filter(
+                    FavoriteList.user_id == current_user.id,
+                    FavoriteList.original_list_id == list.id
+                ).first() is not None
+            
             result.append({
                 "id": list.id,
                 "name": list.name,
                 "description": list.description,
                 "is_public": list.is_public,
-                "is_collected": list.id in collected_lists,
+                "is_collected": is_collected,
                 "created_at": list.created_at,
                 "favorites": [{
                     "id": fav.id,
@@ -1280,7 +1281,7 @@ async def get_user_favorite_lists(
                     "overview": fav.overview,
                     "note": fav.note,
                     "sort_order": fav.sort_order
-                } for fav in all_favorites.get(list.id, [])]
+                } for fav in favorites]
             })
             
         return result
@@ -1288,33 +1289,6 @@ async def get_user_favorite_lists(
         raise HTTPException(
             status_code=500,
             detail=f"获取用户收藏列表失败: {str(e)}"
-        )
-        
-# ==========================================
-# 5. 用户关系相关路由
-# ==========================================
-
-@app.get("/api/users/{user_id}")
-async def get_user_info(
-    user_id: int,
-    current_user: User = Depends(get_current_user_optional)
-):
-    try:
-        current_user_id = current_user.id if current_user else None
-        user_info = await get_cached_user_info(user_id, current_user_id)
-        
-        if not user_info:
-            raise HTTPException(
-                status_code=404,
-                detail="用户不存在"
-            )
-            
-        return user_info
-    except Exception as e:
-        print(f"获取用户信息失败: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"获取用户信息失败: {str(e)}"
         )
 
 @app.post("/api/users/{user_id}/follow")
@@ -1395,25 +1369,18 @@ async def get_following(
     db: Session = Depends(get_db)
 ):
     try:
-        # 使用JOIN一次性获取所有数据
-        follows_with_users = db.query(
-            Follow, User
-        ).join(
-            User, User.id == Follow.following_id
-        ).filter(
-            Follow.follower_id == current_user.id
-        ).all()
-        
+        follows = db.query(Follow).filter(Follow.follower_id == current_user.id).all()
         result = []
-        for follow, user in follows_with_users:
-            result.append({
-                "id": user.id,
-                "username": user.username,
-                "avatar": user.avatar,
-                "note": follow.note,
-                "created_at": follow.created_at
-            })
-        
+        for follow in follows:
+            user = db.query(User).filter(User.id == follow.following_id).first()
+            if user:
+                result.append({
+                    "id": user.id,
+                    "username": user.username,
+                    "avatar": user.avatar,
+                    "note": follow.note,
+                    "created_at": follow.created_at
+                })
         return result
     except Exception as e:
         raise HTTPException(
@@ -1483,47 +1450,6 @@ async def debug_follows(
         }
         for f in follows
     ]
-
-async def get_cached_user_info(user_id, current_user_id=None):
-    cache_key = f"user:{user_id}:{current_user_id or 'anonymous'}"
-    
-    # 尝试从缓存获取
-    if redis:
-        cached_data = await redis.get(cache_key)
-        if cached_data:
-            return json.loads(cached_data)
-    
-    # 从数据库获取
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            return None
-            
-        # 检查关注状态
-        is_following = False
-        if current_user_id:
-            follow = db.query(Follow).filter(
-                Follow.follower_id == current_user_id,
-                Follow.following_id == user_id
-            ).first()
-            is_following = follow is not None
-        
-        result = {
-            "id": user.id,
-            "username": user.username,
-            "avatar": user.avatar,
-            "email": user.email if current_user_id and current_user_id == user_id else None,
-            "is_following": is_following
-        }
-        
-        # 缓存结果(10分钟)
-        if redis:
-            await redis.setex(cache_key, 600, json.dumps(result))
-            
-        return result
-    finally:
-        db.close()
 
 # ==========================================
 # 6. 代理和辅助路由
@@ -1658,16 +1584,3 @@ async def startup_event():
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
-
-@contextmanager
-def get_db_session():
-    """优化的数据库会话管理"""
-    session = SessionLocal()
-    try:
-        yield session
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
