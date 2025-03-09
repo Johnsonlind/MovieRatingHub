@@ -1617,37 +1617,22 @@ async def tmdb_proxy(path: str, request: Request):
         raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
 
 @app.get("/api/image-proxy")
-async def image_proxy(url: str, response: Response):
-    """代理图片请求并添加缓存控制"""
+async def image_proxy(url: str):
+    """代理图片请求"""
     try:
-        # 添加缓存键
-        cache_key = f"img:{url}"
-        
-        # 检查Redis缓存
-        if redis:
-            cached_url = await redis.get(cache_key)
-            if cached_url:
-                # 重定向到缓存的URL
-                response.headers["Location"] = cached_url
-                response.status_code = 302
-                return
-        
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as img_response:
-                if img_response.status != 200:
-                    raise HTTPException(status_code=img_response.status, detail="图片获取失败")
+            async with session.get(url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=response.status, detail="图片获取失败")
                 
                 # 获取内容类型
-                content_type = img_response.headers.get("Content-Type", "image/jpeg")
+                content_type = response.headers.get("Content-Type", "image/jpeg")
                 
                 # 读取图片数据
-                image_data = await img_response.read()
+                image_data = await response.read()
                 
-                # 设置缓存控制头
-                response.headers["Cache-Control"] = "public, max-age=604800"  # 7天
-                response.headers["Content-Type"] = content_type
-                
-                return image_data
+                # 返回图片，设置正确的内容类型
+                return Response(content=image_data, media_type=content_type)
                 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"图片代理失败: {str(e)}")
