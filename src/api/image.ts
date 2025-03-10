@@ -10,8 +10,18 @@ export function getImageUrl(path: string | null, size: ImageSize = '中', type: 
     return type === 'poster' ? '/placeholder-poster.png' : '/placeholder-avatar.png';
   }
   
-  // 使用Nginx代理而非API代理
-  return `/tmdb-images/${TMDB.posterSizes[size]}${path}`;
+  // 确保path是完整的URL或正确的相对路径
+  if (path.startsWith('http')) {
+    // 如果已经是完整URL，直接使用代理
+    return `/api/image-proxy?url=${encodeURIComponent(path)}`;
+  } else if (!path.startsWith('/')) {
+    // 如果是TMDB的相对路径但没有前导斜杠，添加斜杠
+    path = '/' + path;
+  }
+  
+  // 使用代理
+  const tmdbImageUrl = `${TMDB.imageBaseUrl}/${TMDB.posterSizes[size]}${path}`;
+  return `/api/image-proxy?url=${encodeURIComponent(tmdbImageUrl)}`;
 }
 
 export async function getBase64Image(input: string | File): Promise<string> {
