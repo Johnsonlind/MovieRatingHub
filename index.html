@@ -5,13 +5,22 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="https://cdn.jsdelivr.net/gh/Johnsonlind/MovieRatingHub@main/public/logos/home.png" />
+    <link rel="icon" type="image/png" href="/logos/home.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ratefuse 搜索并对比多平台影视评分</title>
     
-    <!-- 预加载关键字体资源 -->
-    <link rel="preload" href="/fonts/FontA.woff2" as="font" type="font/woff2" crossorigin="anonymous" nopush>
-    <link rel="preload" href="/fonts/FontB.woff2" as="font" type="font/woff2" crossorigin="anonymous" nopush>
+    <!-- DNS预解析和预连接 -->
+    <link rel="dns-prefetch" href="//image.tmdb.org">
+    <link rel="preconnect" href="//image.tmdb.org" crossorigin="anonymous">
+    <meta http-equiv="x-dns-prefetch-control" content="on">
+    
+    <!-- 预加载关键字体资源 - 修改为更高优先级 -->
+    <link rel="preload" href="/fonts/FontA.woff2" as="font" type="font/woff2" crossorigin="anonymous" fetchpriority="high">
+    <link rel="preload" href="/fonts/FontB.woff2" as="font" type="font/woff2" crossorigin="anonymous" fetchpriority="high">
+    
+    <!-- 预加载关键CSS和JS -->
+    <link rel="preload" href="/assets/index.css" as="style">
+    <link rel="preload" href="/assets/index.js" as="script">
     
     <!-- 内联关键 CSS，包含字体声明 -->
     <style>
@@ -42,11 +51,11 @@
         text-rendering: optimizeLegibility;
       }
       
-      /* 字体渲染 */
+      /* 字体渲染 - 修改初始不透明度为0.01而非0，避免完全不可见 */
       :root {
         font-family: 'Onest', 'ShangGuDengKuan', system-ui, -apple-system;
-        opacity: 0;
-        transition: opacity 0.15s ease-in-out;
+        opacity: 0.01;
+        transition: opacity 0.1s ease-in-out;
         text-size-adjust: 100%;
         -webkit-text-size-adjust: 100%;
       }
@@ -72,7 +81,7 @@
       }
     </style>
     
-    <!-- 字体加载检测脚本 -->
+    <!-- 字体加载检测脚本 - 优化超时时间 -->
     <script>
       // 主题设置
       const theme = localStorage.getItem('theme') || 'light';
@@ -82,8 +91,8 @@
       }
 
       // 字体加载检测
-      const FONT_LOAD_TIMEOUT = 3000; // 3秒超时
-      const FONT_LOAD_FALLBACK_TIMEOUT = 100; // 快速失败时的延迟
+      const FONT_LOAD_TIMEOUT = 1500; // 减少到1.5秒超时
+      const FONT_LOAD_FALLBACK_TIMEOUT = 50; // 减少到50ms
 
       // 字体加载状态跟踪
       let fontsLoaded = false;
@@ -128,6 +137,14 @@
           }
         });
         observer.observe({ entryTypes: ['mark', 'measure'] });
+      }
+      
+      // 添加资源提示
+      if ('connection' in navigator) {
+        if (navigator.connection.saveData) {
+          // 如果用户开启了省流量模式，不预加载字体
+          document.documentElement.classList.add('fonts-loaded', 'fonts-timeout');
+        }
       }
     </script>
   </head>
