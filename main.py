@@ -6,6 +6,9 @@ from dotenv import load_dotenv
 import time
 import ssl
 from typing import Optional
+import hashlib
+import httpx
+from fastapi.responses import JSONResponse
 
 load_dotenv()
 
@@ -15,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from models import User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow
+from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow
 from sqlalchemy.orm import Session
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
 from redis import asyncio as aioredis
@@ -29,6 +32,10 @@ from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from sqlalchemy import func
 from sqlalchemy import and_
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.pool import QueuePool
+from sqlalchemy import create_engine
 
 # ==========================================
 # 1. 配置和初始化部分
@@ -62,6 +69,19 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# 添加响应压缩
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# 数据库连接
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    poolclass=QueuePool,
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+    pool_recycle=1800  # 30分钟回收连接
 )
 
 # ==========================================
@@ -193,7 +213,7 @@ async def get_cache(key: str):
         print(f"获取缓存出错: {e}")
         return None
 
-async def set_cache(key: str, data: dict):
+async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
     """将数据存入 Redis 缓存"""
     if not redis:
         return
@@ -202,7 +222,7 @@ async def set_cache(key: str, data: dict):
         if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
             await redis.setex(
                 key,
-                CACHE_EXPIRE_TIME,
+                expire,
                 json.dumps(data)
             )
     except Exception as e:
@@ -1511,57 +1531,103 @@ router = APIRouter()
 async def tmdb_proxy(path: str, request: Request):
     """代理 TMDB API 请求并缓存结果"""
     try:
-        # 构建缓存键
-        cache_key = f"tmdb:{path}:{request.query_params}"
+        # 获取查询参数
+        params = dict(request.query_params)
+        
+        # 添加缓存键
+        cache_key = f"tmdb_proxy:{path}:{json.dumps(params, sort_keys=True)}"
         
         # 尝试从缓存获取
         cached_data = await get_cache(cache_key)
         if cached_data:
-            return cached_data
-            
-        # 获取原始查询参数
-        params = dict(request.query_params)
-        params["api_key"] = "4f681fa7b5ab7346a4e184bbf2d41715"
+            return JSONResponse(content=cached_data)
         
-        # 构建完整的 TMDB URL
+        # 构建TMDB URL
         tmdb_url = f"https://api.themoviedb.org/3/{path}"
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(tmdb_url, params=params) as response:
-                if response.status != 200:
-                    return HTTPException(status_code=response.status, detail="TMDB API 请求失败")
+        # 添加API密钥
+        params["api_key"] = "4f681fa7b5ab7346a4e184bbf2d41715"
+        
+        try:
+            # 设置超时
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(tmdb_url, params=params)
                 
-                # 获取响应数据
-                data = await response.json()
-                
-                # 缓存结果
-                await set_cache(cache_key, data)
-                
-                return data
-                
+                if response.status_code == 200:
+                    data = response.json()
+                    # 缓存结果，增加缓存时间到12小时
+                    await set_cache(cache_key, data, expire=43200)  
+                    return data
+                else:
+                    return JSONResponse(
+                        status_code=response.status_code,
+                        content={"error": f"TMDB API返回错误: {response.status_code}"}
+                    )
+        except Exception as e:
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"代理请求失败: {str(e)}"}
+            )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
 
 @app.get("/api/image-proxy")
-async def image_proxy(url: str):
-    """代理图片请求"""
+async def image_proxy(url: str, response: Response):
+    # 创建缓存键
+    cache_key = f"image_proxy:{hashlib.md5(url.encode()).hexdigest()}"
+    
+    # 检查缓存
+    cached_image = await redis.get(cache_key)
+    if cached_image:
+        # 设置适当的内容类型
+        if url.endswith('.jpg') or url.endswith('.jpeg'):
+            response.headers["Content-Type"] = "image/jpeg"
+        elif url.endswith('.png'):
+            response.headers["Content-Type"] = "image/png"
+        elif url.endswith('.gif'):
+            response.headers["Content-Type"] = "image/gif"
+        else:
+            response.headers["Content-Type"] = "image/jpeg"  # 默认
+            
+        # 设置缓存控制头
+        response.headers["Cache-Control"] = "public, max-age=2592000"  # 30天
+        return cached_image
+    
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    raise HTTPException(status_code=response.status, detail="图片获取失败")
+        # 设置超时
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            img_response = await client.get(url)
+            
+            if img_response.status_code == 200:
+                # 获取图片内容
+                image_data = img_response.content
                 
-                # 获取内容类型
-                content_type = response.headers.get("Content-Type", "image/jpeg")
+                # 缓存图片，30天过期
+                await redis.setex(cache_key, 2592000, image_data)
                 
-                # 读取图片数据
-                image_data = await response.read()
+                # 设置适当的内容类型
+                if url.endswith('.jpg') or url.endswith('.jpeg'):
+                    response.headers["Content-Type"] = "image/jpeg"
+                elif url.endswith('.png'):
+                    response.headers["Content-Type"] = "image/png"
+                elif url.endswith('.gif'):
+                    response.headers["Content-Type"] = "image/gif"
+                else:
+                    response.headers["Content-Type"] = "image/jpeg"  # 默认
                 
-                # 返回图片，设置正确的内容类型
-                return Response(content=image_data, media_type=content_type)
-                
+                # 设置缓存控制头
+                response.headers["Cache-Control"] = "public, max-age=2592000"  # 30天
+                return image_data
+            else:
+                return JSONResponse(
+                    status_code=img_response.status_code,
+                    content={"error": f"获取图片失败: {img_response.status_code}"}
+                )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"图片代理失败: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"代理请求失败: {str(e)}"}
+        )
 
 # 在主应用中添加路由
 app.include_router(router)
