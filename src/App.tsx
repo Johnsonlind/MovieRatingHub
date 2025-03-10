@@ -39,11 +39,11 @@ function App() {
                 <Route path="/movie/:id" element={<MoviePage />} />
                 <Route path="/tv/:id" element={<TVShowPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
-                <Route path="/user/:id" element={<UserProfilePage />} />
-                <Route path="/list/:id" element={<FavoriteListPage />} />
-                <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/auth/confirm" element={<AuthConfirmPage />} />
                 <Route path="/auth/auth-code-error" element={<AuthErrorPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/favorite-lists/:id" element={<FavoriteListPage />} />
+                <Route path="/profile/:id" element={<UserProfilePage />} />
               </Routes>
             </Suspense>
           </div>
