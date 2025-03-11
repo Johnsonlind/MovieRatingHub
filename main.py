@@ -37,6 +37,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.pool import QueuePool
 from sqlalchemy import create_engine
+from browser_pool import browser_pool
+import traceback
 
 # ==========================================
 # 1. 配置和初始化部分
@@ -1482,17 +1484,24 @@ async def root():
 
 @app.get("/api/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(platform: str, type: str, id: str, request: Request):
-    """获取指定平台的评分信息"""
+    """获取指定平台的评分信息，优化缓存和错误处理"""
+    start_time = time.time()
     try:
+        # 检查请求是否已被取消
         if await request.is_disconnected():
             print(f"{platform} 请求已在开始时被取消")
             return None
+            
+        # 生成缓存键
         cache_key = f"rating:{platform}:{type}:{id}"
+        
+        # 尝试从缓存获取数据
         cached_data = await get_cache(cache_key)
         if cached_data:
-            print(f"从缓存获取 {platform} 评分数据")
+            print(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
             return cached_data
 
+        # 获取TMDB信息
         tmdb_info = await get_tmdb_info(id, type, request)
         if not tmdb_info:
             if await request.is_disconnected():
@@ -1500,31 +1509,91 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
                 return None
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
 
+        # 检查请求是否已被取消
+        if await request.is_disconnected():
+            print(f"{platform} 请求在获取TMDB信息后被取消")
+            return None
+
+        # 搜索平台
+        print(f"开始搜索 {platform} 平台...")
+        search_start_time = time.time()
         search_results = await search_platform(platform, tmdb_info, request)
+        print(f"搜索 {platform} 完成，耗时: {time.time() - search_start_time:.2f}秒")
 
+        # 检查请求是否已被取消
+        if await request.is_disconnected():
+            print(f"{platform} 请求在搜索平台后被取消")
+            return None
+
+        # 检查搜索结果
+        if isinstance(search_results, dict) and search_results.get("status") == "cancelled":
+            print(f"{platform} 搜索被取消")
+            return None
+
+        # 提取评分信息
+        print(f"开始提取 {platform} 评分信息...")
+        extract_start_time = time.time()
         rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request)
-        print(f"评分信息: {rating_info}")
+        print(f"提取 {platform} 评分完成，耗时: {time.time() - extract_start_time:.2f}秒")
 
+        # 检查请求是否已被取消
         if await request.is_disconnected():
             print(f"{platform} 请求在获取评分信息后被取消")
             return None
 
+        # 检查评分信息
         if not rating_info:
             if await request.is_disconnected():
                 print(f"{platform} 请求在处理评分信息时被取消")
                 return None
-
             raise HTTPException(status_code=404, detail=f"未找到 {platform} 的评分信息")
 
-        await set_cache(cache_key, rating_info)
+        # 检查评分状态
+        if isinstance(rating_info, dict) and rating_info.get("status") == "cancelled":
+            print(f"{platform} 评分提取被取消")
+            return None
+
+        # 缓存评分信息
+        # 只缓存成功获取的评分信息
+        if isinstance(rating_info, dict) and rating_info.get("status") == RATING_STATUS["SUCCESSFUL"]:
+            await set_cache(cache_key, rating_info)
+            print(f"已缓存 {platform} 评分数据")
+        else:
+            print(f"不缓存 {platform} 评分数据，状态: {rating_info.get('status')}")
+
+        # 记录总耗时
+        total_time = time.time() - start_time
+        print(f"{platform} 评分获取完成，总耗时: {total_time:.2f}秒")
+        
+        # 添加性能指标到响应
+        if isinstance(rating_info, dict):
+            rating_info["_performance"] = {
+                "total_time": round(total_time, 2),
+                "search_time": round(time.time() - search_start_time, 2),
+                "extract_time": round(time.time() - extract_start_time, 2),
+                "cached": False
+            }
+
         return rating_info
 
+    except HTTPException:
+        # 直接重新抛出HTTP异常
+        raise
     except Exception as e:
+        # 检查请求是否已被取消
         if await request.is_disconnected():
             print(f"{platform} 请求在发生错误时被取消")
             return None
+            
+        # 记录错误
         print(f"获取 {platform} 评分时出错: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(traceback.format_exc())
+        
+        # 返回HTTP异常
+        raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
+    finally:
+        # 记录请求完成
+        print(f"{platform} 请求处理完成，总耗时: {time.time() - start_time:.2f}秒")
 
 router = APIRouter()
 
@@ -1620,6 +1689,23 @@ async def image_proxy(url: str, response: Response):
 # 在主应用中添加路由
 app.include_router(router)
 
+@app.get("/api/health")
+async def health_check():
+    """健康检查端点"""
+    # 检查Redis连接
+    redis_status = "healthy" if redis else "unhealthy"
+    
+    # 检查浏览器池
+    browser_pool_stats = browser_pool.get_stats()
+    browser_pool_status = "healthy" if browser_pool.initialized else "unhealthy"
+    
+    return {
+        "status": "ok",
+        "redis": redis_status,
+        "browser_pool": browser_pool_status,
+        "browser_pool_stats": browser_pool_stats
+    }
+
 # ==========================================
 # 7. 应用启动和关闭事件
 # ==========================================
@@ -1629,12 +1715,39 @@ async def startup_event():
     """应用启动时初始化"""
     global redis
     try:
+        # 初始化Redis
         redis = await aioredis.from_url(
             REDIS_URL,
             encoding='utf-8',
             decode_responses=True
         )
-
+        print("Redis连接成功")
     except Exception as e:
         print(f"Redis 连接初始化失败: {e}")
         redis = None
+        
+    # 初始化浏览器池
+    try:
+        # 使用环境变量配置浏览器池
+        BROWSER_POOL_SIZE = int(os.getenv("BROWSER_POOL_SIZE", "3"))
+        BROWSER_POOL_CONTEXTS = int(os.getenv("BROWSER_POOL_CONTEXTS", "2"))
+        BROWSER_POOL_PAGES = int(os.getenv("BROWSER_POOL_PAGES", "3"))
+        
+        browser_pool.max_browsers = BROWSER_POOL_SIZE
+        browser_pool.max_contexts_per_browser = BROWSER_POOL_CONTEXTS
+        browser_pool.max_pages_per_context = BROWSER_POOL_PAGES
+        
+        await browser_pool.initialize()
+        print(f"浏览器池初始化成功，共 {BROWSER_POOL_SIZE} 个浏览器实例")
+    except Exception as e:
+        print(f"浏览器池初始化失败: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时清理资源"""
+    # 清理浏览器池
+    try:
+        await browser_pool.cleanup()
+        print("浏览器池已清理")
+    except Exception as e:
+        print(f"浏览器池清理失败: {e}")
