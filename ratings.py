@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from fastapi import Request
 import unicodedata
 from datetime import datetime
+from typing import Dict, Any
+from browser_pool import browser_pool
 
 # TMDB API 配置
 TMDB_API_KEY = "4f681fa7b5ab7346a4e184bbf2d41715"
@@ -712,9 +714,6 @@ def get_client_ip(request: Request) -> str:
 
 async def search_platform(platform, tmdb_info, request=None):
     """在各平台搜索并返回搜索结果"""
-    browser = None
-    context = None
-
     try:
         # 检查请求是否已被取消
         if request and await request.is_disconnected():
@@ -739,215 +738,171 @@ async def search_platform(platform, tmdb_info, request=None):
         media_type = tmdb_info["type"]
         search_url = construct_search_url(search_title, media_type, platform)
 
-        async with async_playwright() as p:
-            # 先选择 User-Agent
-            selected_user_agent = random.choice(USER_AGENTS)
-
-            # 优化浏览器启动配置
-            browser_args = [
-                '--disable-dev-shm-usage',
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-gpu',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-features=BlockInsecurePrivateNetworkRequests',
-                '--disable-features=AudioServiceOutOfProcess',
-                '--disable-features=NetworkService',
-                '--disable-features=NetworkServiceInProcess',
-                '--disable-features=SafeBrowsing',
-                '--disable-sync',
-                '--no-first-run',
-                '--no-default-browser-check',
-                '--disable-background-networking',
-                '--disable-extensions',
-                '--disable-component-extensions-with-background-pages',
-                '--disable-default-apps',
-                '--mute-audio',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-infobars',
-                '--disable-javascript',
-                '--disable-images',
-                '--disable-css',
-                '--disable-fonts',
-                '--disable-animations',
-                '--disable-video',
-                '--disable-audio'
-            ]
-
-            # 启动浏览器
-            browser = await p.chromium.launch(
-                headless=True,
-                args=browser_args,
-                timeout=30000,
-                ignore_default_args=['--enable-automation']
-            )
-
-            # 检查请求状态
-            if request and await request.is_disconnected():
-                print("请求已被取消,停止执行")
-                return {"status": "cancelled"}
-
-            # 优化上下文配置
-            context_options = {
-                'viewport': {'width': 1920, 'height': 1080},
-                'user_agent': selected_user_agent,
-                'bypass_csp': True,
-                'ignore_https_errors': True,
-                'java_script_enabled': True,
-                'has_touch': False,
-                'is_mobile': False,
-                'locale': 'en-US',
-                'timezone_id': 'America/New_York',
-                'extra_http_headers': {
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'DNT': '1',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                    'Sec-Fetch-Dest': 'document',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Sec-Fetch-User': '?1'
-                }
-            }
-
-            # 创建上下文
-            context = await browser.new_context(**context_options)
-
-            # 添加请求拦截
-            await context.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,ttf}", lambda route: route.abort())
-            await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
-            await context.route("**/beacon/**", lambda route: route.abort())
-            await context.route("**/telemetry/**", lambda route: route.abort())
-            await context.route("**/stats/**", lambda route: route.abort())
-
-            # 创建页面并设置
-            page = await context.new_page()
-            page.set_default_timeout(20000) 
-
-            # 如果是豆瓣，设置用户IP
-            if platform == "douban" and request:
-                client_ip = get_client_ip(request)
-                print(f"豆瓣请求使用IP: {client_ip}")
-                await page.set_extra_http_headers({
-                    'X-Forwarded-For': client_ip,
-                    'X-Real-IP': client_ip
-                })
-
-            print(f"正在搜索 {platform}: {search_url}")
-
-            # 添加请求监控
-            async def log_request(request):
-                if request.resource_type == "document":
-                    pass
-                page.remove_listener('request', log_request)
-
-            page.on('request', log_request)
+        # 使用浏览器池执行搜索操作
+        async def execute_search(browser):
+            context = None
             try:
-                # 在每个关键操作前检查请求状态
-                async def check_request():
-                    if request and await request.is_disconnected():
-                        print("请求已被取消,停止执行")
-                        raise RequestCancelledException()
+                # 先选择 User-Agent
+                selected_user_agent = random.choice(USER_AGENTS)
 
-                # 获取搜索结果
-                await check_request()
-                if platform == "douban":
-                    results = await handle_douban_search(page, search_url)
-                elif platform == "imdb":
-                    results = await handle_imdb_search(page, search_url)
-                elif platform == "letterboxd":
-                    results = await handle_letterboxd_search(page, search_url, tmdb_info)
-                elif platform == "rottentomatoes":
-                    results = await handle_rt_search(page, search_url, tmdb_info)
-                elif platform == "metacritic":
-                    results = await handle_metacritic_search(page, search_url)
+                # 优化上下文配置
+                context_options = {
+                    'viewport': {'width': 1280, 'height': 720},
+                    'user_agent': selected_user_agent,
+                    'bypass_csp': True,
+                    'ignore_https_errors': True,
+                    'java_script_enabled': True,
+                    'has_touch': False,
+                    'is_mobile': False,
+                    'locale': 'en-US',
+                    'timezone_id': 'America/New_York',
+                    'extra_http_headers': {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1'
+                    }
+                }
 
-                # 检查访问限制
-                await check_request()
-                if isinstance(results, dict) and "status" in results:
-                    if results["status"] == RATING_STATUS["RATE_LIMIT"]:
-                        print(f"{platform} 访问频率限制")
-                        return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
-                    elif results["status"] == RATING_STATUS["TIMEOUT"]:
-                        print(f"{platform} 请求超时")
-                        return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
-                    elif results["status"] == RATING_STATUS["FETCH_FAILED"]:
-                        print(f"{platform} 获取失败")
-                        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
-                    elif results["status"] == RATING_STATUS["NO_FOUND"]:
-                        print(f"{platform}平台未收录此影视")
-                        return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
+                # 创建上下文
+                context = await browser.new_context(**context_options)
 
-                # 检查搜索结果
-                await check_request()
-                if not isinstance(results, list):
-                    if isinstance(results, list):
-                        print(f"{platform} 搜索无结果")
-                        return []
-                    else:
-                        print(f"{platform} 获取失败")
-                        return create_error_rating_data(platform, media_type)
+                # 添加请求拦截
+                await context.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,ttf}", lambda route: route.abort())
+                await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
+                await context.route("**/beacon/**", lambda route: route.abort())
+                await context.route("**/telemetry/**", lambda route: route.abort())
+                await context.route("**/stats/**", lambda route: route.abort())
 
-                print(f"找到 {len(results)} 个 {platform} 搜索结果")
+                # 创建页面并设置
+                page = await context.new_page()
+                page.set_default_timeout(20000) 
 
-                # 根据匹配度过滤结果
-                await check_request()
-                threshold = {
-                    "douban": 70,
-                    "imdb": 70,
-                    "letterboxd": 70,
-                    "rottentomatoes": 70,
-                    "metacritic": 70
-                }.get(platform, 70)
+                # 如果是豆瓣，设置用户IP
+                if platform == "douban" and request:
+                    client_ip = get_client_ip(request)
+                    print(f"豆瓣请求使用IP: {client_ip}")
+                    await page.set_extra_http_headers({
+                        'X-Forwarded-For': client_ip,
+                        'X-Real-IP': client_ip
+                    })
 
-                matched_results = []
-                for result in results:
+                print(f"正在搜索 {platform}: {search_url}")
+
+                # 添加请求监控
+                async def log_request(request):
+                    if request.resource_type == "document":
+                        pass
+                    page.remove_listener('request', log_request)
+
+                page.on('request', log_request)
+                try:
+                    # 在每个关键操作前检查请求状态
+                    async def check_request():
+                        if request and await request.is_disconnected():
+                            print("请求已被取消,停止执行")
+                            raise RequestCancelledException()
+
+                    # 获取搜索结果
                     await check_request()
-                    # 如果结果已经有匹配分数，直接使用
-                    if "match_score" in result:
-                        match_score = result["match_score"]
-                    else:
-                        match_score = await calculate_match_degree(tmdb_info, result, platform)
+                    if platform == "douban":
+                        results = await handle_douban_search(page, search_url)
+                    elif platform == "imdb":
+                        results = await handle_imdb_search(page, search_url)
+                    elif platform == "letterboxd":
+                        results = await handle_letterboxd_search(page, search_url, tmdb_info)
+                    elif platform == "rottentomatoes":
+                        results = await handle_rt_search(page, search_url, tmdb_info)
+                    elif platform == "metacritic":
+                        results = await handle_metacritic_search(page, search_url)
 
-                    if match_score >= threshold:
-                        matched_results.append(result)
+                    # 检查访问限制
+                    await check_request()
+                    if isinstance(results, dict) and "status" in results:
+                        if results["status"] == RATING_STATUS["RATE_LIMIT"]:
+                            print(f"{platform} 访问频率限制")
+                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
+                        elif results["status"] == RATING_STATUS["TIMEOUT"]:
+                            print(f"{platform} 请求超时")
+                            return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+                        elif results["status"] == RATING_STATUS["FETCH_FAILED"]:
+                            print(f"{platform} 获取失败")
+                            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
+                        elif results["status"] == RATING_STATUS["NO_FOUND"]:
+                            print(f"{platform}平台未收录此影视")
+                            return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
 
-                if not matched_results:
-                    print(f"{platform} 未找到足够匹配的结果")
-                    return []
+                    # 检查搜索结果
+                    await check_request()
+                    if not isinstance(results, list):
+                        if isinstance(results, list):
+                            print(f"{platform} 搜索无结果")
+                            return []
+                        else:
+                            print(f"{platform} 获取失败")
+                            return create_error_rating_data(platform, media_type)
 
-                return matched_results
+                    print(f"找到 {len(results)} 个 {platform} 搜索结果")
 
-            except RequestCancelledException:
-                print("所有请求已取消")
-                return {"status": "cancelled"}
-            except Exception as e:
-                print(f"处理 {platform} 搜索时出错: {e}")
-                print(traceback.format_exc())
-                if "Timeout" in str(e):
-                    return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"} 
-                return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
+                    # 根据匹配度过滤结果
+                    await check_request()
+                    threshold = {
+                        "douban": 70,
+                        "imdb": 70,
+                        "letterboxd": 70,
+                        "rottentomatoes": 70,
+                        "metacritic": 70
+                    }.get(platform, 70)
+
+                    matched_results = []
+                    for result in results:
+                        await check_request()
+                        # 如果结果已经有匹配分数，直接使用
+                        if "match_score" in result:
+                            match_score = result["match_score"]
+                        else:
+                            match_score = await calculate_match_degree(tmdb_info, result, platform)
+
+                        if match_score >= threshold:
+                            matched_results.append(result)
+
+                    if not matched_results:
+                        print(f"{platform} 未找到足够匹配的结果")
+                        return []
+
+                    return matched_results
+
+                except RequestCancelledException:
+                    print("所有请求已取消")
+                    return {"status": "cancelled"}
+                except Exception as e:
+                    print(f"处理 {platform} 搜索时出错: {e}")
+                    print(traceback.format_exc())
+                    if "Timeout" in str(e):
+                        return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"} 
+                    return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
+
+            finally:
+                # 只关闭上下文，不关闭浏览器（浏览器由池管理）
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+
+        # 使用浏览器池执行搜索
+        return await browser_pool.execute_in_browser(execute_search)
 
     except Exception as e:
         print(f"搜索 {platform} 时出错: {e}")
         print(traceback.format_exc())
         return []
-
-    finally:
-        if context:
-            try:
-                await context.close()
-            except Exception:
-                pass
-
-        if browser:
-            try:
-                await browser.close()
-            except Exception:
-                pass
 
 async def handle_douban_search(page, search_url):
     """处理豆瓣搜索"""
@@ -1374,10 +1329,8 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
     
 async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None):
-    """从各平台详情页HTML中提取对应评分数据"""
+    """从各平台详情页中提取对应评分数据"""
     async def _extract_rating_with_retry():
-        browser = None
-        context = None
         try:
             await random_delay()
             # 检查请求是否已被取消
@@ -1432,48 +1385,16 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             print(f"找到最佳匹配结果: {best_match['title']} ({best_match.get('year', '')})")
             print(f"访问详情页: {detail_url}")
 
-            try:
-                async with async_playwright() as p:
+            # 使用浏览器池执行评分提取
+            async def extract_with_browser(browser):
+                context = None
+                try:
                     # 选择 User-Agent
                     selected_user_agent = random.choice(USER_AGENTS)
 
-                    # 浏览器启动配置
-                    browser_args = [
-                        '--disable-dev-shm-usage',
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-gpu',
-                        '--disable-web-security',
-                        '--disable-features=IsolateOrigins,site-per-process',
-                        '--disable-features=BlockInsecurePrivateNetworkRequests',
-                        '--disable-features=AudioServiceOutOfProcess',
-                        '--disable-features=NetworkService',
-                        '--disable-features=NetworkServiceInProcess',
-                        '--disable-features=SafeBrowsing',
-                        '--disable-sync',
-                        '--no-first-run',
-                        '--no-default-browser-check',
-                        '--disable-background-networking',
-                        '--disable-extensions',
-                        '--disable-component-extensions-with-background-pages',
-                        '--disable-default-apps',
-                        '--mute-audio',
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-infobars',
-                        '--window-size=1920,1080',
-                        f'--user-agent={selected_user_agent}'
-                    ]
-
-                    browser = await p.chromium.launch(
-                        headless=True,
-                        args=browser_args,
-                        timeout=60000,
-                        ignore_default_args=['--enable-automation']
-                    )
-
                     # 上下文配置
                     context_options = {
-                        'viewport': {'width': 1920, 'height': 1080},
+                        'viewport': {'width': 1280, 'height': 720},
                         'user_agent': selected_user_agent,
                         'bypass_csp': True,
                         'ignore_https_errors': True,
@@ -1583,6 +1504,17 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
 
                     return rating_data
 
+                finally:
+                    # 只关闭上下文，不关闭浏览器（浏览器由池管理）
+                    if context:
+                        try:
+                            await context.close()
+                        except Exception:
+                            pass
+
+            try:
+                # 使用浏览器池执行评分提取
+                return await browser_pool.execute_in_browser(extract_with_browser)
             except Exception as e:
                 print(f"访问{platform}详情页时出错: {e}")
                 print(traceback.format_exc())
@@ -1592,14 +1524,6 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             print(f"执行评分提取时出错: {e}")
             print(traceback.format_exc())
             return create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
-        finally:
-            try:
-                if context:
-                    await context.close()
-                if browser:
-                    await browser.close()
-            except Exception:
-                pass
 
     # 调用带重试的内部函数
     return await _extract_rating_with_retry()
