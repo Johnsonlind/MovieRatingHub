@@ -1686,6 +1686,48 @@ async def image_proxy(url: str, response: Response):
         print(f"图片代理失败: {str(e)}, URL: {url}")
         raise HTTPException(status_code=500, detail=f"图片代理失败: {str(e)}")
 
+@router.get("/api/trakt-proxy/{path:path}")
+async def trakt_proxy(path: str, request: Request):
+    """代理 Trakt API 请求并缓存结果"""
+    try:
+        # 构建缓存键
+        cache_key = f"trakt:{path}:{request.query_params}"
+        
+        # 尝试从缓存获取
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            return cached_data
+            
+        # 构建完整的 Trakt URL
+        trakt_url = f"https://api.trakt.tv/{path}"
+        
+        # 获取原始查询参数
+        params = dict(request.query_params)
+        
+        # 准备请求头
+        headers = {
+            'Content-Type': 'application/json',
+            'trakt-api-version': '2',
+            'trakt-api-key': '859d1ad30074136a934c47ba2083cda83620b17b0db8f2d0ec554922116c60a8'
+        }
+        
+        # 发送请求
+        async with aiohttp.ClientSession() as session:
+            async with session.get(trakt_url, params=params, headers=headers) as response:
+                if response.status != 200:
+                    return HTTPException(status_code=response.status, detail="Trakt API 请求失败")
+                
+                # 获取响应数据
+                data = await response.json()
+                
+                # 缓存结果 
+                await set_cache(cache_key, data)
+                
+                return data
+                
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
+
 # 在主应用中添加路由
 app.include_router(router)
 
