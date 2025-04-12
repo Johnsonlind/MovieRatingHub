@@ -78,14 +78,7 @@ export async function fetchTraktRating(mediaType: 'movies' | 'shows', tmdbId: st
     // 获取整体评分
     const endpoint = mediaType === 'shows' ? 'shows' : 'movies';
     const response = await fetch(
-      `${TRAKT.baseUrl}/${endpoint}/${imdbId}/ratings`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'trakt-api-version': '2',
-          'trakt-api-key': TRAKT.clientId
-        }
-      }
+      `${TRAKT.baseUrl}/${endpoint}/${imdbId}/ratings`
     );
 
     if (!response.ok) {
@@ -120,14 +113,7 @@ export async function fetchTraktRating(mediaType: 'movies' | 'shows', tmdbId: st
     const seasonPromises = seasons.map(async (season: any) => {
       try {
         const seasonResponse = await fetch(
-          `${TRAKT.baseUrl}/shows/${imdbId}/seasons/${season.season_number}/ratings`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'trakt-api-version': '2',
-              'trakt-api-key': TRAKT.clientId
-            }
-          }
+          `${TRAKT.baseUrl}/shows/${imdbId}/seasons/${season.season_number}/ratings`
         );
 
         if (!seasonResponse.ok) {
