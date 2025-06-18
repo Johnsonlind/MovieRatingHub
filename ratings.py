@@ -344,6 +344,13 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
             print(f"详细错误信息:\n{traceback.format_exc()}")
         return None
 
+def extract_year(year_str):
+    """从字符串中提取4位年份"""
+    match = re.search(r'\d{4}', str(year_str))
+    if match:
+        return int(match.group())
+    raise ValueError(f"无法从'{year_str}'中提取年份")
+
 async def calculate_match_degree(tmdb_info, result, platform=""):
     """计算搜索结果与TMDB信息的匹配度"""
     try:
@@ -436,12 +443,11 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
             # 4. 年份匹配
             try:
                 if tmdb_info.get("type") == "movie":
-                    # 电影的年份匹配逻辑保持不变
                     tmdb_year = str(tmdb_info.get("year", ""))
                     result_year = str(result.get("year", ""))
                     
                     if tmdb_year and result_year:  
-                        year_diff = abs(int(tmdb_year) - int(result_year))
+                        year_diff = abs(extract_year(tmdb_year) - extract_year(result_year))
                         
                         if year_diff == 0:
                             score += 30
@@ -483,7 +489,7 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                                 break
                         
                         if season_air_date and result_year:
-                            year_diff = abs(int(season_air_date) - int(result_year))
+                            year_diff = abs(extract_year(season_air_date) - extract_year(result_year))
                             
                             if year_diff == 0:
                                 score += 20
@@ -498,7 +504,7 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                                 if season.get("season_number") == 1:
                                     season_air_date = season.get("air_date", "")[:4]
                                     if season_air_date and result_year:
-                                        year_diff = abs(int(season_air_date) - int(result_year))
+                                        year_diff = abs(extract_year(season_air_date) - extract_year(result_year))
                                         
                                         if year_diff == 0:
                                             score += 20
@@ -541,7 +547,7 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                 result_year = str(result.get("year", ""))
                 
                 if tmdb_year and result_year:
-                    year_diff = abs(int(tmdb_year) - int(result_year))
+                    year_diff = abs(extract_year(tmdb_year) - extract_year(result_year))
                     if year_diff == 0:
                         score += 30
                     elif year_diff == 1:
