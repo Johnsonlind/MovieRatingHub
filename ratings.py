@@ -1541,13 +1541,21 @@ async def extract_douban_rating(page, media_type, matched_results):
         await page.wait_for_load_state("networkidle", timeout=10000)
         content = await page.content()
         
-        # 使用正则表达式匹配评分数据
-        rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', content)
-        rating = rating_match.group(1).strip() if rating_match and rating_match.group(1).strip() else "暂无"
+        # 使用正则表达式提取JSON数据
+        json_match = re.search(r'"aggregateRating":\s*{\s*"@type":\s*"AggregateRating",\s*"ratingCount":\s*"([^"]+)",\s*"bestRating":\s*"([^"]+)",\s*"worstRating":\s*"([^"]+)",\s*"ratingValue":\s*"([^"]+)"', content)
         
-        # 匹配评分人数
-        people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', content)
-        rating_people = people_match.group(1) if people_match else "暂无"
+        if json_match:
+            rating_people = json_match.group(1)
+            rating = json_match.group(4)
+            print(f"从豆瓣JSON提取到评分: {rating}, 人数: {rating_people}")
+        else:
+            # 如果JSON提取失败，回退到原来的正则表达式方法
+            rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', content)
+            rating = rating_match.group(1).strip() if rating_match and rating_match.group(1).strip() else "暂无"
+            
+            people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', content)
+            rating_people = people_match.group(1) if people_match else "暂无"
+            print(f"使用正则表达式提取豆瓣评分: {rating}, 人数: {rating_people}")
             
         if media_type != "tv":
             # 检查是否显示"暂无评分"或"尚未上映"
@@ -1631,27 +1639,37 @@ async def extract_douban_rating(page, media_type, matched_results):
                 
                 for attempt in range(3):
                     try:
-                        # 使用JavaScript来获取评分，即使元素是隐藏的
-                        season_rating = await page.evaluate('''() => {
-                            const ratingElement = document.querySelector('strong.rating_num');
-                            return ratingElement ? ratingElement.textContent.trim() : "暂无";
-                        }''')
+                        # 首先尝试从JSON数据中提取评分
+                        json_match = re.search(r'"aggregateRating":\s*{\s*"@type":\s*"AggregateRating",\s*"ratingCount":\s*"([^"]+)",\s*"bestRating":\s*"([^"]+)",\s*"worstRating":\s*"([^"]+)",\s*"ratingValue":\s*"([^"]+)"', season_content)
                         
-                        season_rating_people = await page.evaluate('''() => {
-                            const votesElement = document.querySelector('span[property="v:votes"]');
-                            return votesElement ? votesElement.textContent.trim() : "暂无";
-                        }''')
-                        
-                        # 如果获取到的是空值，尝试使用正则表达式作为备选方案
-                        if season_rating in ["暂无", "", None]:
-                            rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', season_content)
-                            if rating_match and rating_match.group(1).strip():
-                                season_rating = rating_match.group(1).strip()
+                        if json_match:
+                            season_rating_people = json_match.group(1)
+                            season_rating = json_match.group(4)
+                            print(f"从豆瓣JSON提取到第{season_number}季评分: {season_rating}, 人数: {season_rating_people}")
+                        else:
+                            # 如果JSON提取失败，使用JavaScript获取评分
+                            season_rating = await page.evaluate('''() => {
+                                const ratingElement = document.querySelector('strong.rating_num');
+                                return ratingElement ? ratingElement.textContent.trim() : "暂无";
+                            }''')
                             
-                        if season_rating_people in ["暂无", "", None]:
-                            people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', season_content)
-                            if people_match:
-                                season_rating_people = people_match.group(1)
+                            season_rating_people = await page.evaluate('''() => {
+                                const votesElement = document.querySelector('span[property="v:votes"]');
+                                return votesElement ? votesElement.textContent.trim() : "暂无";
+                            }''')
+                            
+                            # 如果获取到的是空值，尝试使用正则表达式作为备选方案
+                            if season_rating in ["暂无", "", None]:
+                                rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', season_content)
+                                if rating_match and rating_match.group(1).strip():
+                                    season_rating = rating_match.group(1).strip()
+                                
+                            if season_rating_people in ["暂无", "", None]:
+                                people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', season_content)
+                                if people_match:
+                                    season_rating_people = people_match.group(1)
+                            
+                            print(f"使用备选方法提取第{season_number}季评分: {season_rating}, 人数: {season_rating_people}")
                         
                         # 如果成功获取到评分，跳出重试循环
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
@@ -1927,7 +1945,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
     """从Metacritic详情页提取评分数据"""
     try:
         # 获取页面源代码
-        await page.content()
+        content = await page.content()
         
         # 初始化评分数据
         ratings = {
@@ -1940,35 +1958,61 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
             "seasons": []
         }
 
-        # 提取专业评分
-        metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
-        if metascore_elem:
-            metascore_text = await metascore_elem.inner_text()
-            if metascore_text and metascore_text.lower() != 'tbd':
-                ratings["overall"]["metascore"] = metascore_text
+        # 从网页源代码中提取专业评分
+        metascore_match = re.search(r'title="Metascore (\d+) out of 100"', content)
+        if metascore_match:
+            ratings["overall"]["metascore"] = metascore_match.group(1)
+            print(f"从Metacritic源代码提取到专业评分: {metascore_match.group(1)}")
+        else:
+            # 备选方案：使用DOM选择器
+            metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
+            if metascore_elem:
+                metascore_text = await metascore_elem.inner_text()
+                if metascore_text and metascore_text.lower() != 'tbd':
+                    ratings["overall"]["metascore"] = metascore_text
+                    print(f"使用DOM选择器提取到专业评分: {metascore_text}")
 
-        # 提取专业评分人数
-        critics_count_elem = await page.query_selector('a[data-testid="critic-path"] span')
-        if critics_count_elem:
-            critics_text = await critics_count_elem.inner_text()
-            match = re.search(r'Based on (\d+) Critic', critics_text)
-            if match:
-                ratings["overall"]["critics_count"] = match.group(1)
+        # 从网页源代码中提取专业评分人数
+        critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', content)
+        if critics_count_match:
+            ratings["overall"]["critics_count"] = critics_count_match.group(1)
+            print(f"从Metacritic源代码提取到专业评分人数: {critics_count_match.group(1)}")
+        else:
+            # 备选方案：使用DOM选择器
+            critics_count_elem = await page.query_selector('a[data-testid="critic-path"] span')
+            if critics_count_elem:
+                critics_text = await critics_count_elem.inner_text()
+                match = re.search(r'Based on (\d+) Critic', critics_text)
+                if match:
+                    ratings["overall"]["critics_count"] = match.group(1)
 
-        # 提取用户评分
-        userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
-        if userscore_elem:
-            userscore_text = await userscore_elem.inner_text()
-            if userscore_text and userscore_text.lower() != 'tbd':
-                ratings["overall"]["userscore"] = userscore_text
+        # 从网页源代码中提取用户评分
+        userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', content)
+        if userscore_match:
+            ratings["overall"]["userscore"] = userscore_match.group(1)
+            print(f"从Metacritic源代码提取到用户评分: {userscore_match.group(1)}")
+        else:
+            # 备选方案：使用DOM选择器
+            userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
+            if userscore_elem:
+                userscore_text = await userscore_elem.inner_text()
+                if userscore_text and userscore_text.lower() != 'tbd':
+                    ratings["overall"]["userscore"] = userscore_text
+                    print(f"使用DOM选择器提取到用户评分: {userscore_text}")
 
-        # 提取用户评分人数
-        users_count_elem = await page.query_selector('a[data-testid="user-path"] span')
-        if users_count_elem:
-            users_text = await users_count_elem.inner_text()
-            match = re.search(r'Based on ([\d,]+) User', users_text)
-            if match:
-                ratings["overall"]["users_count"] = match.group(1).replace(',', '')
+        # 从网页源代码中提取用户评分人数
+        users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', content)
+        if users_count_match:
+            ratings["overall"]["users_count"] = users_count_match.group(1).replace(',', '')
+            print(f"从Metacritic源代码提取到用户评分人数: {users_count_match.group(1)}")
+        else:
+            # 备选方案：使用DOM选择器
+            users_count_elem = await page.query_selector('a[data-testid="user-path"] span')
+            if users_count_elem:
+                users_text = await users_count_elem.inner_text()
+                match = re.search(r'Based on ([\d,]+) User', users_text)
+                if match:
+                    ratings["overall"]["users_count"] = match.group(1).replace(',', '')
 
         # 如果是剧集且有多季,获取每一季的评分数据
         if media_type == "tv" and tmdb_info.get("number_of_seasons", 0) > 0:
@@ -1989,35 +2033,62 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                         "users_count": "暂无"
                     }
 
-                    # 提取分季专业评分
-                    season_metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
-                    if season_metascore_elem:
-                        metascore_text = await season_metascore_elem.inner_text()
-                        if metascore_text and metascore_text.lower() != 'tbd':
-                            season_data["metascore"] = metascore_text
+                    # 获取分季页面源代码
+                    season_content = await page.content()
+                    
+                    # 从网页源代码中提取分季专业评分
+                    season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
+                    if season_metascore_match:
+                        season_data["metascore"] = season_metascore_match.group(1)
+                        print(f"从Metacritic源代码提取到第{season_number}季专业评分: {season_metascore_match.group(1)}")
+                    else:
+                        # 备选方案：使用DOM选择器
+                        season_metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
+                        if season_metascore_elem:
+                            metascore_text = await season_metascore_elem.inner_text()
+                            if metascore_text and metascore_text.lower() != 'tbd':
+                                season_data["metascore"] = metascore_text
 
-                    # 提取分季专业评分人数
-                    season_critics_elem = await page.query_selector('a[data-testid="critic-path"] span')
-                    if season_critics_elem:
-                        critics_text = await season_critics_elem.inner_text()
-                        match = re.search(r'Based on (\d+) Critic', critics_text)
-                        if match:
-                            season_data["critics_count"] = match.group(1)
+                    # 从网页源代码中提取分季专业评分人数
+                    season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
+                    if season_critics_count_match:
+                        season_data["critics_count"] = season_critics_count_match.group(1)
+                        print(f"从Metacritic源代码提取到第{season_number}季专业评分人数: {season_critics_count_match.group(1)}")
+                    else:
+                        # 备选方案：使用DOM选择器
+                        season_critics_elem = await page.query_selector('a[data-testid="critic-path"] span')
+                        if season_critics_elem:
+                            critics_text = await season_critics_elem.inner_text()
+                            match = re.search(r'Based on (\d+) Critic', critics_text)
+                            if match:
+                                season_data["critics_count"] = match.group(1)
 
-                    # 提取分季用户评分
-                    season_userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
-                    if season_userscore_elem:
-                        userscore_text = await season_userscore_elem.inner_text()
-                        if userscore_text and userscore_text.lower() != 'tbd':
-                            season_data["userscore"] = userscore_text
+                    # 从网页源代码中提取分季用户评分
+                    season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
+                    if season_userscore_match:
+                        season_data["userscore"] = season_userscore_match.group(1)
+                        print(f"从Metacritic源代码提取到第{season_number}季用户评分: {season_userscore_match.group(1)}")
+                    else:
+                        # 备选方案：使用DOM选择器
+                        season_userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
+                        if season_userscore_elem:
+                            userscore_text = await season_userscore_elem.inner_text()
+                            if userscore_text and userscore_text.lower() != 'tbd':
+                                season_data["userscore"] = userscore_text
 
-                    # 提取分季用户评分人数
-                    season_users_elem = await page.query_selector('a[data-testid="user-path"] span')
-                    if season_users_elem:
-                        users_text = await season_users_elem.inner_text()
-                        match = re.search(r'Based on ([\d,]+) User', users_text)
-                        if match:
-                            season_data["users_count"] = match.group(1).replace(',', '')
+                    # 从网页源代码中提取分季用户评分人数
+                    season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
+                    if season_users_count_match:
+                        season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
+                        print(f"从Metacritic源代码提取到第{season_number}季用户评分人数: {season_users_count_match.group(1)}")
+                    else:
+                        # 备选方案：使用DOM选择器
+                        season_users_elem = await page.query_selector('a[data-testid="user-path"] span')
+                        if season_users_elem:
+                            users_text = await season_users_elem.inner_text()
+                            match = re.search(r'Based on ([\d,]+) User', users_text)
+                            if match:
+                                season_data["users_count"] = match.group(1).replace(',', '')
 
                     ratings["seasons"].append(season_data)
 
@@ -2050,33 +2121,55 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
 async def extract_letterboxd_rating(page):
     """从Letterboxd详情页提取评分数据"""
     try:
-        # 获取评分元素
-        rating_elem = await page.query_selector('span.average-rating a.tooltip')
+        # 获取页面源代码
+        content = await page.content()
         
-        if not rating_elem:
-            print("Letterboxd: 未找到评分元素,该影视暂无评分")
-            return {
-                "rating": "暂无",
-                "rating_count": "暂无",
-                "status": RATING_STATUS["NO_RATING"]
-            }
+        # 使用正则表达式提取JSON数据
+        json_match = re.search(r'"aggregateRating":\s*{\s*"bestRating":\s*(\d+),\s*"reviewCount":\s*(\d+),\s*"@type":\s*"aggregateRating",\s*"ratingValue":\s*([\d.]+),\s*"description":\s*"[^"]*",\s*"ratingCount":\s*(\d+),\s*"worstRating":\s*(\d+)\s*}', content)
+        
+        if json_match:
+            rating = json_match.group(3)  # ratingValue
+            rating_count = json_match.group(4)  # ratingCount
+            print(f"从Letterboxd JSON提取到评分: {rating}, 人数: {rating_count}")
             
-        # 获取评分
-        rating = await rating_elem.inner_text()
-        
-        # 获取评分人数
-        tooltip = await rating_elem.get_attribute('data-original-title')
-        if tooltip:
-            match = re.search(r'based on ([\d,]+)', tooltip)
-            rating_count = match.group(1).replace(',', '') if match else "暂无"
+            return {
+                "rating": rating,
+                "rating_count": rating_count,
+                "status": RATING_STATUS["SUCCESSFUL"]
+            }
         else:
-            rating_count = "暂无"
-        
-        return {
-            "rating": rating,
-            "rating_count": rating_count,
-            "status": RATING_STATUS["SUCCESSFUL"]
-        }
+            # 如果JSON提取失败，回退到原来的DOM方法
+            print("Letterboxd JSON提取失败，使用DOM方法")
+            
+            # 获取评分元素
+            rating_elem = await page.query_selector('span.average-rating a.tooltip')
+            
+            if not rating_elem:
+                print("Letterboxd: 未找到评分元素,该影视暂无评分")
+                return {
+                    "rating": "暂无",
+                    "rating_count": "暂无",
+                    "status": RATING_STATUS["NO_RATING"]
+                }
+                
+            # 获取评分
+            rating = await rating_elem.inner_text()
+            
+            # 获取评分人数
+            tooltip = await rating_elem.get_attribute('data-original-title')
+            if tooltip:
+                match = re.search(r'based on ([\d,]+)', tooltip)
+                rating_count = match.group(1).replace(',', '') if match else "暂无"
+            else:
+                rating_count = "暂无"
+            
+            print(f"使用DOM方法提取Letterboxd评分: {rating}, 人数: {rating_count}")
+            
+            return {
+                "rating": rating,
+                "rating_count": rating_count,
+                "status": RATING_STATUS["SUCCESSFUL"]
+            }
             
     except Exception as e:
         print(f"提取Letterboxd评分数据时出错: {e}")
