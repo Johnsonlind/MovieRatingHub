@@ -1710,34 +1710,61 @@ async def extract_douban_rating(page, media_type, matched_results):
 async def extract_imdb_rating(page):
     """从IMDB详情页提取评分数据"""
     try:
-        # 检查是否有评分元素
-        rating_elem = await page.query_selector('.ipc-rating-star--rating')
-        if not rating_elem:
+        # 等待页面加载完成
+        await page.wait_for_load_state('networkidle', timeout=5000)
+        
+        # 获取页面源代码
+        content = await page.content()
+        
+        # 使用正则表达式提取JSON数据
+        json_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>\s*({[^<]+})\s*</script>', content)
+        if not json_match:
+            print("未找到IMDB的__NEXT_DATA__脚本")
             return {
                 "rating": "暂无",
                 "rating_people": "暂无",
                 "status": RATING_STATUS["NO_RATING"]
             }
-
-        # 等待评分元素加载
-        await page.wait_for_selector('.ipc-rating-star--rating', timeout=2000)
-
-        # 提取评分
-        rating = await page.query_selector('.ipc-rating-star--rating')
-        rating_text = await rating.inner_text() if rating else "暂无"
-
-        # 提取评分人数
-        rating_people = await page.query_selector('.ipc-rating-star--voteCount')
-        rating_people_text = await rating_people.inner_text() if rating_people else "暂无"
-        
-        # 清理评分人数文本，移除括号和空格
-        if rating_people_text and rating_people_text.strip():
-            rating_people_text = rating_people_text.strip().replace('(', '').replace(')', '').strip()
-
-        return {
-            "rating": rating_text,
-            "rating_people": rating_people_text
-        }
+            
+        try:
+            # 解析JSON数据
+            json_data = json.loads(json_match.group(1))
+            
+            # 提取评分数据
+            page_props = json_data.get("props", {}).get("pageProps", {})
+            above_the_fold = page_props.get("aboveTheFoldData", {})
+            ratings_summary = above_the_fold.get("ratingsSummary", {})
+            
+            # 获取评分和评分人数
+            aggregate_rating = ratings_summary.get("aggregateRating")
+            vote_count = ratings_summary.get("voteCount")
+            
+            if aggregate_rating is None:
+                print("IMDB JSON中未找到评分数据")
+                return {
+                    "rating": "暂无",
+                    "rating_people": "暂无",
+                    "status": RATING_STATUS["NO_RATING"]
+                }
+            
+            # 格式化评分和人数
+            rating_text = str(aggregate_rating) if aggregate_rating else "暂无"
+            rating_people_text = str(vote_count) if vote_count else "暂无"
+            
+            print(f"从IMDB JSON提取到评分: {rating_text}, 人数: {rating_people_text}")
+            
+            return {
+                "rating": rating_text,
+                "rating_people": rating_people_text
+            }
+            
+        except json.JSONDecodeError as e:
+            print(f"解析IMDB JSON数据时出错: {e}")
+            return {
+                "rating": "暂无",
+                "rating_people": "暂无",
+                "status": "Fail"
+            }
 
     except Exception as e:
         print(f"提取IMDB评分数据时出错: {e}")
