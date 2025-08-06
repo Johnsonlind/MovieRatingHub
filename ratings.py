@@ -1710,8 +1710,17 @@ async def extract_douban_rating(page, media_type, matched_results):
 async def extract_imdb_rating(page):
     """从IMDB详情页提取评分数据"""
     try:
-        # 等待页面加载完成
-        await page.wait_for_load_state('networkidle', timeout=5000)
+        # 等待页面基本加载完成，使用更短的超时时间
+        try:
+            await page.wait_for_load_state('domcontentloaded', timeout=3000)
+        except Exception as e:
+            print(f"等待页面加载时出错: {e}")
+        
+        # 尝试等待JSON数据加载
+        try:
+            await page.wait_for_selector('script[id="__NEXT_DATA__"]', timeout=3000)
+        except Exception as e:
+            print(f"等待__NEXT_DATA__脚本时出错: {e}")
         
         # 获取页面源代码
         content = await page.content()
