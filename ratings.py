@@ -1710,63 +1710,25 @@ async def extract_douban_rating(page, media_type, matched_results):
 async def extract_imdb_rating(page):
     """从IMDB详情页提取评分数据"""
     try:
-        # 等待页面加载完成
-        await page.wait_for_load_state('networkidle', timeout=5000)
-        
-        # 尝试多个可能的评分选择器
-        rating_selectors = [
-            '.ipc-rating-star--rating',
-            '[data-testid="hero-rating-bar__aggregate-rating__score"] span:first-child',
-            '.AggregateRatingButton__RatingScore-sc-1ll29m0-1',
-            '.sc-d541859f-1.imUuxf'  # 保留旧选择器作为备选
-        ]
-        
-        rating_elem = None
-        rating_text = "暂无"
-        
-        # 尝试找到评分元素
-        for selector in rating_selectors:
-            try:
-                rating_elem = await page.query_selector(selector)
-                if rating_elem:
-                    rating_text = await rating_elem.inner_text()
-                    if rating_text and rating_text.strip():
-                        print(f"找到IMDB评分元素: {selector}, 评分: {rating_text}")
-                        break
-            except Exception as e:
-                print(f"尝试选择器 {selector} 时出错: {e}")
-                continue
-        
-        if not rating_elem or not rating_text.strip():
-            print("未找到IMDB评分元素")
+        # 检查是否有评分元素
+        rating_elem = await page.query_selector('.ipc-rating-star--rating')
+        if not rating_elem:
             return {
                 "rating": "暂无",
                 "rating_people": "暂无",
                 "status": RATING_STATUS["NO_RATING"]
             }
 
-        # 尝试多个可能的评分人数选择器
-        people_selectors = [
-            '.ipc-rating-star--voteCount',
-            '[data-testid="hero-rating-bar__aggregate-rating__vote-count"]',
-            '.AggregateRatingButton__TotalRatingCount-sc-1ll29m0-2',
-            '.sc-d541859f-3.dwhNqC'  # 保留旧选择器作为备选
-        ]
-        
-        rating_people_text = "暂无"
-        
-        # 尝试找到评分人数元素
-        for selector in people_selectors:
-            try:
-                rating_people = await page.query_selector(selector)
-                if rating_people:
-                    rating_people_text = await rating_people.inner_text()
-                    if rating_people_text and rating_people_text.strip():
-                        print(f"找到IMDB评分人数元素: {selector}, 人数: {rating_people_text}")
-                        break
-            except Exception as e:
-                print(f"尝试选择器 {selector} 时出错: {e}")
-                continue
+        # 等待评分元素加载
+        await page.wait_for_selector('.ipc-rating-star--rating', timeout=2000)
+
+        # 提取评分
+        rating = await page.query_selector('.ipc-rating-star--rating')
+        rating_text = await rating.inner_text() if rating else "暂无"
+
+        # 提取评分人数
+        rating_people = await page.query_selector('.ipc-rating-star--voteCount')
+        rating_people_text = await rating_people.inner_text() if rating_people else "暂无"
         
         # 清理评分人数文本，移除括号和空格
         if rating_people_text and rating_people_text.strip():
