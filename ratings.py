@@ -1535,6 +1535,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
     return await _extract_rating_with_retry()
 
 async def extract_douban_rating(page, media_type, matched_results):
+    """从豆瓣详情页提取评分数据"""
     try:
         # 等待页面加载完成
         await page.wait_for_load_state("networkidle", timeout=10000)
@@ -1710,7 +1711,7 @@ async def extract_imdb_rating(page):
     """从IMDB详情页提取评分数据"""
     try:
         # 检查是否有评分元素
-        rating_elem = await page.query_selector('.sc-d541859f-1.imUuxf')
+        rating_elem = await page.query_selector('.ipc-rating-star--rating')
         if not rating_elem:
             return {
                 "rating": "暂无",
@@ -1719,15 +1720,19 @@ async def extract_imdb_rating(page):
             }
 
         # 等待评分元素加载
-        await page.wait_for_selector('.sc-d541859f-1.imUuxf', timeout=2000)
+        await page.wait_for_selector('.ipc-rating-star--rating', timeout=2000)
 
         # 提取评分
-        rating = await page.query_selector('.sc-d541859f-1.imUuxf')
+        rating = await page.query_selector('.ipc-rating-star--rating')
         rating_text = await rating.inner_text() if rating else "暂无"
 
         # 提取评分人数
-        rating_people = await page.query_selector('.sc-d541859f-3.dwhNqC')
+        rating_people = await page.query_selector('.ipc-rating-star--voteCount')
         rating_people_text = await rating_people.inner_text() if rating_people else "暂无"
+        
+        # 清理评分人数文本，移除括号和空格
+        if rating_people_text and rating_people_text.strip():
+            rating_people_text = rating_people_text.strip().replace('(', '').replace(')', '').strip()
 
         return {
             "rating": rating_text,
