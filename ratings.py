@@ -437,7 +437,11 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                 if result_season_number is not None:
                     for season in tmdb_info.get("seasons", []):
                         if season.get("season_number") == result_season_number:
-                            score += 30
+                            # 对于多季剧集，季数匹配给予更高权重
+                            if total_seasons > 1:
+                                score += 50  # 增加季数匹配权重
+                            else:
+                                score += 30
                             break
             
             # 4. 年份匹配
@@ -453,7 +457,8 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                             score += 30
                         elif year_diff == 1:
                             score += 15
-
+                        elif year_diff == 2:
+                            score += 5
                         elif year_diff > 2:
                             return 0
                 else: 
@@ -495,6 +500,8 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                                 score += 20
                             elif year_diff == 1:
                                 score += 10
+                            elif year_diff == 2:
+                                score += 5
                             elif year_diff > 2:
                                 return 0
                     else:
@@ -510,6 +517,8 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                                             score += 20
                                         elif year_diff == 1:
                                             score += 10
+                                        elif year_diff == 2:
+                                            score += 5
                                         elif year_diff > 2:
                                             return 0
                                     break
@@ -1028,6 +1037,7 @@ async def handle_imdb_search(page, search_url):
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
 async def handle_rt_search(page, search_url, tmdb_info):
+    """处理Rotten Tomatoes搜索"""
     try:
         await random_delay()
         print(f"访问 Rotten Tomatoes 搜索页面: {search_url}")
@@ -1369,6 +1379,8 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             # 计算最佳匹配
             best_match = None
             highest_score = 0
+            matched_results = []
+            
             for result in search_results:
                 if isinstance(result, str):
                     result = {"title": result}
@@ -1379,11 +1391,26 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     return {"status": "cancelled"}
 
                 score = await calculate_match_degree(tmdb_info, result, platform)
-                if score > highest_score:
-                    highest_score = score
-                    best_match = result
+                result["match_score"] = score
+                
+                # 对于多季剧集，收集所有匹配度较高的结果
+                if media_type == "tv" and len(tmdb_info.get("seasons", [])) > 1:
+                    if score > 50:  # 设置一个合理的阈值
+                        matched_results.append(result)
+                else:
+                    # 对于电影或单季剧集，选择最佳匹配
+                    if score > highest_score:
+                        highest_score = score
+                        best_match = result
 
-            if not best_match:
+            # 对于多季剧集，如果有多个匹配结果，按匹配度排序
+            if media_type == "tv" and len(tmdb_info.get("seasons", [])) > 1 and matched_results:
+                matched_results.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+                print(f"找到 {len(matched_results)} 个匹配的季")
+                for i, result in enumerate(matched_results[:3]):  # 只显示前3个
+                    print(f"  {i+1}. {result['title']} (匹配度: {result.get('match_score', 0)})")
+                best_match = matched_results[0]  # 选择匹配度最高的作为主要结果
+            elif not best_match:
                 print(f"在{platform}平台未找到匹配的结果")
                 return create_empty_rating_data(platform, media_type, RATING_STATUS["NO_FOUND"])
 
@@ -1469,7 +1496,11 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
 
                     try:
                         if platform == "douban":
-                            rating_data = await extract_douban_rating(page, media_type, search_results)
+                            # 对于多季剧集，传递所有匹配的结果
+                            if media_type == "tv" and len(tmdb_info.get("seasons", [])) > 1 and matched_results:
+                                rating_data = await extract_douban_rating(page, media_type, matched_results)
+                            else:
+                                rating_data = await extract_douban_rating(page, media_type, search_results)
                         elif platform == "imdb":
                             rating_data = await extract_imdb_rating(page)
                         elif platform == "letterboxd":
