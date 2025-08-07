@@ -1662,11 +1662,23 @@ async def extract_douban_rating(page, media_type, matched_results):
                 if not url:
                     continue
 
-                await page.goto(url)
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                # 添加随机延迟，避免触发反爬虫机制
+                await random_delay()
+                
+                # 为每个季创建新的页面上下文，避免连续访问导致的问题
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                    await asyncio.sleep(2)  # 额外等待2秒确保页面完全加载
+                except Exception as e:
+                    print(f"访问第{season_number}季页面失败: {e}")
+                    continue
                 
                 # 首先获取页面内容
-                season_content = await page.content()
+                try:
+                    season_content = await page.content()
+                except Exception as e:
+                    print(f"获取第{season_number}季页面内容失败: {e}")
+                    continue
                 
                 for attempt in range(3):
                     try:
@@ -1709,8 +1721,9 @@ async def extract_douban_rating(page, media_type, matched_results):
                     except Exception as e:
                         print(f"第{attempt + 1}次尝试获取第{season_number}季评分失败: {e}")
                         if attempt < 2:
+                            await random_delay()
                             await page.reload()
-                            await page.wait_for_load_state("networkidle", timeout=10000)
+                            await page.wait_for_load_state("networkidle", timeout=15000)
                             season_content = await page.content()
                             continue
                 
@@ -1734,6 +1747,9 @@ async def extract_douban_rating(page, media_type, matched_results):
                 
             except Exception as e:
                 print(f"获取第{season_number}季评分时出错: {e}")
+                # 如果是超时错误，记录但不影响其他季的处理
+                if "Timeout" in str(e):
+                    print(f"第{season_number}季访问超时，跳过此季")
                 continue
         
         # 如果没有找到任何季的评分，但有总评分，则使用总评分
