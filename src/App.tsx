@@ -26,6 +26,7 @@ const FavoriteListPage = lazy(() => import('./pages/FavoriteListPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const AuthConfirmPage = lazy(() => import('./pages/AuthConfirmPage'));
 const AuthErrorPage = lazy(() => import('./pages/AuthErrorPage'));
+const AdminChartsPage = lazy(() => import('./pages/AdminChartsPage'));
 
 function App() {
   return (
@@ -44,6 +45,8 @@ function App() {
                 <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/favorite-lists/:id" element={<FavoriteListPage />} />
                 <Route path="/profile/:id" element={<UserProfilePage />} />
+                {/* 隐藏入口，仅路径访问 */}
+                <Route path="/admin/charts" element={<AdminChartsPage />} />
               </Routes>
             </Suspense>
           </div>
