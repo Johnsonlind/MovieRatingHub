@@ -12,8 +12,9 @@ export default defineConfig({
       brotliSize: true,
     }),
   ],
+  // 让 Vite 预打包 lucide-react，避免开发环境动态加载失败
   optimizeDeps: {
-    exclude: ['lucide-react'],
+    include: ['lucide-react']
   },
   server: {
     proxy: {
