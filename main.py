@@ -19,11 +19,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow
+from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry
 from sqlalchemy.orm import Session
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
 from redis import asyncio as aioredis
 import json
+import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
@@ -32,6 +33,7 @@ import aiohttp
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from sqlalchemy import func
+from sqlalchemy import or_, not_
 from sqlalchemy import and_
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -482,7 +484,8 @@ async def get_current_user_info(
         "id": current_user.id,
         "email": current_user.email,
         "username": current_user.username,
-        "avatar": current_user.avatar
+        "avatar": current_user.avatar,
+        "is_admin": current_user.is_admin
     }
 
 @app.put("/api/user/profile")
@@ -1616,13 +1619,26 @@ async def tmdb_proxy(path: str, request: Request):
         # 构建完整的 TMDB URL
         tmdb_url = f"https://api.themoviedb.org/3/{path}"
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
             async with session.get(tmdb_url, params=params) as response:
+                # 获取响应数据（即使失败也尽量读取，便于错误诊断）
+                text_body = await response.text()
                 if response.status != 200:
-                    return HTTPException(status_code=response.status, detail="TMDB API 请求失败")
+                    try:
+                        err_json = json.loads(text_body)
+                    except Exception:
+                        err_json = {"error": text_body}
+                    raise HTTPException(status_code=response.status, detail={
+                        "message": "TMDB API 请求失败",
+                        "status": response.status,
+                        "body": err_json
+                    })
                 
-                # 获取响应数据
-                data = await response.json()
+                # 成功则解析 JSON
+                try:
+                    data = json.loads(text_body)
+                except Exception:
+                    raise HTTPException(status_code=500, detail="TMDB 返回的不是有效的JSON")
                 
                 # 缓存结果
                 await set_cache(cache_key, data)
@@ -1656,7 +1672,35 @@ async def image_proxy(url: str, response: Response):
                 print(f"Redis缓存错误: {str(redis_error)}")
                 # 继续执行，不依赖缓存
         
-        async with aiohttp.ClientSession() as session:
+        # 简易 ETag，基于 URL
+        etag = 'W/"' + hashlib.md5(url.encode('utf-8')).hexdigest() + '"'
+        inm = None
+        try:
+            inm = response.headers.get('If-None-Match')  # 注意：Response无请求头；从request无法直接拿，这里简单返回ETag供浏览器缓存
+        except Exception:
+            pass
+
+        # 尝试从 Redis 缓存图片二进制
+        cached_item = None
+        if redis:
+            try:
+                cached_raw = await redis.get(f"imgbin:{url}")
+                if cached_raw:
+                    cached_item = json.loads(cached_raw)
+            except Exception:
+                cached_item = None
+
+        if cached_item:
+            img_bytes = base64.b64decode(cached_item.get('data', ''))
+            content_type = cached_item.get('content_type', 'image/jpeg')
+            headers = {
+                "Cache-Control": "public, max-age=604800, immutable",
+                "ETag": etag,
+                "Content-Type": content_type,
+            }
+            return Response(content=img_bytes, media_type=content_type, headers=headers)
+
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
             try:
                 async with session.get(url, timeout=10) as img_response:
                     if img_response.status != 200:
@@ -1669,12 +1713,27 @@ async def image_proxy(url: str, response: Response):
                     # 读取图片数据
                     image_data = await img_response.read()
                     
-                    # 设置缓存控制头
-                    response.headers["Cache-Control"] = "public, max-age=604800"  # 7天
-                    response.headers["Content-Type"] = content_type
-                    
-                    # 使用Response直接返回二进制数据，而不是让FastAPI尝试序列化
-                    return Response(content=image_data, media_type=content_type)
+                    # 写入 Redis 二进制缓存
+                    if redis:
+                        try:
+                            await redis.setex(
+                                f"imgbin:{url}",
+                                7 * 24 * 60 * 60,
+                                json.dumps({
+                                    'content_type': content_type,
+                                    'data': base64.b64encode(image_data).decode('utf-8')
+                                })
+                            )
+                        except Exception:
+                            pass
+
+                    # 返回并携带缓存头
+                    headers = {
+                        "Cache-Control": "public, max-age=604800, immutable",
+                        "ETag": etag,
+                        "Content-Type": content_type,
+                    }
+                    return Response(content=image_data, media_type=content_type, headers=headers)
             except aiohttp.ClientError as client_error:
                 print(f"AIOHTTP客户端错误: {str(client_error)}, URL: {url}")
                 raise HTTPException(status_code=500, detail=f"图片获取失败: {str(client_error)}")
@@ -1730,6 +1789,317 @@ async def trakt_proxy(path: str, request: Request):
 
 # 在主应用中添加路由
 app.include_router(router)
+# ==========================================
+# 6.1 手工榜单录入与聚合（管理员）
+# ==========================================
+
+def require_admin(user: User):
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+async def tmdb_enrich(tmdb_id: int, media_type: str):
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+        url = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}"
+        params = {"api_key": "4f681fa7b5ab7346a4e184bbf2d41715", "language":"zh-CN"}
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                raise HTTPException(status_code=400, detail="TMDB 信息获取失败")
+            data = await resp.json()
+            title = data.get("title") if media_type=="movie" else data.get("name")
+            poster_path = data.get("poster_path")
+            poster = f"/tmdb-images/w500{poster_path}" if poster_path else ""
+            original_language = data.get("original_language")
+            return {"title": title or "", "poster": poster or "", "original_language": original_language or ""}
+
+@app.post("/api/charts/entries")
+async def add_chart_entry(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_admin(current_user)
+    body = await request.json()
+    platform = body.get("platform")
+    chart_name = body.get("chart_name")
+    media_type = body.get("media_type")
+    tmdb_id = body.get("tmdb_id")
+    rank = body.get("rank")
+    title = body.get("title")
+    poster = body.get("poster")
+
+    if not (platform and chart_name and media_type in ("movie","tv") and isinstance(tmdb_id, int) and isinstance(rank, int)):
+        raise HTTPException(status_code=400, detail="参数不完整")
+
+    enrich = await tmdb_enrich(tmdb_id, media_type)
+    title = title or enrich["title"]
+    poster = poster or enrich["poster"]
+    original_language = enrich["original_language"]
+
+    try:
+        # 如果该排名已有条目，则更新为新条目（覆盖）
+        existing = db.query(ChartEntry).filter(
+            ChartEntry.platform == platform,
+            ChartEntry.chart_name == chart_name,
+            ChartEntry.media_type == media_type,
+            ChartEntry.rank == rank,
+        ).first()
+        if existing:
+            if existing.locked:
+                raise HTTPException(status_code=423, detail="该排名已锁定，无法修改")
+            existing.tmdb_id = tmdb_id
+            existing.title = title
+            existing.poster = poster
+            existing.original_language = original_language
+            existing.created_by = current_user.id
+            db.commit()
+            db.refresh(existing)
+            return {"id": existing.id, "updated": True}
+
+        entry = ChartEntry(
+            platform=platform,
+            chart_name=chart_name,
+            media_type=media_type,
+            tmdb_id=tmdb_id,
+            title=title,
+            poster=poster,
+            rank=rank,
+            original_language=original_language,
+            created_by=current_user.id,
+        )
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"保存失败或重复: {str(e)}")
+    return {"id": entry.id}
+
+@app.post("/api/charts/entries/bulk")
+async def add_chart_entries_bulk(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_admin(current_user)
+    items = (await request.json()).get("items", [])
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="items 必须是非空数组")
+
+    created = []
+    for item in items:
+        try:
+            platform = item.get("platform")
+            chart_name = item.get("chart_name")
+            media_type = item.get("media_type")
+            tmdb_id = item.get("tmdb_id")
+            rank = item.get("rank")
+            title = item.get("title")
+            poster = item.get("poster")
+            if not (platform and chart_name and media_type in ("movie","tv") and isinstance(tmdb_id, int) and isinstance(rank, int)):
+                continue
+            enrich = await tmdb_enrich(tmdb_id, media_type)
+            title = title or enrich["title"]
+            poster = poster or enrich["poster"]
+            original_language = enrich["original_language"]
+            entry = ChartEntry(
+                platform=platform,
+                chart_name=chart_name,
+                media_type=media_type,
+                tmdb_id=tmdb_id,
+                title=title,
+                poster=poster,
+                rank=rank,
+                original_language=original_language,
+                created_by=current_user.id,
+            )
+            db.add(entry)
+            db.commit()
+            db.refresh(entry)
+            created.append(entry.id)
+        except Exception:
+            db.rollback()
+            continue
+    return {"created": created}
+
+def aggregate_top(
+    db: Session,
+    media_type: str,
+    limit: int = 10,
+    chinese_only: bool = False,
+    exclude_pairs: list[tuple[str, str]] | None = None,
+):
+    q = db.query(ChartEntry).filter(ChartEntry.media_type == media_type)
+    if chinese_only:
+        q = q.filter(ChartEntry.original_language == "zh")
+    # 排除指定的平台/榜单组合（例如：豆瓣-一周华语剧集口碑榜）
+    if exclude_pairs:
+        conditions = []
+        for plat, chart in exclude_pairs:
+            conditions.append(and_(ChartEntry.platform == plat, ChartEntry.chart_name == chart))
+        if conditions:
+            q = q.filter(not_(or_(*conditions)))
+    # 同一平台/榜单下，同一 rank 只取最近一条（允许覆盖历史）
+    sub = db.query(
+        ChartEntry.platform,
+        ChartEntry.chart_name,
+        ChartEntry.media_type,
+        ChartEntry.rank,
+        func.max(ChartEntry.id).label('max_id')
+    ).group_by(ChartEntry.platform, ChartEntry.chart_name, ChartEntry.media_type, ChartEntry.rank).subquery()
+
+    entries = db.query(ChartEntry).join(
+        sub,
+        (ChartEntry.id == sub.c.max_id)
+    ).filter(ChartEntry.media_type == media_type)
+    if chinese_only:
+        entries = entries.filter(ChartEntry.original_language == "zh")
+    entries = entries.all()
+    # 频次统计：出现次数越多越靠前；同频次按最佳名次（rank 越小越好），再按最近出现排序
+    freq: dict[int, int] = {}
+    best_rank: dict[int, int] = {}
+    latest_id: dict[int, int] = {}
+    sample: dict[int, ChartEntry] = {}
+    for e in entries:
+        key = int(e.tmdb_id)
+        freq[key] = freq.get(key, 0) + 1
+        best_rank[key] = min(best_rank.get(key, 9999), int(e.rank) if e.rank is not None else 9999)
+        latest_id[key] = max(latest_id.get(key, 0), int(e.id))
+        if key not in sample:
+            sample[key] = e
+    ranked_keys = sorted(freq.keys(), key=lambda k: (-freq[k], best_rank[k], -latest_id[k], k))
+    result = []
+    for tmdb_id in ranked_keys[:limit]:
+        e = sample[int(tmdb_id)]
+        poster = e.poster or ""
+        if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
+            # 兼容旧数据，自动补成 tmdb 相对路径
+            if not poster.startswith("/"):
+                poster = "/" + poster
+            poster = f"/tmdb-images{poster}"
+        result.append({"id": e.tmdb_id, "type": media_type, "title": e.title, "poster": poster})
+    return result
+
+def latest_chart_top_by_rank(
+    db: Session,
+    platform: str,
+    chart_name: str,
+    media_type: str,
+    limit: int = 10,
+):
+    # 取该平台+榜单+类型下，各 rank 最新的一条
+    sub = db.query(
+        ChartEntry.rank,
+        func.max(ChartEntry.id).label('max_id')
+    ).filter(
+        ChartEntry.platform == platform,
+        ChartEntry.chart_name == chart_name,
+        ChartEntry.media_type == media_type,
+    ).group_by(ChartEntry.rank).subquery()
+
+    rows = db.query(ChartEntry).join(sub, ChartEntry.id == sub.c.max_id).order_by(ChartEntry.rank.asc()).limit(limit).all()
+    result = []
+    for e in rows:
+        poster = e.poster or ""
+        if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
+            if not poster.startswith("/"):
+                poster = "/" + poster
+            poster = f"/tmdb-images{poster}"
+        result.append({
+            "id": e.tmdb_id,
+            "type": media_type,
+            "title": e.title,
+            "poster": poster,
+        })
+    return result
+
+@app.get("/api/charts/entries")
+async def list_chart_entries(
+    platform: str,
+    chart_name: str,
+    media_type: str,
+    db: Session = Depends(get_db)
+):
+    if media_type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail="media_type 必须为 movie 或 tv")
+    items = db.query(ChartEntry).filter(
+        ChartEntry.platform == platform,
+        ChartEntry.chart_name == chart_name,
+        ChartEntry.media_type == media_type,
+    ).order_by(ChartEntry.rank.asc()).all()
+    return [
+        {
+            "id": e.id,
+            "tmdb_id": e.tmdb_id,
+            "rank": e.rank,
+            "title": e.title,
+            "poster": e.poster,
+            "locked": e.locked,
+        }
+        for e in items
+    ]
+
+@app.put("/api/charts/entries/lock")
+async def set_entry_lock(
+    platform: str,
+    chart_name: str,
+    media_type: str,
+    rank: int,
+    locked: bool,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    entry = db.query(ChartEntry).filter(
+        ChartEntry.platform == platform,
+        ChartEntry.chart_name == chart_name,
+        ChartEntry.media_type == media_type,
+        ChartEntry.rank == rank,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="条目不存在")
+    entry.locked = locked
+    db.commit()
+    return {"rank": rank, "locked": locked}
+
+@app.delete("/api/charts/entries")
+async def delete_chart_entry(
+    platform: str,
+    chart_name: str,
+    media_type: str,
+    rank: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    entry = db.query(ChartEntry).filter(
+        ChartEntry.platform == platform,
+        ChartEntry.chart_name == chart_name,
+        ChartEntry.media_type == media_type,
+        ChartEntry.rank == rank,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="条目不存在")
+    if entry.locked:
+        raise HTTPException(status_code=423, detail="该排名已锁定，无法删除")
+    db.delete(entry)
+    db.commit()
+    return {"deleted": True, "rank": rank}
+
+@app.get("/api/charts/aggregate")
+async def get_aggregate_charts(db: Session = Depends(get_db)):
+    # 华语剧集：直接使用豆瓣《一周华语剧集口碑榜》
+    chinese_tv = latest_chart_top_by_rank(
+        db,
+        platform="豆瓣",
+        chart_name="一周华语剧集口碑榜",
+        media_type="tv",
+        limit=10,
+    )
+
+    # 其他两个板块：排除掉豆瓣《一周华语剧集口碑榜》
+    exclude_pairs = [("豆瓣", "一周华语剧集口碑榜")]
+    movies = aggregate_top(db, media_type="movie", limit=10, chinese_only=False)
+    tv = aggregate_top(db, media_type="tv", limit=10, chinese_only=False, exclude_pairs=exclude_pairs)
+    return {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
+
 
 @app.get("/api/health")
 async def health_check():
