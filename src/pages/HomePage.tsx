@@ -57,12 +57,13 @@ export default function HomePage() {
 
     const Section = ({ title, items }:{ title: string; items?: Array<{ id: number; type: 'movie' | 'tv'; title: string; poster: string }> }) => (
       <div className="mb-8">
-        <h2 className="text-xl sm:text-2xl font-bold mb-4 text-center dark:text-gray-100">{title}</h2>
+        <h2 className="text-lg sm:text-xl lg:text-2xl font-bold mb-4 text-center dark:text-gray-100">{title}</h2>
         {!items || isLoading ? (
           <div className="flex items-center justify-center py-8 text-gray-600 dark:text-gray-400">加载中...</div>
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-3">
+            {/* 第一行：前5个 */}
+            <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4 mb-2 sm:mb-3">
               {items.slice(0, 5).map((item) => {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
@@ -82,12 +83,13 @@ export default function HomePage() {
                         crossOrigin="anonymous"
                       />
                     </div>
-                    <div className="mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
+                    <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
                   </Link>
                 );
               })}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+            {/* 第二行：后5个 */}
+            <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
               {items.slice(5, 10).map((item) => {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
@@ -107,7 +109,7 @@ export default function HomePage() {
                         crossOrigin="anonymous"
                       />
                     </div>
-                    <div className="mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
+                    <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
                   </Link>
                 );
               })}
@@ -156,9 +158,6 @@ export default function HomePage() {
           }} />
         </div>
 
-        {/* 无搜索时显示Top10板块（聚合） */}
-        {!searchQuery && <TopSectionsFromBackend />}
-
         {/* 移动端标签 */}
         <div className="lg:hidden mb-4">
           <div className="flex gap-2">
@@ -184,6 +183,9 @@ export default function HomePage() {
             </button>
           </div>
         </div>
+
+        {/* 无搜索时显示Top10板块（聚合） */}
+        {!searchQuery && <TopSectionsFromBackend />}
 
         {/* 搜索结果 */}
         {isLoading ? (
