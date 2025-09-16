@@ -8,7 +8,7 @@ import { SearchResults } from '../utils/SearchResults';
 import { searchMedia } from '../api/index';
 import { messages } from '../utils/messages';
 import { ThemeToggle } from '../utils/ThemeToggle';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { UserButton } from '../utils/UserButton';
 
 // 页脚组件
@@ -49,6 +49,83 @@ export default function HomePage() {
     }
   }, [searchFromState]);
 
+  function TopSectionsFromBackend() {
+    const { data, isLoading } = useQuery({
+      queryKey: ['aggregate-charts'],
+      queryFn: () => fetch('/api/charts/aggregate').then(r => r.json()),
+    });
+
+    const Section = ({ title, items }:{ title: string; items?: Array<{ id: number; type: 'movie' | 'tv'; title: string; poster: string }> }) => (
+      <div className="mb-8">
+        <h2 className="text-xl sm:text-2xl font-bold mb-4 text-center dark:text-gray-100">{title}</h2>
+        {!items || isLoading ? (
+          <div className="flex items-center justify-center py-8 text-gray-600 dark:text-gray-400">加载中...</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-3">
+              {items.slice(0, 5).map((item) => {
+                const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
+                return (
+                  <Link key={`${item.type}-${item.id}`} to={linkPath} className="group">
+                    <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800">
+                      <img
+                        src={item.poster
+                          ? (
+                              item.poster.startsWith('/api/')
+                                ? item.poster
+                                : `/api/image-proxy?url=${encodeURIComponent(item.poster)}`
+                            )
+                          : '/placeholder-poster.png'}
+                        alt={item.title}
+                        className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        loading="lazy"
+                        crossOrigin="anonymous"
+                      />
+                    </div>
+                    <div className="mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
+                  </Link>
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+              {items.slice(5, 10).map((item) => {
+                const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
+                return (
+                  <Link key={`${item.type}-${item.id}`} to={linkPath} className="group">
+                    <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800">
+                      <img
+                        src={item.poster
+                          ? (
+                              item.poster.startsWith('/api/')
+                                ? item.poster
+                                : `/api/image-proxy?url=${encodeURIComponent(item.poster)}`
+                            )
+                          : '/placeholder-poster.png'}
+                        alt={item.title}
+                        className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        loading="lazy"
+                        crossOrigin="anonymous"
+                      />
+                    </div>
+                    <div className="mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
+                  </Link>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    );
+
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Section title="本周Top10 热门电影" items={data?.top_movies} />
+        <Section title="本周Top10 热门剧集" items={data?.top_tv} />
+        <Section title="本周Top10 华语剧集" items={data?.top_chinese_tv} />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--page-bg)]">
       <ThemeToggle />
@@ -78,6 +155,9 @@ export default function HomePage() {
             setPage(1);
           }} />
         </div>
+
+        {/* 无搜索时显示Top10板块（聚合） */}
+        {!searchQuery && <TopSectionsFromBackend />}
 
         {/* 移动端标签 */}
         <div className="lg:hidden mb-4">
