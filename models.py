@@ -20,8 +20,9 @@ class User(Base):
     email = Column(String(255), unique=True, index=True)
     username = Column(String(255), unique=True, index=True)
     hashed_password = Column(String(255))
-    avatar = Column(Text, nullable=True)
+    avatar = Column(LONGTEXT, nullable=True) 
     created_at = Column(DateTime, default=datetime.utcnow)
+    is_admin = Column(Boolean, default=False)
     
     favorites = relationship("Favorite", back_populates="user")
     favorite_lists = relationship("FavoriteList", back_populates="user")
@@ -61,6 +62,27 @@ class Favorite(Base):
     
     user = relationship("User", back_populates="favorites")
     favorite_list = relationship("FavoriteList", back_populates="favorites")
+
+class ChartEntry(Base):
+    __tablename__ = "chart_entries"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    platform = Column(String(50), index=True)  # imdb/tmdb/douban/letterboxd/trakt/metacritic/rottentomatoes
+    chart_name = Column(String(100), index=True)
+    media_type = Column(String(10), index=True)  # movie | tv
+    tmdb_id = Column(Integer, index=True)
+    title = Column(String(255))
+    poster = Column(Text)
+    rank = Column(Integer, index=True)
+    original_language = Column(String(10), nullable=True)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    locked = Column(Boolean, default=False, index=True)
+    
+    user = relationship("User")
+    __table_args__ = (
+        UniqueConstraint('platform', 'chart_name', 'media_type', 'tmdb_id', 'rank', name='uq_chart_item'),
+    )
 
 class PasswordReset(Base):
     __tablename__ = "password_resets"
