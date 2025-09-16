@@ -8,6 +8,7 @@ interface User {
   email: string;
   username: string;
   avatar: string | null;
+  is_admin?: boolean;
 }
 
 interface AuthContextType {
@@ -191,14 +192,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ email, username, password })
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail);
+    // 统一读取一次 body
+    const contentType = response.headers.get('content-type') || '';
+    let parsedBody: any = null;
+    try {
+      if (contentType.includes('application/json')) {
+        parsedBody = await response.json();
+      } else {
+        const text = await response.text();
+        parsedBody = text ? { message: text } : null;
+      }
+    } catch (_) {
+      // 忽略解析错误，保持 parsedBody 为 null
+      parsedBody = null;
     }
 
-    const data = await response.json();
-    localStorage.setItem('token', data.access_token);
-    setUser(data.user);
+    if (!response.ok) {
+      const message = (parsedBody && (parsedBody.detail || parsedBody.message))
+        || `请求失败（${response.status}）`;
+      throw new Error(message);
+    }
+
+    if (!parsedBody) {
+      throw new Error('注册成功但响应为空');
+    }
+
+    localStorage.setItem('token', parsedBody.access_token);
+    setUser(parsedBody.user);
   };
 
   const sendPasswordResetEmail = async (email: string): Promise<void> => {
