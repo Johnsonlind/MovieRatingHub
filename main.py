@@ -1933,17 +1933,7 @@ def aggregate_top(
     chinese_only: bool = False,
     exclude_pairs: list[tuple[str, str]] | None = None,
 ):
-    q = db.query(ChartEntry).filter(ChartEntry.media_type == media_type)
-    if chinese_only:
-        q = q.filter(ChartEntry.original_language == "zh")
-    # 排除指定的平台/榜单组合（例如：豆瓣-一周华语剧集口碑榜）
-    if exclude_pairs:
-        conditions = []
-        for plat, chart in exclude_pairs:
-            conditions.append(and_(ChartEntry.platform == plat, ChartEntry.chart_name == chart))
-        if conditions:
-            q = q.filter(not_(or_(*conditions)))
-    # 同一平台/榜单下，同一 rank 只取最近一条（允许覆盖历史）
+    # 同一平台/榜单/类型下，同一 rank 只取最近一条（允许覆盖历史）
     sub = db.query(
         ChartEntry.platform,
         ChartEntry.chart_name,
@@ -1952,12 +1942,19 @@ def aggregate_top(
         func.max(ChartEntry.id).label('max_id')
     ).group_by(ChartEntry.platform, ChartEntry.chart_name, ChartEntry.media_type, ChartEntry.rank).subquery()
 
+    # 取最新记录集后再施加筛选条件（语言/排除来源）
     entries = db.query(ChartEntry).join(
         sub,
         (ChartEntry.id == sub.c.max_id)
     ).filter(ChartEntry.media_type == media_type)
     if chinese_only:
         entries = entries.filter(ChartEntry.original_language == "zh")
+    if exclude_pairs:
+        conditions = []
+        for plat, chart in exclude_pairs:
+            conditions.append(and_(ChartEntry.platform == plat, ChartEntry.chart_name == chart))
+        if conditions:
+            entries = entries.filter(not_(or_(*conditions)))
     entries = entries.all()
     # 频次统计：出现次数越多越靠前；同频次按最佳名次（rank 越小越好），再按最近出现排序
     freq: dict[int, int] = {}
@@ -2099,10 +2096,13 @@ async def get_aggregate_charts(db: Session = Depends(get_db)):
         limit=10,
     )
 
-    # 其他两个板块：排除掉豆瓣《一周华语剧集口碑榜》
+    # 其他两个板块：排除掉豆瓣《一周华语剧集口碑榜》，且按出现频次/名次聚合
     exclude_pairs = [("豆瓣", "一周华语剧集口碑榜")]
     movies = aggregate_top(db, media_type="movie", limit=10, chinese_only=False)
-    tv = aggregate_top(db, media_type="tv", limit=10, chinese_only=False, exclude_pairs=exclude_pairs)
+    tv_candidates = aggregate_top(db, media_type="tv", limit=50, chinese_only=False, exclude_pairs=exclude_pairs)
+    # 如果某条目仅出现在被排除榜（即聚合后仍混入），上面的排除逻辑已处理。
+    # 为了更稳妥：将候选提升到50后再裁到10，保证频次排序的准确性。
+    tv = tv_candidates[:10]
     return {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
 
 
