@@ -10,8 +10,13 @@ from typing import Optional
 import hashlib
 import httpx
 from fastapi.responses import JSONResponse
+import logging
 
 load_dotenv()
+
+# 设置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request, Depends, APIRouter, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2
@@ -2101,6 +2106,232 @@ async def get_aggregate_charts(db: Session = Depends(get_db)):
     return {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
 
 
+@app.post("/api/charts/auto-update")
+async def auto_update_charts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """自动更新所有榜单数据"""
+    require_admin(current_user)
+    
+    try:
+        # 导入榜单抓取器
+        from chart_scrapers import ChartScraper
+        
+        # 创建抓取器实例
+        scraper = ChartScraper(db)
+        
+        # 执行所有平台的更新
+        results = {}
+        results['烂番茄电影'] = await scraper.update_rotten_movies()
+        results['烂番茄TV'] = await scraper.update_rotten_tv()
+        results['Letterboxd'] = await scraper.update_letterboxd_popular()
+        results['Metacritic电影'] = await scraper.update_metacritic_movies()
+        results['Metacritic剧集'] = await scraper.update_metacritic_shows()
+        results['TMDB趋势'] = await scraper.update_tmdb_trending_all_week()
+        results['Trakt电影'] = await scraper.update_trakt_movies_weekly()
+        results['Trakt剧集'] = await scraper.update_trakt_shows_weekly()
+        results['IMDb'] = await scraper.update_imdb_top10()
+        results['豆瓣电影'] = await scraper.update_douban_weekly_movie()
+        results['豆瓣华语剧集'] = await scraper.update_douban_weekly_chinese_tv()
+        results['豆瓣全球剧集'] = await scraper.update_douban_weekly_global_tv()
+        
+        return {
+            "status": "success",
+            "message": "所有榜单数据已成功更新",
+            "results": results,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"自动更新榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"自动更新失败: {str(e)}")
+
+@app.post("/api/charts/auto-update/{platform}")
+async def auto_update_platform_charts(
+    platform: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """自动更新指定平台的榜单数据"""
+    require_admin(current_user)
+    
+    try:
+        # 导入榜单抓取器
+        from chart_scrapers import ChartScraper
+        
+        # 创建抓取器实例
+        scraper = ChartScraper(db)
+        
+        # 定义平台更新方法映射
+        platform_updaters = {
+            "豆瓣": [
+                scraper.update_douban_weekly_movie,
+                scraper.update_douban_weekly_chinese_tv,
+                scraper.update_douban_weekly_global_tv
+            ],
+            "IMDb": [scraper.update_imdb_top10],
+            "Letterboxd": [scraper.update_letterboxd_popular],
+            "烂番茄": [scraper.update_rotten_movies, scraper.update_rotten_tv],
+            "MTC": [scraper.update_metacritic_movies, scraper.update_metacritic_shows],
+            "TMDB": [scraper.update_tmdb_trending_all_week],
+            "Trakt": [scraper.update_trakt_movies_weekly, scraper.update_trakt_shows_weekly]
+        }
+        
+        if platform not in platform_updaters:
+            raise HTTPException(status_code=400, detail=f"不支持的平台: {platform}")
+        
+        # 执行该平台的所有更新方法
+        results = {}
+        for i, updater in enumerate(platform_updaters[platform]):
+            count = await updater()
+            results[f"{platform}_{i+1}"] = count
+        
+        return {
+            "status": "success",
+            "message": f"{platform} 平台榜单数据已成功更新",
+            "platform": platform,
+            "results": results,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"自动更新 {platform} 榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"自动更新 {platform} 失败: {str(e)}")
+
+@app.get("/api/charts/status")
+async def get_charts_status(db: Session = Depends(get_db)):
+    """获取榜单数据状态"""
+    try:
+        # 获取各平台最新的榜单数据统计
+        platforms = ["豆瓣", "IMDb", "Letterboxd", "烂番茄", "MTC"]
+        status = {}
+        
+        for platform in platforms:
+            # 获取该平台下所有榜单的最新更新时间
+            latest_entries = db.query(
+                ChartEntry.platform,
+                ChartEntry.chart_name,
+                ChartEntry.media_type,
+                func.max(ChartEntry.created_at).label('latest_update')
+            ).filter(
+                ChartEntry.platform == platform
+            ).group_by(
+                ChartEntry.platform,
+                ChartEntry.chart_name,
+                ChartEntry.media_type
+            ).all()
+            
+            platform_status = []
+            for entry in latest_entries:
+                # 获取该榜单的条目数量
+                count = db.query(ChartEntry).filter(
+                    ChartEntry.platform == entry.platform,
+                    ChartEntry.chart_name == entry.chart_name,
+                    ChartEntry.media_type == entry.media_type
+                ).count()
+                
+                platform_status.append({
+                    "chart_name": entry.chart_name,
+                    "media_type": entry.media_type,
+                    "count": count,
+                    "last_updated": entry.latest_update.isoformat() if entry.latest_update else None
+                })
+            
+            status[platform] = platform_status
+        
+        return {
+            "status": "success",
+            "data": status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"获取榜单状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取榜单状态失败: {str(e)}")
+
+@app.post("/api/scheduler/start")
+async def start_scheduler_endpoint(
+    current_user: User = Depends(get_current_user),
+):
+    """启动定时任务调度器"""
+    require_admin(current_user)
+    
+    try:
+        from chart_scrapers import start_auto_scheduler
+        await start_auto_scheduler()
+        return {
+            "status": "success",
+            "message": "定时任务调度器已启动",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"启动调度器失败: {e}")
+        raise HTTPException(status_code=500, detail=f"启动调度器失败: {str(e)}")
+
+@app.post("/api/scheduler/stop")
+async def stop_scheduler_endpoint(
+    current_user: User = Depends(get_current_user),
+):
+    """停止定时任务调度器"""
+    require_admin(current_user)
+    
+    try:
+        from chart_scrapers import stop_auto_scheduler
+        stop_auto_scheduler()
+        return {
+            "status": "success",
+            "message": "定时任务调度器已停止",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"停止调度器失败: {e}")
+        raise HTTPException(status_code=500, detail=f"停止调度器失败: {str(e)}")
+
+@app.get("/api/scheduler/status")
+async def get_scheduler_status_endpoint():
+    """获取调度器状态"""
+    try:
+        from chart_scrapers import get_scheduler_status
+        status = get_scheduler_status()
+        return {
+            "status": "success",
+            "data": status,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"获取调度器状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取调度器状态失败: {str(e)}")
+
+@app.post("/api/scheduler/update-interval")
+async def set_update_interval_endpoint(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """设置更新间隔"""
+    require_admin(current_user)
+    
+    try:
+        data = await request.json()
+        interval = data.get("interval")
+        
+        if not isinstance(interval, int) or interval < 60:
+            raise HTTPException(status_code=400, detail="更新间隔必须是不小于60的整数（秒）")
+        
+        from chart_scrapers import set_scheduler_interval
+        set_scheduler_interval(interval)
+        
+        return {
+            "status": "success",
+            "message": f"更新间隔已设置为 {interval} 秒",
+            "interval": interval,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+            
+    except Exception as e:
+        logger.error(f"设置更新间隔失败: {e}")
+        raise HTTPException(status_code=500, detail=f"设置更新间隔失败: {str(e)}")
+
 @app.get("/api/health")
 async def health_check():
     """健康检查端点"""
@@ -2153,6 +2384,53 @@ async def startup_event():
         print(f"浏览器池初始化成功，共 {BROWSER_POOL_SIZE} 个浏览器实例")
     except Exception as e:
         print(f"浏览器池初始化失败: {e}")
+
+@app.post("/api/charts/clear/{platform}")
+async def clear_platform_charts(
+    platform: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """清空指定平台的所有榜单"""
+    require_admin(current_user)
+    
+    try:
+        # 删除指定平台的所有榜单条目
+        deleted_count = db.query(ChartEntry).filter(ChartEntry.platform == platform).delete()
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"已清空 {platform} 平台的所有榜单，共删除 {deleted_count} 条记录",
+            "deleted_count": deleted_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"清空 {platform} 平台榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"清空榜单失败: {str(e)}")
+
+@app.post("/api/charts/clear-all")
+async def clear_all_charts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """清空所有平台的所有榜单"""
+    require_admin(current_user)
+    
+    try:
+        # 删除所有榜单条目
+        deleted_count = db.query(ChartEntry).delete()
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"已清空所有平台的所有榜单，共删除 {deleted_count} 条记录",
+            "deleted_count": deleted_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"清空所有榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"清空所有榜单失败: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
