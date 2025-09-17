@@ -769,11 +769,11 @@ async def search_platform(platform, tmdb_info, request=None):
                     'java_script_enabled': True,
                     'has_touch': False,
                     'is_mobile': False,
-                    'locale': 'en-US',
-                    'timezone_id': 'America/New_York',
+                    'locale': 'zh-CN',  # 改为中文
+                    'timezone_id': 'Asia/Shanghai',  # 改为中国时区
                     'extra_http_headers': {
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',  # 改为中文优先
                         'Accept-Encoding': 'gzip, deflate, br',
                         'DNT': '1',
                         'Connection': 'keep-alive',
@@ -788,8 +788,8 @@ async def search_platform(platform, tmdb_info, request=None):
                 # 创建上下文
                 context = await browser.new_context(**context_options)
 
-                # 添加请求拦截
-                await context.route("**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2,ttf}", lambda route: route.abort())
+                # 添加请求拦截 - 只拦截明显的非必要资源
+                await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
                 await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
                 await context.route("**/beacon/**", lambda route: route.abort())
                 await context.route("**/telemetry/**", lambda route: route.abort())
@@ -856,12 +856,8 @@ async def search_platform(platform, tmdb_info, request=None):
                     # 检查搜索结果
                     await check_request()
                     if not isinstance(results, list):
-                        if isinstance(results, list):
-                            print(f"{platform} 搜索无结果")
-                            return []
-                        else:
-                            print(f"{platform} 获取失败")
-                            return create_error_rating_data(platform, media_type)
+                        print(f"{platform} 获取失败")
+                        return create_error_rating_data(platform, media_type)
 
                     print(f"找到 {len(results)} 个 {platform} 搜索结果")
 
@@ -925,7 +921,14 @@ async def handle_douban_search(page, search_url):
         await random_delay()
         print(f"访问豆瓣搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
-        await asyncio.sleep(1)
+        
+        # 等待网络空闲，确保页面完全加载
+        try:
+            await page.wait_for_load_state('networkidle', timeout=10000)
+        except Exception as e:
+            print(f"等待网络空闲超时: {e}")
+        
+        await asyncio.sleep(2)  # 额外等待
         
         # 立即检查是否出现访问频率限制
         rate_limit = await check_rate_limit(page, "douban")
@@ -934,11 +937,24 @@ async def handle_douban_search(page, search_url):
             return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
-            # 检查搜索结果
-            items = await page.query_selector_all('.item-root')
-            results = []
+            # 检查搜索结果 - 使用多种选择器策略
+            items = []
+            selectors_to_try = [
+                '.sc-bZQynM .item-root',
+                '.item-root', 
+                'a[class*="title-text"]',
+                '[class*="item-root"]',
+                'a[href*="/subject/"]'
+            ]
             
-            # 如果没有搜索结果
+            for selector in selectors_to_try:
+                items = await page.query_selector_all(selector)
+                if items:
+                    break
+            
+            results = []  # 初始化results变量
+            
+            # 如果仍然没有搜索结果
             if not items:
                 return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
@@ -949,6 +965,7 @@ async def handle_douban_search(page, search_url):
                         title_text = await title_elem.inner_text()
                         url = await title_elem.get_attribute('href')
                         
+                        # 提取标题和年份，支持多种格式
                         title_match = re.search(r'(.*?)\s*\((\d{4})\)', title_text)
                         if title_match:
                             title = title_match.group(1).strip()
@@ -957,6 +974,13 @@ async def handle_douban_search(page, search_url):
                             results.append({
                                 "title": title,
                                 "year": year,
+                                "url": url
+                            })
+                        else:
+                            # 如果没有年份信息，只保存标题
+                            results.append({
+                                "title": title_text.strip(),
+                                "year": "",
                                 "url": url
                             })
                 except Exception as e:
