@@ -4,6 +4,20 @@
 import type {RatingData, TVShowRatingData } from '../../types/ratings';
 import { isValidRatingData, calculateMedianVoteCount, normalizeRating } from '../../utils/ratingHelpers';
 
+// 安全解析计数：若为空、非数字或小于等于0，则回退到中位数
+function safeParseCount(value: string | number | undefined | null, median: number): number {
+  if (value === undefined || value === null) return median;
+  if (typeof value === 'number') {
+    return isNaN(value) || value <= 0 ? median : value;
+  }
+  const str = String(value).trim();
+  if (!str || str === '暂无' || str === 'tbd' || str === 'N/A') return median;
+  const digits = str.replace(/[^0-9.]/g, '');
+  if (!digits) return median;
+  const num = parseFloat(digits);
+  return isNaN(num) || num <= 0 ? median : num;
+}
+
 export function calculateOverallRating(
   ratingData: RatingData | TVShowRatingData,
   type: 'movie' | 'tvshow' = 'movie'
@@ -23,9 +37,7 @@ export function calculateOverallRating(
     // 豆瓣电影评分
     if (isValidRatingData(ratingData.douban?.rating)) {
       const rating = parseFloat(ratingData.douban?.rating || '0');
-      const voteCount = ratingData.douban?.rating_people 
-        ? parseFloat(ratingData.douban.rating_people.replace(/[^0-9]/g, ''))
-        : medianVoteCount;
+      const voteCount = safeParseCount(ratingData.douban?.rating_people as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('douban')) {
@@ -43,9 +55,7 @@ export function calculateOverallRating(
     // IMDB电影评分
     if (isValidRatingData(ratingData.imdb?.rating)) {
       const rating = parseFloat(ratingData.imdb?.rating || '0');
-      const voteCount = ratingData.imdb?.rating_people
-        ? parseFloat(ratingData.imdb.rating_people.replace(/[^0-9]/g, ''))
-        : medianVoteCount;
+      const voteCount = safeParseCount(ratingData.imdb?.rating_people as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('imdb')) {
@@ -66,9 +76,7 @@ export function calculateOverallRating(
       // 专业评分
       if (isValidRatingData(rt.critics_avg)) {
         const rating = normalizeRating(rt.critics_avg, 'rottentomatoes') ?? 0;
-        const voteCount = rt.critics_count
-          ? parseFloat(rt.critics_count.replace(/[^0-9]/g, ''))
-          : medianVoteCount;
+        const voteCount = safeParseCount(rt.critics_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('rottentomatoes')) {
@@ -83,9 +91,7 @@ export function calculateOverallRating(
         });
       } else if (isValidRatingData(rt.tomatometer)) {
         const rating = normalizeRating(rt.tomatometer, 'rottentomatoes', 'percentage') ?? 0;
-        const voteCount = rt.critics_count
-          ? parseFloat(rt.critics_count.replace(/[^0-9]/g, ''))
-          : medianVoteCount;
+        const voteCount = safeParseCount(rt.critics_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('rottentomatoes')) {
@@ -102,9 +108,7 @@ export function calculateOverallRating(
       // 用户评分
       if (isValidRatingData(rt.audience_avg)) {
         const rating = normalizeRating(rt.audience_avg, 'rottentomatoes') ?? 0;
-        const voteCount = rt.audience_count
-          ? parseFloat(rt.audience_count.replace(/[^0-9]/g, ''))
-          : medianVoteCount;
+        const voteCount = safeParseCount(rt.audience_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('rottentomatoes')) {
@@ -119,9 +123,7 @@ export function calculateOverallRating(
         });
       } else if (isValidRatingData(rt.audience_score)) {
         const rating = normalizeRating(rt.audience_score, 'rottentomatoes', 'percentage') ?? 0;
-        const voteCount = rt.audience_count
-          ? parseFloat(rt.audience_count.replace(/[^0-9]/g, ''))
-          : medianVoteCount;
+        const voteCount = safeParseCount(rt.audience_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('rottentomatoes')) {
@@ -143,9 +145,7 @@ export function calculateOverallRating(
       // 专业评分
       if (isValidRatingData(mc.metascore)) {
         const rating = normalizeRating(mc.metascore, 'metacritic', 'metascore') ?? 0;
-        const voteCount = mc.critics_count
-          ? parseFloat(mc.critics_count)
-          : medianVoteCount;
+        const voteCount = safeParseCount(mc.critics_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('metacritic')) {
@@ -162,9 +162,7 @@ export function calculateOverallRating(
       // 用户评分
       if (isValidRatingData(mc.userscore)) {
         const rating = normalizeRating(mc.userscore, 'metacritic', 'userscore') ?? 0;
-        const voteCount = mc.users_count
-          ? parseFloat(mc.users_count)
-          : medianVoteCount;
+        const voteCount = safeParseCount(mc.users_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('metacritic')) {
@@ -183,7 +181,7 @@ export function calculateOverallRating(
     // TMDB电影评分
     if (isValidRatingData(ratingData.tmdb?.rating)) {
       const rating = ratingData.tmdb?.rating ?? 0;
-      const voteCount = ratingData.tmdb?.voteCount ?? medianVoteCount;
+      const voteCount = safeParseCount(ratingData.tmdb?.voteCount as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('tmdb')) {
@@ -201,7 +199,7 @@ export function calculateOverallRating(
     // Trakt电影评分
     if (isValidRatingData(ratingData.trakt?.rating)) {
       const rating = ratingData.trakt?.rating ?? 0;
-      const voteCount = ratingData.trakt?.votes ?? medianVoteCount;
+      const voteCount = safeParseCount(ratingData.trakt?.votes as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('trakt')) {
@@ -219,9 +217,7 @@ export function calculateOverallRating(
     // Letterboxd电影评分
     if (isValidRatingData(ratingData.letterboxd?.rating)) {
       const rating = normalizeRating(ratingData.letterboxd?.rating, 'letterboxd') ?? 0;
-      const voteCount = ratingData.letterboxd?.rating_count
-        ? parseFloat(ratingData.letterboxd.rating_count.replace(/[^0-9]/g, ''))
-        : medianVoteCount;
+      const voteCount = safeParseCount(ratingData.letterboxd?.rating_count as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('letterboxd')) {
@@ -244,9 +240,7 @@ export function calculateOverallRating(
     // 豆瓣整剧评分
     if (isValidRatingData(tvData.douban?.rating)) {
       const rating = parseFloat(tvData.douban?.rating || '0');
-      const voteCount = tvData.douban?.rating_people
-        ? parseFloat(tvData.douban.rating_people.replace(/[^0-9]/g, ''))
-        : medianVoteCount;
+      const voteCount = safeParseCount(tvData.douban?.rating_people as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('douban')) {
@@ -264,9 +258,7 @@ export function calculateOverallRating(
     // IMDB整剧评分
     if (isValidRatingData(tvData.imdb?.rating)) {
       const rating = parseFloat(tvData.imdb?.rating || '0');
-      const voteCount = tvData.imdb?.rating_people
-        ? parseFloat(tvData.imdb.rating_people.replace(/[^0-9]/g, ''))
-        : medianVoteCount;
+      const voteCount = safeParseCount(tvData.imdb?.rating_people as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('imdb')) {
@@ -286,9 +278,7 @@ export function calculateOverallRating(
       const rt = tvData.rottentomatoes.series;
       if (isValidRatingData(rt.critics_avg)) {
         const rating = normalizeRating(rt.critics_avg, 'rottentomatoes') ?? 0;
-        const voteCount = rt.critics_count
-          ? parseFloat(rt.critics_count.replace(/[^0-9]/g, ''))
-          : medianVoteCount;
+        const voteCount = safeParseCount(rt.critics_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('rottentomatoes')) {
@@ -303,9 +293,7 @@ export function calculateOverallRating(
         });
       } else if (isValidRatingData(rt.tomatometer)) {
         const rating = normalizeRating(rt.tomatometer, 'rottentomatoes', 'percentage') ?? 0;
-        const voteCount = rt.critics_count
-          ? parseFloat(rt.critics_count.replace(/[^0-9]/g, ''))
-          : medianVoteCount;
+        const voteCount = safeParseCount(rt.critics_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('rottentomatoes')) {
@@ -322,9 +310,7 @@ export function calculateOverallRating(
 
       if (isValidRatingData(rt.audience_avg)) {
         const rating = normalizeRating(rt.audience_avg, 'rottentomatoes') ?? 0;
-        const voteCount = rt.audience_count
-          ? parseFloat(rt.audience_count.replace(/[^0-9]/g, ''))
-          : medianVoteCount;
+        const voteCount = safeParseCount(rt.audience_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('rottentomatoes')) {
@@ -339,9 +325,7 @@ export function calculateOverallRating(
         });
       } else if (isValidRatingData(rt.audience_score)) {
         const rating = normalizeRating(rt.audience_score, 'rottentomatoes', 'percentage') ?? 0;
-        const voteCount = rt.audience_count
-          ? parseFloat(rt.audience_count.replace(/[^0-9]/g, ''))
-          : medianVoteCount;
+        const voteCount = safeParseCount(rt.audience_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('rottentomatoes')) {
@@ -362,9 +346,7 @@ export function calculateOverallRating(
       const mc = tvData.metacritic.overall;
       if (isValidRatingData(mc.metascore)) {
         const rating = normalizeRating(mc.metascore, 'metacritic', 'metascore') ?? 0;
-        const voteCount = mc.critics_count
-          ? parseFloat(mc.critics_count)
-          : medianVoteCount;
+        const voteCount = safeParseCount(mc.critics_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('metacritic')) {
@@ -380,9 +362,7 @@ export function calculateOverallRating(
       }
       if (isValidRatingData(mc.userscore)) {
         const rating = normalizeRating(mc.userscore, 'metacritic', 'userscore') ?? 0;
-        const voteCount = mc.users_count
-          ? parseFloat(mc.users_count)
-          : medianVoteCount;
+        const voteCount = safeParseCount(mc.users_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
         if (!validPlatforms.includes('metacritic')) {
@@ -401,9 +381,7 @@ export function calculateOverallRating(
     // Letterboxd整剧评分
     if (isValidRatingData(tvData.letterboxd?.rating)) {
       const rating = normalizeRating(tvData.letterboxd?.rating, 'letterboxd') ?? 0;
-      const voteCount = tvData.letterboxd?.rating_count
-        ? parseFloat(tvData.letterboxd.rating_count.replace(/[^0-9]/g, ''))
-        : medianVoteCount;
+      const voteCount = safeParseCount(tvData.letterboxd?.rating_count as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('letterboxd')) {
@@ -421,7 +399,7 @@ export function calculateOverallRating(
     // TMDB整剧评分
     if (isValidRatingData(tvData.tmdb?.rating)) {
       const rating = tvData.tmdb?.rating ?? 0;
-      const voteCount = tvData.tmdb?.voteCount ?? medianVoteCount;
+      const voteCount = safeParseCount(tvData.tmdb?.voteCount as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('tmdb')) {
@@ -439,7 +417,7 @@ export function calculateOverallRating(
     // Trakt整剧评分
     if (isValidRatingData(tvData.trakt?.rating)) {
       const rating = tvData.trakt?.rating ?? 0;
-      const voteCount = tvData.trakt?.votes ?? medianVoteCount;
+      const voteCount = safeParseCount(tvData.trakt?.votes as any, medianVoteCount);
       ratingTimesVoteSum += rating * voteCount;
       totalVoteCount += voteCount;
       if (!validPlatforms.includes('trakt')) {
@@ -460,9 +438,7 @@ export function calculateOverallRating(
       tvData.douban.seasons.forEach(season => {
         if (isValidRatingData(season.rating)) {
           const rating = parseFloat(season.rating || '0');
-          const voteCount = season.rating_people
-            ? parseFloat(season.rating_people.replace(/[^0-9]/g, ''))
-            : medianVoteCount;
+          const voteCount = safeParseCount(season.rating_people as any, medianVoteCount);
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
           if (!validPlatforms.includes('douban')) {
@@ -485,9 +461,7 @@ export function calculateOverallRating(
       tvData.rottentomatoes.seasons.forEach(season => {
         if (isValidRatingData(season.critics_avg)) {
           const rating = normalizeRating(season.critics_avg, 'rottentomatoes') ?? 0;
-          const voteCount = season.critics_count
-            ? parseFloat(season.critics_count.replace(/[^0-9]/g, ''))
-            : medianVoteCount;
+          const voteCount = safeParseCount(season.critics_count as any, medianVoteCount);
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
           if (!validPlatforms.includes('rottentomatoes')) {
@@ -503,9 +477,7 @@ export function calculateOverallRating(
           });
         } else if (isValidRatingData(season.tomatometer)) {
           const rating = normalizeRating(season.tomatometer, 'rottentomatoes', 'percentage') ?? 0;
-          const voteCount = season.critics_count
-            ? parseFloat(season.critics_count.replace(/[^0-9]/g, ''))
-            : medianVoteCount;
+          const voteCount = safeParseCount(season.critics_count as any, medianVoteCount);
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
           if (!validPlatforms.includes('rottentomatoes')) {
@@ -523,9 +495,7 @@ export function calculateOverallRating(
 
         if (isValidRatingData(season.audience_avg)) {
           const rating = normalizeRating(season.audience_avg, 'rottentomatoes') ?? 0;
-          const voteCount = season.audience_count
-            ? parseFloat(season.audience_count.replace(/[^0-9]/g, ''))
-            : medianVoteCount;
+          const voteCount = safeParseCount(season.audience_count as any, medianVoteCount);
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
           if (!validPlatforms.includes('rottentomatoes')) {
@@ -541,9 +511,7 @@ export function calculateOverallRating(
           });
         } else if (isValidRatingData(season.audience_score)) {
           const rating = normalizeRating(season.audience_score, 'rottentomatoes', 'percentage') ?? 0;
-          const voteCount = season.audience_count
-            ? parseFloat(season.audience_count.replace(/[^0-9]/g, ''))
-            : medianVoteCount;
+          const voteCount = safeParseCount(season.audience_count as any, medianVoteCount);
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
           if (!validPlatforms.includes('rottentomatoes')) {
@@ -566,9 +534,7 @@ export function calculateOverallRating(
       tvData.metacritic.seasons.forEach(season => {
         if (isValidRatingData(season.metascore)) {
           const rating = normalizeRating(season.metascore, 'metacritic', 'metascore') ?? 0;
-          const voteCount = season.critics_count
-            ? parseFloat(season.critics_count)
-            : medianVoteCount;
+          const voteCount = safeParseCount(season.critics_count as any, medianVoteCount);
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
           if (!validPlatforms.includes('metacritic')) {
@@ -585,9 +551,7 @@ export function calculateOverallRating(
         }
         if (isValidRatingData(season.userscore)) {
           const rating = normalizeRating(season.userscore, 'metacritic', 'userscore') ?? 0;
-          const voteCount = season.users_count
-            ? parseFloat(season.users_count)
-            : medianVoteCount;
+          const voteCount = safeParseCount(season.users_count as any, medianVoteCount);
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
           if (!validPlatforms.includes('metacritic')) {
