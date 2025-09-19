@@ -2303,34 +2303,6 @@ async def get_scheduler_status_endpoint():
         logger.error(f"获取调度器状态失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取调度器状态失败: {str(e)}")
 
-@app.post("/api/scheduler/update-interval")
-async def set_update_interval_endpoint(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-):
-    """设置更新间隔"""
-    require_admin(current_user)
-    
-    try:
-        data = await request.json()
-        interval = data.get("interval")
-        
-        if not isinstance(interval, int) or interval < 60:
-            raise HTTPException(status_code=400, detail="更新间隔必须是不小于60的整数（秒）")
-        
-        from chart_scrapers import set_scheduler_interval
-        set_scheduler_interval(interval)
-        
-        return {
-            "status": "success",
-            "message": f"更新间隔已设置为 {interval} 秒",
-            "interval": interval,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-            
-    except Exception as e:
-        logger.error(f"设置更新间隔失败: {e}")
-        raise HTTPException(status_code=500, detail=f"设置更新间隔失败: {str(e)}")
 
 @app.get("/api/health")
 async def health_check():
