@@ -2259,14 +2259,21 @@ async def start_scheduler_endpoint(
     
     try:
         from chart_scrapers import start_auto_scheduler
-        await start_auto_scheduler()
+        logger.info(f"用户 {current_user.email} 尝试启动调度器")
+        
+        scheduler = await start_auto_scheduler()
+        logger.info(f"调度器启动成功，状态: {scheduler.get_status()}")
+        
         return {
             "status": "success",
             "message": "定时任务调度器已启动",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "scheduler_status": scheduler.get_status()
         }
     except Exception as e:
         logger.error(f"启动调度器失败: {e}")
+        import traceback
+        logger.error(f"详细错误信息: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"启动调度器失败: {str(e)}")
 
 @app.post("/api/scheduler/stop")
@@ -2356,6 +2363,15 @@ async def startup_event():
         print(f"浏览器池初始化成功，共 {BROWSER_POOL_SIZE} 个浏览器实例")
     except Exception as e:
         print(f"浏览器池初始化失败: {e}")
+    
+    # 生产环境自动启动调度器（可选）
+    if os.getenv("ENV") != "development":
+        try:
+            from chart_scrapers import start_auto_scheduler
+            await start_auto_scheduler()
+            print("生产环境：定时调度器已自动启动")
+        except Exception as e:
+            print(f"生产环境：自动启动调度器失败: {e}")
 
 @app.post("/api/charts/clear/{platform}")
 async def clear_platform_charts(
