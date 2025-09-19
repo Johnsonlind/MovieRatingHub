@@ -453,35 +453,6 @@ export default function AdminChartsPage() {
     }
   }
 
-  async function handleSetUpdateInterval(interval: number) {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/scheduler/update-interval', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ interval }),
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok) {
-        setUpdateStatus(`更新间隔已设置为 ${interval} 秒`);
-        // 强制刷新调度器状态
-        setForceRefresh(prev => prev + 1);
-        // 3秒后清除状态消息
-        setTimeout(() => setUpdateStatus(''), 3000);
-      } else {
-        setUpdateStatus(`设置更新间隔失败: ${result.detail || '未知错误'}`);
-        setTimeout(() => setUpdateStatus(''), 3000);
-      }
-    } catch (error) {
-      setUpdateStatus(`设置更新间隔失败: ${error}`);
-      setTimeout(() => setUpdateStatus(''), 3000);
-    }
-  }
 
   return (
     <div className={`container mx-auto px-4 py-6 min-h-screen transition-colors bg-gray-900 text-white`}>
@@ -556,25 +527,13 @@ export default function AdminChartsPage() {
             
             <div className="flex items-center gap-2">
               <span className={`text-sm text-gray-300`}>
-                更新间隔:
+                更新时间: 每天 21:30 (北京时间)
               </span>
-              {schedulerData?.data?.running && (
+              {schedulerData?.data?.next_update && (
                 <span className={`text-xs text-gray-400`}>
-                  (运行中不可修改)
+                  下次更新: {new Date(schedulerData.data.next_update).toLocaleString()}
                 </span>
               )}
-              <select 
-                value={schedulerData?.data?.update_interval || 3600}
-                onChange={(e) => handleSetUpdateInterval(parseInt(e.target.value))}
-                disabled={schedulerData?.data?.running}
-                className={`px-2 py-1 text-sm border rounded transition-colors ${schedulerData?.data?.running ? 'bg-gray-700 text-gray-500 cursor-not-allowed border-gray-600' : 'bg-gray-700 text-white border-gray-600'}`}
-              >
-                <option value={3600}>1小时</option>
-                <option value={7200}>2小时</option>
-                <option value={21600}>6小时</option>
-                <option value={43200}>12小时</option>
-                <option value={86400}>24小时</option>
-              </select>
             </div>
             
             <div className="flex gap-2">
