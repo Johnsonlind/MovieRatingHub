@@ -1779,12 +1779,19 @@ class AutoUpdateScheduler:
     async def start(self):
         """启动定时任务调度器"""
         if self.running:
+            logger.info("调度器已在运行中")
             return
         self.running = True
         logger.info("定时任务调度器已启动")
         
-        # 创建后台任务
-        self.task = asyncio.create_task(self._update_loop())
+        try:
+            # 创建后台任务
+            self.task = asyncio.create_task(self._update_loop())
+            logger.info(f"后台任务已创建: {self.task}")
+        except Exception as e:
+            logger.error(f"创建后台任务失败: {e}")
+            self.running = False
+            raise
     
     def stop(self):
         """停止定时任务调度器"""
@@ -1794,26 +1801,51 @@ class AutoUpdateScheduler:
             self.task = None
         logger.info("定时任务调度器已停止")
     
-    def set_update_interval(self, interval: int):
-        """设置更新间隔（秒）"""
-        self.update_interval = interval
-        logger.info(f"更新间隔已设置为 {interval} 秒")
     
     def get_status(self) -> dict:
         """获取调度器状态"""
+        from datetime import datetime, timezone, timedelta
+        
+        # 计算下次更新时间（明天21:30）
+        beijing_tz = timezone(timedelta(hours=8))
+        now_beijing = datetime.now(beijing_tz)
+        today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
+        
+        if now_beijing >= today_2130:
+            # 如果已经过了今天的21:30，下次更新是明天21:30
+            next_update = today_2130 + timedelta(days=1)
+        else:
+            # 如果还没到今天的21:30，下次更新是今天21:30
+            next_update = today_2130
+        
         return {
             'running': self.running,
-            'update_interval': self.update_interval,
+            'next_update': next_update.isoformat(),
             'last_update': self.last_update.isoformat() if self.last_update else None
         }
     
     def should_update(self) -> bool:
-        """检查是否应该执行更新"""
-        if not self.last_update:
-            return True
+        """检查是否应该执行更新 - 每天北京21:30执行"""
+        from datetime import datetime, timezone, timedelta
         
-        time_since_last_update = (datetime.now() - self.last_update).total_seconds()
-        return time_since_last_update >= self.update_interval
+        # 获取当前北京时间
+        beijing_tz = timezone(timedelta(hours=8))
+        now_beijing = datetime.now(beijing_tz)
+        
+        # 检查是否已经过了今天的21:30
+        today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
+        
+        # 如果当前时间已经过了今天的21:30，且上次更新不是今天
+        if now_beijing >= today_2130:
+            if not self.last_update:
+                return True
+            
+            # 检查上次更新是否是今天
+            last_update_beijing = self.last_update.replace(tzinfo=beijing_tz)
+            if last_update_beijing.date() < now_beijing.date():
+                return True
+        
+        return False
     
     async def update_all_charts(self):
         """更新所有榜单数据"""
@@ -1845,7 +1877,7 @@ class AutoUpdateScheduler:
             db.close()
 
     async def _update_loop(self):
-        """更新循环"""
+        """更新循环 - 每分钟检查一次是否到了21:30"""
         while self.running:
             try:
                 if self.should_update():
@@ -1885,14 +1917,21 @@ def get_scheduler_status() -> dict:
     if scheduler_instance:
         return scheduler_instance.get_status()
     else:
+        from datetime import datetime, timezone, timedelta
+        
+        # 计算下次更新时间（明天21:30）
+        beijing_tz = timezone(timedelta(hours=8))
+        now_beijing = datetime.now(beijing_tz)
+        today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
+        
+        if now_beijing >= today_2130:
+            next_update = today_2130 + timedelta(days=1)
+        else:
+            next_update = today_2130
+        
         return {
             'running': False,
-            'update_interval': 3600,
+            'next_update': next_update.isoformat(),
             'last_update': None
         }
 
-def set_scheduler_interval(interval: int):
-    """设置调度器更新间隔"""
-    global scheduler_instance
-    if scheduler_instance:
-        scheduler_instance.set_update_interval(interval)
