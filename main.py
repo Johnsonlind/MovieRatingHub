@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry
+from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, SchedulerStatus
 from sqlalchemy.orm import Session
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
 from redis import asyncio as aioredis
@@ -2253,6 +2253,7 @@ async def get_charts_status(db: Session = Depends(get_db)):
 @app.post("/api/scheduler/start")
 async def start_scheduler_endpoint(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """启动定时任务调度器"""
     require_admin(current_user)
@@ -2262,13 +2263,24 @@ async def start_scheduler_endpoint(
         logger.info(f"用户 {current_user.email} 尝试启动调度器")
         
         scheduler = await start_auto_scheduler()
-        logger.info(f"调度器启动成功，状态: {scheduler.get_status()}")
+        scheduler_status = scheduler.get_status()
+        logger.info(f"调度器启动成功，状态: {scheduler_status}")
+        
+        # 更新数据库状态
+        db_status = SchedulerStatus(
+            running=True,
+            next_update=datetime.fromisoformat(scheduler_status['next_update'].replace('+08:00', '')),
+            last_update=datetime.fromisoformat(scheduler_status['last_update']) if scheduler_status['last_update'] else None
+        )
+        db.add(db_status)
+        db.commit()
+        logger.info("数据库状态已更新")
         
         return {
             "status": "success",
             "message": "定时任务调度器已启动",
             "timestamp": datetime.utcnow().isoformat(),
-            "scheduler_status": scheduler.get_status()
+            "scheduler_status": scheduler_status
         }
     except Exception as e:
         logger.error(f"启动调度器失败: {e}")
@@ -2279,6 +2291,7 @@ async def start_scheduler_endpoint(
 @app.post("/api/scheduler/stop")
 async def stop_scheduler_endpoint(
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """停止定时任务调度器"""
     require_admin(current_user)
@@ -2286,6 +2299,17 @@ async def stop_scheduler_endpoint(
     try:
         from chart_scrapers import stop_auto_scheduler
         stop_auto_scheduler()
+        
+        # 更新数据库状态
+        db_status = SchedulerStatus(
+            running=False,
+            next_update=None,
+            last_update=None
+        )
+        db.add(db_status)
+        db.commit()
+        logger.info("调度器已停止，数据库状态已更新")
+        
         return {
             "status": "success",
             "message": "定时任务调度器已停止",
@@ -2296,16 +2320,33 @@ async def stop_scheduler_endpoint(
         raise HTTPException(status_code=500, detail=f"停止调度器失败: {str(e)}")
 
 @app.get("/api/scheduler/status")
-async def get_scheduler_status_endpoint():
+async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
     """获取调度器状态"""
     try:
-        from chart_scrapers import get_scheduler_status
-        status = get_scheduler_status()
-        return {
-            "status": "success",
-            "data": status,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        # 首先尝试从数据库获取状态
+        db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
+        
+        if db_status:
+            logger.info(f"从数据库获取调度器状态: running={db_status.running}")
+            return {
+                "status": "success",
+                "data": {
+                    "running": db_status.running,
+                    "next_update": db_status.next_update.isoformat() if db_status.next_update else None,
+                    "last_update": db_status.last_update.isoformat() if db_status.last_update else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        else:
+            # 如果数据库中没有状态，使用内存中的状态
+            from chart_scrapers import get_scheduler_status
+            status = get_scheduler_status()
+            logger.info(f"从内存获取调度器状态: {status}")
+            return {
+                "status": "success",
+                "data": status,
+                "timestamp": datetime.utcnow().isoformat()
+            }
     except Exception as e:
         logger.error(f"获取调度器状态失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取调度器状态失败: {str(e)}")
