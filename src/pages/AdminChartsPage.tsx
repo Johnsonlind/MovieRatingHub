@@ -76,6 +76,11 @@ export default function AdminChartsPage() {
   const [autoUpdating, setAutoUpdating] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<string>('');
   const [forceRefresh, setForceRefresh] = useState(0);
+  const [schedulerState, setSchedulerState] = useState<{
+    running: boolean;
+    next_update: string | null;
+    last_update: string | null;
+  } | null>(null);
   
   // 各平台操作状态
   const [platformOperations, setPlatformOperations] = useState<Record<string, boolean>>({});
@@ -95,16 +100,32 @@ export default function AdminChartsPage() {
     enabled: pickerOpen && !!pickerQuery,
   });
 
-  // 获取调度器状态
-  const { data: schedulerData } = useQuery({
+  // 获取调度器状态 - 改进版本
+  const { data: schedulerData, refetch: refetchScheduler } = useQuery({
     queryKey: ['scheduler-status', forceRefresh],
     queryFn: async () => {
-      const res = await fetch('/api/scheduler/status');
+      // 添加时间戳防止缓存
+      const timestamp = new Date().getTime();
+      const res = await fetch(`/api/scheduler/status?_t=${timestamp}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
       return res.json();
     },
-    refetchInterval: 10000, // 每10秒刷新一次调度器状态
-    staleTime: 0, // 立即过期，确保总是获取最新数据
+    refetchInterval: 3000, // 每3秒刷新一次
+    staleTime: 0
   });
+
+  // 监听数据变化，更新本地状态
+  useEffect(() => {
+    if (schedulerData?.data) {
+      setSchedulerState(schedulerData.data);
+    }
+  }, [schedulerData]);
 
 
   useEffect(() => {
@@ -398,7 +419,7 @@ export default function AdminChartsPage() {
     }
   }
 
-  // 调度器控制函数
+  // 调度器控制函数 - 改进版本
   async function handleStartScheduler() {
     try {
       console.log('开始启动调度器...');
@@ -409,6 +430,9 @@ export default function AdminChartsPage() {
         setTimeout(() => setUpdateStatus(''), 3000);
         return;
       }
+      
+      // 立即更新UI状态（乐观更新）
+      setSchedulerState(prev => prev ? { ...prev, running: true } : null);
       
       console.log('发送启动请求到 /api/scheduler/start');
       const response = await fetch('/api/scheduler/start', {
@@ -422,6 +446,8 @@ export default function AdminChartsPage() {
       console.log('响应状态:', response.status);
       
       if (!response.ok) {
+        // 如果失败，恢复原状态
+        setSchedulerState(prev => prev ? { ...prev, running: false } : null);
         const errorText = await response.text();
         console.error('启动失败响应:', errorText);
         setUpdateStatus(`启动调度器失败 (${response.status}): ${errorText}`);
@@ -432,10 +458,15 @@ export default function AdminChartsPage() {
       const result = await response.json();
       console.log('启动成功响应:', result);
       
-      setUpdateStatus('定时任务调度器已启动');
+      // 强制刷新状态
       setForceRefresh(prev => prev + 1);
+      await refetchScheduler();
+      
+      setUpdateStatus('定时任务调度器已启动');
       setTimeout(() => setUpdateStatus(''), 3000);
     } catch (error) {
+      // 如果失败，恢复原状态
+      setSchedulerState(prev => prev ? { ...prev, running: false } : null);
       console.error('启动调度器异常:', error);
       setUpdateStatus(`启动调度器失败: ${error}`);
       setTimeout(() => setUpdateStatus(''), 5000);
@@ -444,7 +475,18 @@ export default function AdminChartsPage() {
 
   async function handleStopScheduler() {
     try {
+      console.log('开始停止调度器...');
       const token = localStorage.getItem('token');
+      
+      if (!token) {
+        setUpdateStatus('未找到认证令牌，请重新登录');
+        setTimeout(() => setUpdateStatus(''), 3000);
+        return;
+      }
+      
+      // 立即更新UI状态（乐观更新）
+      setSchedulerState(prev => prev ? { ...prev, running: false } : null);
+      
       const response = await fetch('/api/scheduler/stop', {
         method: 'POST',
         headers: {
@@ -453,19 +495,30 @@ export default function AdminChartsPage() {
         },
       });
       
-      const result = await response.json();
-      
-      if (response.ok) {
-        setUpdateStatus('定时任务调度器已停止');
-        setForceRefresh(prev => prev + 1);
-        setTimeout(() => setUpdateStatus(''), 3000);
-      } else {
-        setUpdateStatus(`停止调度器失败: ${result.detail || '未知错误'}`);
-        setTimeout(() => setUpdateStatus(''), 3000);
+      if (!response.ok) {
+        // 如果失败，恢复原状态
+        setSchedulerState(prev => prev ? { ...prev, running: true } : null);
+        const errorText = await response.text();
+        setUpdateStatus(`停止调度器失败 (${response.status}): ${errorText}`);
+        setTimeout(() => setUpdateStatus(''), 5000);
+        return;
       }
-    } catch (error) {
-      setUpdateStatus(`停止调度器失败: ${error}`);
+      
+      const result = await response.json();
+      console.log('停止成功响应:', result);
+      
+      // 强制刷新状态
+      setForceRefresh(prev => prev + 1);
+      await refetchScheduler();
+      
+      setUpdateStatus('定时任务调度器已停止');
       setTimeout(() => setUpdateStatus(''), 3000);
+    } catch (error) {
+      // 如果失败，恢复原状态
+      setSchedulerState(prev => prev ? { ...prev, running: true } : null);
+      console.error('停止调度器异常:', error);
+      setUpdateStatus(`停止调度器失败: ${error}`);
+      setTimeout(() => setUpdateStatus(''), 5000);
     }
   }
 
@@ -488,18 +541,18 @@ export default function AdminChartsPage() {
             </div>
           )}
           
-          {/* 调度器状态 */}
-          {schedulerData?.data && (
+          {/* 调度器状态 - 使用本地状态 */}
+          {(schedulerState || schedulerData?.data) && (
             <div className="flex items-center gap-2 text-sm">
               <div className={`w-2 h-2 rounded-full ${
-                schedulerData.data.running ? 'bg-green-500' : 'bg-gray-400'
+                (schedulerState || schedulerData?.data)?.running ? 'bg-green-500' : 'bg-gray-400'
               }`}></div>
               <span className={'text-gray-300'}>
-                {schedulerData.data.running ? '调度器运行中' : '调度器已停止'}
+                {(schedulerState || schedulerData?.data)?.running ? '调度器运行中' : '调度器已停止'}
               </span>
-              {schedulerData.data.last_update && (
+              {(schedulerState || schedulerData?.data)?.last_update && (
                 <span className={`text-xs text-gray-400`}>
-                  上次更新: {new Date(schedulerData.data.last_update).toLocaleString()}
+                  上次更新: {new Date((schedulerState || schedulerData?.data)?.last_update).toLocaleString()}
                 </span>
               )}
             </div>
@@ -525,8 +578,8 @@ export default function AdminChartsPage() {
         </div>
       </div>
 
-      {/* 调度器控制面板 */}
-      {schedulerData?.data && (
+      {/* 调度器控制面板 - 使用本地状态 */}
+      {(schedulerState || schedulerData?.data) && (
         <div className={`mb-6 p-4 rounded-lg bg-gray-800 border border-gray-700`}>
           <h3 className={`text-lg font-semibold mb-3 text-white`}>
             定时自动更新
@@ -534,10 +587,10 @@ export default function AdminChartsPage() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${
-                schedulerData.data.running ? 'bg-green-500' : 'bg-gray-400'
+                (schedulerState || schedulerData?.data)?.running ? 'bg-green-500' : 'bg-gray-400'
               }`}></div>
               <span className={`font-medium text-white`}>
-                {schedulerData.data.running ? '运行中' : '已停止'}
+                {(schedulerState || schedulerData?.data)?.running ? '运行中' : '已停止'}
               </span>
             </div>
             
@@ -545,15 +598,15 @@ export default function AdminChartsPage() {
               <span className={`text-sm text-gray-300`}>
                 更新时间: 每天 21:30 (北京时间)
               </span>
-              {schedulerData?.data?.next_update && (
+              {(schedulerState || schedulerData?.data)?.next_update && (
                 <span className={`text-xs text-gray-400`}>
-                  下次更新: {new Date(schedulerData.data.next_update).toLocaleString()}
+                  下次更新: {new Date((schedulerState || schedulerData?.data)?.next_update).toLocaleString()}
                 </span>
               )}
             </div>
             
             <div className="flex gap-2">
-              {schedulerData.data.running ? (
+              {(schedulerState || schedulerData?.data)?.running ? (
                 <button
                   onClick={handleStopScheduler}
                   className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
