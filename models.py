@@ -111,6 +111,15 @@ class Follow(Base):
     follower = relationship("User", foreign_keys=[follower_id], back_populates="following")
     following = relationship("User", foreign_keys=[following_id], back_populates="followers")
 
+class SchedulerStatus(Base):
+    __tablename__ = "scheduler_status"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    running = Column(Boolean, default=False, nullable=False)
+    last_update = Column(DateTime, nullable=True)
+    next_update = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
+
 # 创建数据库表
 def init_db():
     Base.metadata.create_all(bind=engine)
