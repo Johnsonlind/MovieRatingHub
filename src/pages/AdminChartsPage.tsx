@@ -401,7 +401,16 @@ export default function AdminChartsPage() {
   // 调度器控制函数
   async function handleStartScheduler() {
     try {
+      console.log('开始启动调度器...');
       const token = localStorage.getItem('token');
+      
+      if (!token) {
+        setUpdateStatus('未找到认证令牌，请重新登录');
+        setTimeout(() => setUpdateStatus(''), 3000);
+        return;
+      }
+      
+      console.log('发送启动请求到 /api/scheduler/start');
       const response = await fetch('/api/scheduler/start', {
         method: 'POST',
         headers: {
@@ -410,19 +419,26 @@ export default function AdminChartsPage() {
         },
       });
       
-      const result = await response.json();
+      console.log('响应状态:', response.status);
       
-      if (response.ok) {
-        setUpdateStatus('定时任务调度器已启动');
-        setForceRefresh(prev => prev + 1);
-        setTimeout(() => setUpdateStatus(''), 3000);
-      } else {
-        setUpdateStatus(`启动调度器失败: ${result.detail || '未知错误'}`);
-        setTimeout(() => setUpdateStatus(''), 3000);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('启动失败响应:', errorText);
+        setUpdateStatus(`启动调度器失败 (${response.status}): ${errorText}`);
+        setTimeout(() => setUpdateStatus(''), 5000);
+        return;
       }
-    } catch (error) {
-      setUpdateStatus(`启动调度器失败: ${error}`);
+      
+      const result = await response.json();
+      console.log('启动成功响应:', result);
+      
+      setUpdateStatus('定时任务调度器已启动');
+      setForceRefresh(prev => prev + 1);
       setTimeout(() => setUpdateStatus(''), 3000);
+    } catch (error) {
+      console.error('启动调度器异常:', error);
+      setUpdateStatus(`启动调度器失败: ${error}`);
+      setTimeout(() => setUpdateStatus(''), 5000);
     }
   }
 
