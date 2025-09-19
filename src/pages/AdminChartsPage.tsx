@@ -177,13 +177,14 @@ export default function AdminChartsPage() {
   };
 
 
-  useEffect(() => {
-    if (!activeKey && CHART_STRUCTURE.length) {
-      const first = CHART_STRUCTURE[0];
-      const sec = first.sections[0];
-      setActiveKey(`${first.platform}:${sec.name}:${sec.media_type}`);
-    }
-  }, []);
+  // 移除默认展开逻辑，让榜单默认收起
+  // useEffect(() => {
+  //   if (!activeKey && CHART_STRUCTURE.length) {
+  //     const first = CHART_STRUCTURE[0];
+  //     const sec = first.sections[0];
+  //     setActiveKey(`${first.platform}:${sec.name}:${sec.media_type}`);
+  //   }
+  // }, []);
 
   // 当切换不同的板块时，拉取该板块已录入的项目
   useEffect(() => {
@@ -716,12 +717,26 @@ export default function AdminChartsPage() {
                       <div className={`font-medium text-white`}>
                         {sec.name}（{sec.media_type === 'movie' ? '电影' : (sec.media_type === 'tv' ? '剧集' : '电影/剧集')}）
                       </div>
-                      <button 
-                        className={`text-sm text-blue-400 hover:text-blue-300`} 
-                        onClick={() => setActiveKey(key)}
-                      >
-                        选择
-                      </button>
+                      <div className="flex gap-2">
+                        <button 
+                          className={`text-sm text-blue-400 hover:text-blue-300`} 
+                          onClick={() => setActiveKey(key)}
+                        >
+                          选择
+                        </button>
+                        <button 
+                          className={`text-sm text-green-400 hover:text-green-300`} 
+                          onClick={() => {
+                            if (activeKey === key) {
+                              setActiveKey(''); // 收起
+                            } else {
+                              setActiveKey(key); // 展开
+                            }
+                          }}
+                        >
+                          {activeKey === key ? '收起' : '展开'}
+                        </button>
+                      </div>
                     </div>
                     {activeKey === key && (
                       <div className="space-y-3">
