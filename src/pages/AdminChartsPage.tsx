@@ -101,31 +101,80 @@ export default function AdminChartsPage() {
   });
 
   // 获取调度器状态 - 改进版本
-  const { data: schedulerData, refetch: refetchScheduler } = useQuery({
+  const { data: schedulerData, refetch: refetchScheduler, isLoading: schedulerLoading } = useQuery({
     queryKey: ['scheduler-status', forceRefresh],
     queryFn: async () => {
-      // 添加时间戳防止缓存
-      const timestamp = new Date().getTime();
-      const res = await fetch(`/api/scheduler/status?_t=${timestamp}`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
+      try {
+        // 添加时间戳防止缓存
+        const timestamp = new Date().getTime();
+        const res = await fetch(`/api/scheduler/status?_t=${timestamp}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
         }
-      });
-      return res.json();
+        
+        return res.json();
+      } catch (error) {
+        console.error('获取调度器状态失败:', error);
+        // 返回默认状态
+        return {
+          status: 'error',
+          data: {
+            running: false,
+            next_update: null,
+            last_update: null
+          }
+        };
+      }
     },
     refetchInterval: 3000, // 每3秒刷新一次
-    staleTime: 0
+    staleTime: 0,
+    retry: 3, // 重试3次
+    retryDelay: 1000 // 重试延迟1秒
   });
 
   // 监听数据变化，更新本地状态
   useEffect(() => {
-    if (schedulerData?.data) {
+    if (schedulerData && schedulerData.data) {
       setSchedulerState(schedulerData.data);
     }
   }, [schedulerData]);
+
+  // 获取当前调度器状态的辅助函数
+  const getCurrentSchedulerState = () => {
+    try {
+      // 优先使用本地状态
+      if (schedulerState) {
+        return schedulerState;
+      }
+      
+      // 其次使用API数据
+      if (schedulerData && schedulerData.data) {
+        return schedulerData.data;
+      }
+      
+      // 如果都在加载中，返回默认状态
+      if (schedulerLoading) {
+        return {
+          running: false,
+          next_update: null,
+          last_update: null
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('获取调度器状态时出错:', error);
+      return null;
+    }
+  };
 
 
   useEffect(() => {
@@ -542,17 +591,17 @@ export default function AdminChartsPage() {
           )}
           
           {/* 调度器状态 - 使用本地状态 */}
-          {(schedulerState || schedulerData?.data) && (
+          {getCurrentSchedulerState() && (
             <div className="flex items-center gap-2 text-sm">
               <div className={`w-2 h-2 rounded-full ${
-                (schedulerState || schedulerData?.data)?.running ? 'bg-green-500' : 'bg-gray-400'
+                getCurrentSchedulerState()?.running ? 'bg-green-500' : 'bg-gray-400'
               }`}></div>
               <span className={'text-gray-300'}>
-                {(schedulerState || schedulerData?.data)?.running ? '调度器运行中' : '调度器已停止'}
+                {getCurrentSchedulerState()?.running ? '调度器运行中' : '调度器已停止'}
               </span>
-              {(schedulerState || schedulerData?.data)?.last_update && (
+              {getCurrentSchedulerState()?.last_update && (
                 <span className={`text-xs text-gray-400`}>
-                  上次更新: {new Date((schedulerState || schedulerData?.data)?.last_update).toLocaleString()}
+                  上次更新: {new Date(getCurrentSchedulerState()?.last_update).toLocaleString()}
                 </span>
               )}
             </div>
@@ -579,7 +628,7 @@ export default function AdminChartsPage() {
       </div>
 
       {/* 调度器控制面板 - 使用本地状态 */}
-      {(schedulerState || schedulerData?.data) && (
+      {getCurrentSchedulerState() && (
         <div className={`mb-6 p-4 rounded-lg bg-gray-800 border border-gray-700`}>
           <h3 className={`text-lg font-semibold mb-3 text-white`}>
             定时自动更新
@@ -587,10 +636,10 @@ export default function AdminChartsPage() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${
-                (schedulerState || schedulerData?.data)?.running ? 'bg-green-500' : 'bg-gray-400'
+                getCurrentSchedulerState()?.running ? 'bg-green-500' : 'bg-gray-400'
               }`}></div>
               <span className={`font-medium text-white`}>
-                {(schedulerState || schedulerData?.data)?.running ? '运行中' : '已停止'}
+                {getCurrentSchedulerState()?.running ? '运行中' : '已停止'}
               </span>
             </div>
             
@@ -598,15 +647,15 @@ export default function AdminChartsPage() {
               <span className={`text-sm text-gray-300`}>
                 更新时间: 每天 21:30 (北京时间)
               </span>
-              {(schedulerState || schedulerData?.data)?.next_update && (
+              {getCurrentSchedulerState()?.next_update && (
                 <span className={`text-xs text-gray-400`}>
-                  下次更新: {new Date((schedulerState || schedulerData?.data)?.next_update).toLocaleString()}
+                  下次更新: {new Date(getCurrentSchedulerState()?.next_update).toLocaleString()}
                 </span>
               )}
             </div>
             
             <div className="flex gap-2">
-              {(schedulerState || schedulerData?.data)?.running ? (
+              {getCurrentSchedulerState()?.running ? (
                 <button
                   onClick={handleStopScheduler}
                   className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
@@ -623,9 +672,9 @@ export default function AdminChartsPage() {
               )}
             </div>
             
-            {schedulerData.data.last_update && (
+            {getCurrentSchedulerState()?.last_update && (
               <div className={`text-sm text-gray-400`}>
-                上次更新: {new Date(schedulerData.data.last_update).toLocaleString()}
+                上次更新: {new Date(getCurrentSchedulerState()?.last_update).toLocaleString()}
               </div>
             )}
           </div>
