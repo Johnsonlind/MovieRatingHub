@@ -1897,12 +1897,20 @@ scheduler_instance: Optional[AutoUpdateScheduler] = None
 async def start_auto_scheduler():
     """启动全局调度器"""
     global scheduler_instance
+    
+    logger.info(f"启动调度器 - 当前scheduler_instance: {scheduler_instance}")
+    
     if not scheduler_instance:
         scheduler_instance = AutoUpdateScheduler()
+        logger.info("创建新的调度器实例")
     
     if not scheduler_instance.running:
         await scheduler_instance.start()
+        logger.info(f"调度器启动完成，状态: {scheduler_instance.get_status()}")
+    else:
+        logger.info("调度器已在运行中")
     
+    logger.info(f"返回调度器实例: {scheduler_instance}")
     return scheduler_instance
 
 def stop_auto_scheduler():
@@ -1914,8 +1922,15 @@ def stop_auto_scheduler():
 def get_scheduler_status() -> dict:
     """获取调度器状态"""
     global scheduler_instance
-    if scheduler_instance:
-        return scheduler_instance.get_status()
+    
+    # 添加调试日志
+    logger.info(f"获取调度器状态 - scheduler_instance: {scheduler_instance}")
+    logger.info(f"scheduler_instance.running: {scheduler_instance.running if scheduler_instance else 'None'}")
+    
+    if scheduler_instance and scheduler_instance.running:
+        status = scheduler_instance.get_status()
+        logger.info(f"返回调度器状态: {status}")
+        return status
     else:
         from datetime import datetime, timezone, timedelta
         
@@ -1929,9 +1944,11 @@ def get_scheduler_status() -> dict:
         else:
             next_update = today_2130
         
-        return {
+        status = {
             'running': False,
             'next_update': next_update.isoformat(),
             'last_update': None
         }
+        logger.info(f"返回默认状态: {status}")
+        return status
 
