@@ -322,8 +322,28 @@ class ChartScraper:
         async def scrape(browser):
             page = await browser.new_page()
             try:
+                try:
+                    await page.set_extra_http_headers({'Accept-Language': 'en-US,en;q=0.9'})
+                except Exception:
+                    pass
                 await page.goto("https://www.imdb.com/", wait_until="domcontentloaded")
                 await page.wait_for_load_state("networkidle")
+                # 尝试处理 Cookie/隐私弹窗
+                try:
+                    for sel in [
+                        "button[aria-label='Accept']",
+                        "button[aria-label='Agree']",
+                        "#consent-banner-accept",
+                        "[data-testid='accept-button']",
+                        "#gdpr-consent-accept"
+                    ]:
+                        btn = await page.query_selector(sel)
+                        if btn:
+                            await btn.click()
+                            await asyncio.sleep(0.3)
+                            break
+                except Exception:
+                    pass
 
                 # 先尝试：根据模块标题定位 section（某些地区/布局可能没有标题文案）
                 section = await page.query_selector("section:has-text('Top 10 on IMDb this week')")
@@ -345,13 +365,27 @@ class ChartScraper:
                     if container:
                         cards = await container.query_selector_all(".topten-title, a[href*='/title/tt']")
 
+                # 回退3：滚动触发懒加载，再次尝试
+                if not cards:
+                    try:
+                        for _ in range(6):
+                            await page.mouse.wheel(0, 900)
+                            await asyncio.sleep(0.3)
+                        cards = await page.query_selector_all('.topten-title')
+                        if not cards:
+                            container = await page.query_selector("[data-testid='shoveler-items-container']")
+                            if container:
+                                cards = await container.query_selector_all(".topten-title, a[href*='/title/tt']")
+                    except Exception:
+                        pass
+
                 if not cards:
                     logger.error("未找到 Top 10 卡片（.topten-title）")
                     return []
                 results = []
                 seen = set()
 
-                for card in cards:
+                for idx, card in enumerate(cards, 1):
                     # 1) 从 overlay 链接中提取 imdb_id（/title/ttxxxxxx）
                     a_overlay = await card.query_selector("a[href*='/title/tt']")
                     href = await a_overlay.get_attribute("href") if a_overlay else None
@@ -362,15 +396,22 @@ class ChartScraper:
                     if imdb_id in seen:
                         continue
 
-                    # 2) 从标题节点中解析“序号. 标题”（如 "1. Monster"）
-                    title_span = await card.query_selector("a.ipc-poster-card__title [data-testid='title']")
-                    title_text = (await title_span.inner_text() if title_span else "").strip()
+                    # 2) 解析标题与排名（如 "1. Monster"）; 失败则用出现顺序作为排名
+                    title_text = ""
+                    try:
+                        title_span = await card.query_selector("a.ipc-poster-card__title [data-testid='title']")
+                        title_text = (await title_span.inner_text() if title_span else "").strip()
+                    except Exception:
+                        title_text = ""
                     m_title = re.match(r"^\s*(\d+)\.\s*(.+)$", title_text)
-                    if not m_title:
-                        # 如果未匹配到“序号. 标题”，跳过该项
-                        continue
-                    rank = int(m_title.group(1))
-                    title = m_title.group(2).strip()
+                    if m_title:
+                        rank = int(m_title.group(1))
+                        title = m_title.group(2).strip()
+                    else:
+                        rank = idx
+                        # 宽松获取标题
+                        title_link = await card.query_selector('a.ipc-poster-card__title, a[href*="/title/tt"]')
+                        title = (await title_link.inner_text() if title_link else imdb_id).strip()
 
                     results.append({
                         'rank': rank,
@@ -791,62 +832,108 @@ class ChartScraper:
     # TMDB / Trakt 集成更新
     # ==========================================
     async def update_tmdb_trending_all_week(self) -> int:
-        """TMDB 趋势本周 (all/week)，混合榜单，前10名入库到 'TMDB / 趋势本周'"""
-        import urllib3, requests
+        """TMDB 趋势本周（页面顺序）。优先抓取网页 remote/panel 顺序，失败回退官方 API。"""
+        import urllib3, requests, re
+        from bs4 import BeautifulSoup
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
-        # TMDB Bearer Token
-        tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
-        
-        headers = {
-            'Authorization': f'Bearer {tmdb_token}',
-            'accept': 'application/json'
-        }
-        
-        # 调用混合榜单API
-        url = "https://api.themoviedb.org/3/trending/all/week?language=zh-CN"
-        try:
-            r = requests.get(url, headers=headers, timeout=25, verify=False)
-            if r.status_code != 200:
-                logger.error(f"TMDB API调用失败，状态码: {r.status_code}")
-                return 0
-            
-            data = r.json()
-            results = data.get('results', [])[:10]  # 只要前10名
-            
-            # 先清空现有的TMDB趋势本周数据
-            self.db.query(ChartEntry).filter(
-                ChartEntry.platform == 'TMDB',
-                ChartEntry.chart_name == '趋势本周'
-            ).delete()
-            
-            saved = 0
-            for idx, item in enumerate(results, 1):
-                tmdb_id = int(item.get('id'))
-                media_type = item.get('media_type')  # 'movie' 或 'tv'
-                title = item.get('title') or item.get('name') or ''
-                poster_path = item.get('poster_path') or ''
-                poster = f"/api/image-proxy?url=/tmdb-images/w500{poster_path}" if poster_path else ''
-                
-                # 创建新的榜单条目
-                self.db.add(ChartEntry(
-                    platform='TMDB',
-                    chart_name='趋势本周',
-                    media_type=media_type,
-                    rank=idx,
-                    tmdb_id=tmdb_id,
-                    title=title,
-                    poster=poster
-                ))
-                saved += 1
-            
-            self.db.commit()
-            logger.info(f"TMDB 趋势本周 入库 {saved} 条")
-            return saved
-            
-        except Exception as e:
-            logger.error(f"TMDB 趋势更新失败: {e}")
+
+        def fetch_from_remote_panel() -> list[dict]:
+            try:
+                # 与网页一致的数据源（顺序即为展示顺序）
+                panel_url = "https://www.themoviedb.org/remote/panel?panel=trending_scroller&group=this-week"
+                headers_html = {
+                    'User-Agent': 'Mozilla/5.0',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                }
+                rr = requests.get(panel_url, headers=headers_html, timeout=20, verify=False)
+                if rr.status_code != 200:
+                    logger.warning(f"TMDB remote panel 调用失败: {rr.status_code}")
+                    return []
+                html = rr.text
+                soup = BeautifulSoup(html, 'html.parser')
+                items: list[dict] = []
+                seen: set[tuple[str,int]] = set()
+
+                # 链接通常形如 /movie/123 | /tv/456
+                for a in soup.select('a[href^="/movie/"] , a[href^="/tv/"]'):
+                    href = a.get('href') or ''
+                    m = re.match(r'^/(movie|tv)/(\d+)', href)
+                    if not m:
+                        continue
+                    media_type, sid = m.group(1), int(m.group(2))
+                    key = (media_type, sid)
+                    if key in seen:
+                        continue
+                    # 标题可从 a 的 title 或文本获取（若无则留空，后续 TMDB 补齐）
+                    title = (a.get('title') or a.get_text(strip=True) or '').strip()
+                    items.append({'media_type': media_type, 'tmdb_id': sid, 'title': title})
+                    seen.add(key)
+
+                return items[:10]
+            except Exception as ex:
+                logger.error(f"解析 TMDB remote panel 失败: {ex}")
+                return []
+
+        def fetch_from_official_api() -> list[dict]:
+            # 回退：官方 API（顺序为趋势排序）
+            tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
+            headers_api = {
+                'Authorization': f'Bearer {tmdb_token}',
+                'accept': 'application/json'
+            }
+            url = "https://api.themoviedb.org/3/trending/all/week"
+            try:
+                r = requests.get(url, headers=headers_api, timeout=20, verify=False)
+                if r.status_code != 200:
+                    return []
+                data = r.json()
+                arr = []
+                for it in (data.get('results') or [])[:10]:
+                    arr.append({
+                        'media_type': it.get('media_type'),
+                        'tmdb_id': int(it.get('id')),
+                        'title': it.get('title') or it.get('name') or ''
+                    })
+                return arr
+            except Exception:
+                return []
+
+        # 先用页面顺序数据源
+        items = fetch_from_remote_panel()
+        if not items:
+            # 回退API
+            items = fetch_from_official_api()
+        if not items:
+            logger.error("TMDB 趋势本周：页面与API均无结果")
             return 0
+
+        # 清空现有数据
+        self.db.query(ChartEntry).filter(
+            ChartEntry.platform == 'TMDB',
+            ChartEntry.chart_name == '趋势本周'
+        ).delete()
+
+        # 入库（按 items 顺序赋 rank）
+        saved = 0
+        for idx, item in enumerate(items[:10], 1):
+            tmdb_id = int(item.get('tmdb_id'))
+            media_type = item.get('media_type') or 'movie'
+            title = item.get('title') or ''
+            self.db.add(ChartEntry(
+                platform='TMDB',
+                chart_name='趋势本周',
+                media_type=media_type,
+                rank=idx,
+                tmdb_id=tmdb_id,
+                title=title,
+                poster=''  # 可在后续展示层用 TMDB ID 拼图
+            ))
+            saved += 1
+
+        self.db.commit()
+        logger.info(f"TMDB 趋势本周 入库 {saved} 条（来源：{'remote panel' if items else 'api'}）")
+        return saved
 
     async def update_trakt_movies_weekly(self) -> int:
         """Trakt Movies most watched weekly → 'Trakt / Top Movies Last Week'"""
