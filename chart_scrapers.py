@@ -388,15 +388,16 @@ class ChartScraper:
                 try:
                     import requests
                     import urllib3
+                    import json
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                     ids = [it['imdb_id'] for it in results]
                     if ids:
+                        variables = json.dumps({'idArray': ids, 'locale': 'en-US'}, separators=(',', ':'))
+                        extensions = json.dumps({'persistedQuery': {'sha256Hash': '6fc68f3472b1df2ab36554a4f95bc493b1f1107b22285b9885872e86e5c2d543', 'version': 1}}, separators=(',', ':'))
                         params = {
                             'operationName': 'TitlesUserRatings',
-                            'variables': ("{"
-                                           f"\"idArray\":[{','.join(f'\\\"{i}\\\"' for i in ids)}],\"locale\":\"en-US\""
-                                           "}"),
-                            'extensions': '{"persistedQuery":{"sha256Hash":"6fc68f3472b1df2ab36554a4f95bc493b1f1107b22285b9885872e86e5c2d543","version":1}}'
+                            'variables': variables,
+                            'extensions': extensions,
                         }
                         r = requests.get('https://api.graphql.imdb.com/', params=params, timeout=15, verify=False)
                         if r.status_code == 200:
