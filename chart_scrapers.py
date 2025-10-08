@@ -333,7 +333,7 @@ class ChartScraper:
             params = {
                 "operationName": "BatchPage_HomeMain",
                 "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
-                "extensions": '{"persistedQuery":{"sha256Hash":"b90259dee20c9ca9ffd71c01eb97d1e8e5eee5b8d11d72ca9e1ed597ed1a9674","version":1}}'
+                "extensions": '{"persistedQuery":{"sha256Hash":"c67332f9e9d91317c63c60dfd1ded1e9cd68c59ead2de57568451b13493812f6","version":1}}'
             }
             
             # 设置请求头
@@ -359,28 +359,45 @@ class ChartScraper:
             if response.status_code == 200:
                 data = response.json()
 
-                # 解析Top 10数据 - 根据实际响应格式更新
+                # 解析Top 10数据（优先 data.topMeterTitles，其次 batch.responseList[*].data.topMeterTitles）
                 results = []
-                batch_list = data.get("data", {}).get("batch", {}).get("responseList", [])
-                for item in batch_list:
-                    inner_data = item.get("data", {})
-                    top_titles = inner_data.get("topMeterTitles", {}).get("edges", [])
-                    for edge in top_titles:   
+                top_edges = (data.get("data", {}).get("topMeterTitles", {}) or {}).get("edges", [])
+                if not top_edges:
+                    batch_list = data.get("data", {}).get("batch", {}).get("responseList", [])
+                    for item in batch_list:
+                        inner_data = item.get("data", {})
+                        top_edges = inner_data.get("topMeterTitles", {}).get("edges", [])
+                        for edge in top_edges:
+                            node = edge.get("node", {})
+                            imdb_id = node.get("id")
+                            rank = (node.get("meterRanking", {}) or {}).get("currentRank")
+                            title = ((node.get("titleText") or {}).get("text")) or ""
+                            if imdb_id and isinstance(rank, int) and rank >= 1:
+                                results.append({
+                                    "rank": rank,
+                                    "title": title,
+                                    "imdb_id": imdb_id,
+                                    "url": f"https://www.imdb.com/title/{imdb_id}/"
+                                })
+                else:
+                    for edge in top_edges:
                         node = edge.get("node", {})
                         imdb_id = node.get("id")
-                        rank_info = node.get("meterRanking", {})
-                        rank = rank_info.get("currentRank")
-
-                        if imdb_id and rank:
+                        rank = (node.get("meterRanking", {}) or {}).get("currentRank")
+                        title = ((node.get("titleText") or {}).get("text")) or ""
+                        if imdb_id and isinstance(rank, int) and rank >= 1:
                             results.append({
                                 "rank": rank,
-                                "id": imdb_id
+                                "title": title,
+                                "imdb_id": imdb_id,
+                                "url": f"https://www.imdb.com/title/{imdb_id}/"
                             })
 
-                # 按排名排序（以防接口返回顺序乱）
+                # 排序并只取前10
                 results.sort(key=lambda x: x["rank"])
+                results = results[:10]
 
-                logger.info(f"共获取到 {len(results)} 个影片ID")
+                logger.info(f"IMDb Top 10 获取到 {len(results)} 条（GraphQL）")
                 return results   
             else: 
                 logger.error(f"IMDB API请求失败: {response.status_code}")
