@@ -384,6 +384,36 @@ class ChartScraper:
                 results.sort(key=lambda x: x['rank'])
                 results = results[:10]
 
+                # 可选加速：使用 IMDb GraphQL TitlesUserRatings 批量补充评分（需要已有 id 列表）
+                try:
+                    import requests
+                    import urllib3
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                    ids = [it['imdb_id'] for it in results]
+                    if ids:
+                        params = {
+                            'operationName': 'TitlesUserRatings',
+                            'variables': ("{"
+                                           f"\"idArray\":[{','.join(f'\\\"{i}\\\"' for i in ids)}],\"locale\":\"en-US\""
+                                           "}"),
+                            'extensions': '{"persistedQuery":{"sha256Hash":"6fc68f3472b1df2ab36554a4f95bc493b1f1107b22285b9885872e86e5c2d543","version":1}}'
+                        }
+                        r = requests.get('https://api.graphql.imdb.com/', params=params, timeout=15, verify=False)
+                        if r.status_code == 200:
+                            data = r.json()
+                            titles = (data or {}).get('data', {}).get('titles', []) or []
+                            rating_map = {t.get('id'): (t.get('userRating') or {}) for t in titles}
+                            # 写回到结果（字段名保持兼容，不影响后续逻辑）
+                            for it in results:
+                                ur = rating_map.get(it['imdb_id']) or {}
+                                if ur:
+                                    it['user_rating'] = ur  # 不作强耦合，留给上游决定是否使用
+                        else:
+                            logger.warning(f"TitlesUserRatings 调用失败: {r.status_code}")
+                except Exception as _:
+                    # 可忽略失败，此步骤只是加速补充信息
+                    pass
+
                 logger.info(f"IMDB Top 10榜单获取到 {len(results)} 个项目（HTML解析）")
                 return results
             finally:
