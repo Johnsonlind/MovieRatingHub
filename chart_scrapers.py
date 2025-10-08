@@ -318,155 +318,73 @@ class ChartScraper:
     # ==========================================
     
     async def scrape_imdb_top_10(self) -> List[Dict]:
-        """抓取IMDb首页 'Top 10 on IMDb this week' 模块（通过浏览器解析HTML）"""
-        async def scrape(browser):
-            page = await browser.new_page()
-            try:
-                try:
-                    await page.set_extra_http_headers({'Accept-Language': 'en-US,en;q=0.9'})
-                except Exception:
-                    pass
-                await page.goto("https://www.imdb.com/", wait_until="domcontentloaded")
-                await page.wait_for_load_state("networkidle")
-                # 尝试处理 Cookie/隐私弹窗
-                try:
-                    for sel in [
-                        "button[aria-label='Accept']",
-                        "button[aria-label='Agree']",
-                        "#consent-banner-accept",
-                        "[data-testid='accept-button']",
-                        "#gdpr-consent-accept"
-                    ]:
-                        btn = await page.query_selector(sel)
-                        if btn:
-                            await btn.click()
-                            await asyncio.sleep(0.3)
-                            break
-                except Exception:
-                    pass
-
-                # 先尝试：根据模块标题定位 section（某些地区/布局可能没有标题文案）
-                section = await page.query_selector("section:has-text('Top 10 on IMDb this week')")
-                cards = []
-                if section:
-                    cards = await section.query_selector_all(".topten-title")
-
-                # 回退1：直接在全局查找 Top10 卡片
-                if not cards:
-                    try:
-                        await page.wait_for_selector('.topten-title', timeout=5000)
-                    except Exception:
-                        pass
-                    cards = await page.query_selector_all('.topten-title')
-
-                # 回退2：按容器 data-testid 查找，再向下找卡片
-                if not cards:
-                    container = await page.query_selector("[data-testid='shoveler-items-container']")
-                    if container:
-                        cards = await container.query_selector_all(".topten-title, a[href*='/title/tt']")
-
-                # 回退3：滚动触发懒加载，再次尝试
-                if not cards:
-                    try:
-                        for _ in range(6):
-                            await page.mouse.wheel(0, 900)
-                            await asyncio.sleep(0.3)
-                        cards = await page.query_selector_all('.topten-title')
-                        if not cards:
-                            container = await page.query_selector("[data-testid='shoveler-items-container']")
-                            if container:
-                                cards = await container.query_selector_all(".topten-title, a[href*='/title/tt']")
-                    except Exception:
-                        pass
-
-                if not cards:
-                    logger.error("未找到 Top 10 卡片（.topten-title）")
-                    return []
-                results = []
-                seen = set()
-
-                for idx, card in enumerate(cards, 1):
-                    # 1) 从 overlay 链接中提取 imdb_id（/title/ttxxxxxx）
-                    a_overlay = await card.query_selector("a[href*='/title/tt']")
-                    href = await a_overlay.get_attribute("href") if a_overlay else None
-                    m_id = re.search(r"/title/(tt\d+)", href or "")
-                    if not m_id:
-                        continue
-                    imdb_id = m_id.group(1)
-                    if imdb_id in seen:
-                        continue
-
-                    # 2) 解析标题与排名（如 "1. Monster"）; 失败则用出现顺序作为排名
-                    title_text = ""
-                    try:
-                        title_span = await card.query_selector("a.ipc-poster-card__title [data-testid='title']")
-                        title_text = (await title_span.inner_text() if title_span else "").strip()
-                    except Exception:
-                        title_text = ""
-                    m_title = re.match(r"^\s*(\d+)\.\s*(.+)$", title_text)
-                    if m_title:
-                        rank = int(m_title.group(1))
-                        title = m_title.group(2).strip()
-                    else:
-                        rank = idx
-                        # 宽松获取标题
-                        title_link = await card.query_selector('a.ipc-poster-card__title, a[href*="/title/tt"]')
-                        title = (await title_link.inner_text() if title_link else imdb_id).strip()
-
-                    results.append({
-                        'rank': rank,
-                        'title': title,
-                        'imdb_id': imdb_id,
-                        'url': f"https://www.imdb.com/title/{imdb_id}/"
-                    })
-                    seen.add(imdb_id)
-
-                # 排序并仅取前10
-                results.sort(key=lambda x: x['rank'])
-                results = results[:10]
-
-                # 可选加速：使用 IMDb GraphQL TitlesUserRatings 批量补充评分（需要已有 id 列表）
-                try:
-                    import requests
-                    import urllib3
-                    import json
-                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                    ids = [it['imdb_id'] for it in results]
-                    if ids:
-                        variables = json.dumps({'idArray': ids, 'locale': 'en-US'}, separators=(',', ':'))
-                        extensions = json.dumps({'persistedQuery': {'sha256Hash': '6fc68f3472b1df2ab36554a4f95bc493b1f1107b22285b9885872e86e5c2d543', 'version': 1}}, separators=(',', ':'))
-                        params = {
-                            'operationName': 'TitlesUserRatings',
-                            'variables': variables,
-                            'extensions': extensions,
-                        }
-                        r = requests.get('https://api.graphql.imdb.com/', params=params, timeout=15, verify=False)
-                        if r.status_code == 200:
-                            data = r.json()
-                            titles = (data or {}).get('data', {}).get('titles', []) or []
-                            rating_map = {t.get('id'): (t.get('userRating') or {}) for t in titles}
-                            # 写回到结果（字段名保持兼容，不影响后续逻辑）
-                            for it in results:
-                                ur = rating_map.get(it['imdb_id']) or {}
-                                if ur:
-                                    it['user_rating'] = ur  # 不作强耦合，留给上游决定是否使用
-                        else:
-                            logger.warning(f"TitlesUserRatings 调用失败: {r.status_code}")
-                except Exception as _:
-                    # 可忽略失败，此步骤只是加速补充信息
-                    pass
-
-                logger.info(f"IMDB Top 10榜单获取到 {len(results)} 个项目（HTML解析）")
-                return results
-            finally:
-                await page.close()
-
+        """抓取IMDB Top 10 this week - 使用GraphQL API"""
         try:
-            return await browser_pool.execute_in_browser(scrape)
-        except Exception as e:
-            logger.error(f"IMDB HTML解析失败: {e}")
-            return []
+            logger.info("开始爬取IMDB Top 10榜单")
+            
+            import requests
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
+            # IMDB GraphQL API URL
+            api_url = "https://api.graphql.imdb.com/"
+            
+            # 请求参数 - 使用用户提供的正确参数
+            params = {
+                'operationName': 'BatchPage_HomeMain',
+                'variables': '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
+                'extensions': '{"persistedQuery":{"sha256Hash":"b90259dee20c9ca9ffd71c01eb97d1e8e5eee5b8d11d72ca9e1ed597ed1a9674","version":1}}'
+            }
+            
+            # 设置请求头
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',
+                'Content-Type': 'application/json',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Sec-Fetch-Dest': 'empty',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-site',
+                'Referer': 'https://www.imdb.com/',
+                'Origin': 'https://www.imdb.com'
+            }
+            
+            # 使用requests发送请求
+            response = requests.get(api_url, params=params, headers=headers, timeout=30, verify=False)
+            logger.info(f"IMDB API响应状态: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                titles = data.get("data", {}).get("titles", [])
 
+                # 解析Top 10数据 - 根据实际响应格式更新
+                results = []
+                for idx, item in enumerate(titles, start=1):
+                    imdb_id = item.get("id")
+                    if imdb_id:
+                        results.append({
+                            "rank": idx,
+                            "id": imdb_id
+                        })
+
+                logger.info(f"共获取到 {len(results)} 个影片ID")
+                return results   
+            else: 
+                
+                logger.error(f"IMDB API请求失败: {response.status_code}")
+                error_text = response.text
+                logger.error(f"错误响应: {error_text[:500]}")
+                return []
+                        
+        except Exception as e:
+            logger.error(f"爬取IMDB Top 10榜单失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
+            
     # ==========================================
     # Letterboxd榜单抓取
     # ==========================================
@@ -914,12 +832,21 @@ class ChartScraper:
             ChartEntry.chart_name == '趋势本周'
         ).delete()
 
-        # 入库（按 items 顺序赋 rank）
+        # 入库（按 items 顺序赋 rank），补齐标题与海报
         saved = 0
+        matcher = TMDBMatcher(self.db)
         for idx, item in enumerate(items[:10], 1):
             tmdb_id = int(item.get('tmdb_id'))
             media_type = item.get('media_type') or 'movie'
             title = item.get('title') or ''
+            poster = ''
+            try:
+                info = await matcher.get_tmdb_info(tmdb_id, media_type)
+                if info:
+                    title = info.get('zh_title') or info.get('title') or title
+                    poster = info.get('poster_url', '')
+            except Exception:
+                pass
             self.db.add(ChartEntry(
                 platform='TMDB',
                 chart_name='趋势本周',
@@ -927,7 +854,7 @@ class ChartScraper:
                 rank=idx,
                 tmdb_id=tmdb_id,
                 title=title,
-                poster=''  # 可在后续展示层用 TMDB ID 拼图
+                poster=poster
             ))
             saved += 1
 
