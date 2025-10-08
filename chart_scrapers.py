@@ -331,9 +331,9 @@ class ChartScraper:
             
             # 请求参数 - 使用用户提供的正确参数
             params = {
-                'operationName': 'BatchPage_HomeMain',
-                'variables': '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
-                'extensions': '{"persistedQuery":{"sha256Hash":"b90259dee20c9ca9ffd71c01eb97d1e8e5eee5b8d11d72ca9e1ed597ed1a9674","version":1}}'
+                "operationName": "BatchPage_HomeMain",
+                "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
+                "extensions": '{"persistedQuery":{"sha256Hash":"b90259dee20c9ca9ffd71c01eb97d1e8e5eee5b8d11d72ca9e1ed597ed1a9674","version":1}}'
             }
             
             # 设置请求头
@@ -354,26 +354,35 @@ class ChartScraper:
             
             # 使用requests发送请求
             response = requests.get(api_url, params=params, headers=headers, timeout=30, verify=False)
-            logger.info(f"IMDB API响应状态: {response.status_code}")
+            logger.info(f"IMDb API响应状态: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
-                titles = data.get("data", {}).get("titles", [])
 
                 # 解析Top 10数据 - 根据实际响应格式更新
                 results = []
-                for idx, item in enumerate(titles, start=1):
-                    imdb_id = item.get("id")
-                    if imdb_id:
-                        results.append({
-                            "rank": idx,
-                            "id": imdb_id
-                        })
+                batch_list = data.get("data", {}).get("batch", {}).get("responseList", [])
+                for item in batch_list:
+                    inner_data = item.get("data", {})
+                    top_titles = inner_data.get("topMeterTitles", {}).get("edges", [])
+                    for edge in top_titles:   
+                        node = edge.get("node", {})
+                        imdb_id = node.get("id")
+                        rank_info = node.get("meterRanking", {})
+                        rank = rank_info.get("currentRank")
+
+                        if imdb_id and rank:
+                            results.append({
+                                "rank": rank,
+                                "id": imdb_id
+                            })
+
+                # 按排名排序（以防接口返回顺序乱）
+                results.sort(key=lambda x: x["rank"])
 
                 logger.info(f"共获取到 {len(results)} 个影片ID")
                 return results   
             else: 
-                
                 logger.error(f"IMDB API请求失败: {response.status_code}")
                 error_text = response.text
                 logger.error(f"错误响应: {error_text[:500]}")
