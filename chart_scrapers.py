@@ -318,113 +318,66 @@ class ChartScraper:
     # ==========================================
     
     async def scrape_imdb_top_10(self) -> List[Dict]:
-        """抓取IMDB Top 10 this week - 使用GraphQL API"""
-        try:
-            logger.info("开始爬取IMDB Top 10榜单")
-            
-            import requests
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            
-            # IMDB GraphQL API URL
-            api_url = "https://api.graphql.imdb.com/"
-            
-            # 请求参数 - 使用用户提供的正确参数
-            params = {
-                'operationName': 'BatchPage_HomeMain',
-                'variables': '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
-                'extensions': '{"persistedQuery":{"sha256Hash":"b90259dee20c9ca9ffd71c01eb97d1e8e5eee5b8d11d72ca9e1ed597ed1a9674","version":1}}'
-            }
-            
-            # 设置请求头
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate',
-                'Content-Type': 'application/json',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-site',
-                'Referer': 'https://www.imdb.com/',
-                'Origin': 'https://www.imdb.com'
-            }
-            
-            # 使用requests发送请求
-            response = requests.get(api_url, params=params, headers=headers, timeout=30, verify=False)
-            logger.info(f"IMDB API响应状态: {response.status_code}")
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                # 解析Top 10数据 - 根据实际响应格式更新
-                results = []
-                
-                # 首先检查响应是否包含data
-                if 'data' in data:
-                    # 根据实际API响应，topMeterTitles直接在data下
-                    top_meter_titles = data['data'].get('topMeterTitles', {})
-                    
-                    if 'edges' in top_meter_titles:
-                        for edge in top_meter_titles['edges']:
-                            node = edge.get('node', {})
-                            if node:
-                                # 提取排名
-                                meter_ranking = node.get('meterRanking', {})
-                                rank = meter_ranking.get('currentRank', 0)
-                                
-                                # 提取标题
-                                title_text = node.get('titleText', {})
-                                title = title_text.get('text', '')
-                                
-                                # 提取IMDB ID
-                                imdb_id = node.get('id', '')
-                                
-                                # 提取评分
-                                ratings_summary = node.get('ratingsSummary', {})
-                                rating = ratings_summary.get('aggregateRating', 0)
-                                
-                                # 提取年份
-                                release_year = node.get('releaseYear', {})
-                                year = release_year.get('year', 0)
-                                
-                                # 提取类型
-                                title_type = node.get('titleType', {})
-                                media_type = title_type.get('id', 'movie')
-                                
-                                # 提取海报
-                                primary_image = node.get('primaryImage', {})
-                                poster_url = primary_image.get('url', '') if primary_image else ''
-                                
-                                if imdb_id and title and rank > 0:
-                                    results.append({
-                                        'rank': rank,
-                                        'title': title,
-                                        'imdb_id': imdb_id,
-                                        'rating': rating,
-                                        'year': year,
-                                        'media_type': media_type,
-                                        'poster_url': poster_url,
-                                        'url': f"https://www.imdb.com/title/{imdb_id}/"
-                                    })
-                    
-                    # 按排名排序
-                    results.sort(key=lambda x: x['rank'])
-                    
-                    logger.info(f"IMDB Top 10榜单获取到 {len(results)} 个项目")
-                    return results
-                else:
-                    logger.error(f"IMDB API请求失败: {response.status_code}")
-                    error_text = response.text
-                    logger.error(f"错误响应: {error_text[:500]}")
+        """抓取IMDb首页 'Top 10 on IMDb this week' 模块（通过浏览器解析HTML）"""
+        async def scrape(browser):
+            page = await browser.new_page()
+            try:
+                await page.goto("https://www.imdb.com/", wait_until="domcontentloaded")
+                await page.wait_for_load_state("networkidle")
+
+                # 定位包含模块标题的 section（与你F12检查一致）
+                section = await page.query_selector("section:has-text('Top 10 on IMDb this week')")
+                if not section:
+                    logger.error("未找到 'Top 10 on IMDb this week' 模块")
                     return []
-                        
+
+                # 每个条目卡片（类名包含 topten-title）
+                cards = await section.query_selector_all(".topten-title")
+                results = []
+                seen = set()
+
+                for card in cards:
+                    # 1) 从 overlay 链接中提取 imdb_id（/title/ttxxxxxx）
+                    a_overlay = await card.query_selector("a[href*='/title/tt']")
+                    href = await a_overlay.get_attribute("href") if a_overlay else None
+                    m_id = re.search(r"/title/(tt\d+)", href or "")
+                    if not m_id:
+                        continue
+                    imdb_id = m_id.group(1)
+                    if imdb_id in seen:
+                        continue
+
+                    # 2) 从标题节点中解析“序号. 标题”（如 "1. Monster"）
+                    title_span = await card.query_selector("a.ipc-poster-card__title [data-testid='title']")
+                    title_text = (await title_span.inner_text() if title_span else "").strip()
+                    m_title = re.match(r"^\s*(\d+)\.\s*(.+)$", title_text)
+                    if not m_title:
+                        # 如果未匹配到“序号. 标题”，跳过该项
+                        continue
+                    rank = int(m_title.group(1))
+                    title = m_title.group(2).strip()
+
+                    results.append({
+                        'rank': rank,
+                        'title': title,
+                        'imdb_id': imdb_id,
+                        'url': f"https://www.imdb.com/title/{imdb_id}/"
+                    })
+                    seen.add(imdb_id)
+
+                # 排序并仅取前10
+                results.sort(key=lambda x: x['rank'])
+                results = results[:10]
+
+                logger.info(f"IMDB Top 10榜单获取到 {len(results)} 个项目（HTML解析）")
+                return results
+            finally:
+                await page.close()
+
+        try:
+            return await browser_pool.execute_in_browser(scrape)
         except Exception as e:
-            logger.error(f"爬取IMDB Top 10榜单失败: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.error(f"IMDB HTML解析失败: {e}")
             return []
 
     # ==========================================
