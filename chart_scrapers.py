@@ -325,14 +325,29 @@ class ChartScraper:
                 await page.goto("https://www.imdb.com/", wait_until="domcontentloaded")
                 await page.wait_for_load_state("networkidle")
 
-                # 定位包含模块标题的 section（与你F12检查一致）
+                # 先尝试：根据模块标题定位 section（某些地区/布局可能没有标题文案）
                 section = await page.query_selector("section:has-text('Top 10 on IMDb this week')")
-                if not section:
-                    logger.error("未找到 'Top 10 on IMDb this week' 模块")
-                    return []
+                cards = []
+                if section:
+                    cards = await section.query_selector_all(".topten-title")
 
-                # 每个条目卡片（类名包含 topten-title）
-                cards = await section.query_selector_all(".topten-title")
+                # 回退1：直接在全局查找 Top10 卡片
+                if not cards:
+                    try:
+                        await page.wait_for_selector('.topten-title', timeout=5000)
+                    except Exception:
+                        pass
+                    cards = await page.query_selector_all('.topten-title')
+
+                # 回退2：按容器 data-testid 查找，再向下找卡片
+                if not cards:
+                    container = await page.query_selector("[data-testid='shoveler-items-container']")
+                    if container:
+                        cards = await container.query_selector_all(".topten-title, a[href*='/title/tt']")
+
+                if not cards:
+                    logger.error("未找到 Top 10 卡片（.topten-title）")
+                    return []
                 results = []
                 seen = set()
 
