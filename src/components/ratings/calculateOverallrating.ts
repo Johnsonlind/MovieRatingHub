@@ -107,7 +107,7 @@ export function calculateOverallRating(
       }
       // 用户评分
       if (isValidRatingData(rt.audience_avg)) {
-        const rating = normalizeRating(rt.audience_avg, 'rottentomatoes') ?? 0;
+        const rating = normalizeRating(rt.audience_avg, 'rottentomatoes', 'audience_avg') ?? 0;
         const voteCount = safeParseCount(rt.audience_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
@@ -309,7 +309,7 @@ export function calculateOverallRating(
       }
 
       if (isValidRatingData(rt.audience_avg)) {
-        const rating = normalizeRating(rt.audience_avg, 'rottentomatoes') ?? 0;
+        const rating = normalizeRating(rt.audience_avg, 'rottentomatoes', 'audience_avg') ?? 0;
         const voteCount = safeParseCount(rt.audience_count as any, medianVoteCount);
         ratingTimesVoteSum += rating * voteCount;
         totalVoteCount += voteCount;
@@ -494,7 +494,7 @@ export function calculateOverallRating(
         }
 
         if (isValidRatingData(season.audience_avg)) {
-          const rating = normalizeRating(season.audience_avg, 'rottentomatoes') ?? 0;
+          const rating = normalizeRating(season.audience_avg, 'rottentomatoes', 'audience_avg') ?? 0;
           const voteCount = safeParseCount(season.audience_count as any, medianVoteCount);
           ratingTimesVoteSum += rating * voteCount;
           totalVoteCount += voteCount;
