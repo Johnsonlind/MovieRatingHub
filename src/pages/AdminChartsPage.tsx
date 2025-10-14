@@ -84,6 +84,9 @@ export default function AdminChartsPage() {
   
   // 各平台操作状态
   const [platformOperations, setPlatformOperations] = useState<Record<string, boolean>>({});
+  
+  // Telegram通知测试状态
+  const [testingNotification, setTestingNotification] = useState(false);
 
   // 固定深色模式（移除主题切换）
 
@@ -469,6 +472,45 @@ export default function AdminChartsPage() {
     }
   }
 
+  // 测试Telegram通知
+  async function handleTestNotification() {
+    setTestingNotification(true);
+    setUpdateStatus('正在测试Telegram通知...');
+    
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setUpdateStatus('未找到认证令牌，请重新登录');
+        setTimeout(() => setUpdateStatus(''), 3000);
+        return;
+      }
+      
+      const response = await fetch('/api/scheduler/test-notification', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        setUpdateStatus('✅ 测试通知发送成功！');
+        setTimeout(() => setUpdateStatus(''), 5000);
+      } else {
+        setUpdateStatus(`❌ 测试通知失败: ${data.message || '未知错误'}`);
+        setTimeout(() => setUpdateStatus(''), 5000);
+      }
+    } catch (error) {
+      console.error('测试通知失败:', error);
+      setUpdateStatus('❌ 测试通知失败: 网络错误');
+      setTimeout(() => setUpdateStatus(''), 5000);
+    } finally {
+      setTestingNotification(false);
+    }
+  }
+
   // 调度器控制函数 - 改进版本
   async function handleStartScheduler() {
     try {
@@ -671,6 +713,18 @@ export default function AdminChartsPage() {
                   启动定时更新
                 </button>
               )}
+              
+              <button
+                onClick={handleTestNotification}
+                disabled={testingNotification}
+                className={`px-3 py-1 text-sm rounded transition-colors ${
+                  testingNotification 
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed' 
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                {testingNotification ? '测试中...' : '测试通知'}
+              </button>
             </div>
             
             {getCurrentSchedulerState()?.last_update && (
