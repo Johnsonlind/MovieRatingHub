@@ -2199,6 +2199,82 @@ async def auto_update_platform_charts(
         logger.error(f"自动更新 {platform} 榜单失败: {e}")
         raise HTTPException(status_code=500, detail=f"自动更新 {platform} 失败: {str(e)}")
 
+@app.get("/api/scheduler/status")
+async def get_scheduler_status():
+    """获取调度器状态"""
+    try:
+        from chart_scrapers import get_scheduler_status
+        status = get_scheduler_status()
+        return {
+            "status": "success",
+            "data": status
+        }
+    except Exception as e:
+        logger.error(f"获取调度器状态失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取调度器状态失败: {str(e)}")
+
+@app.post("/api/scheduler/start")
+async def start_scheduler(
+    current_user: User = Depends(get_current_user)
+):
+    """启动调度器"""
+    require_admin(current_user)
+    
+    try:
+        from chart_scrapers import start_auto_scheduler
+        scheduler = await start_auto_scheduler()
+        return {
+            "status": "success",
+            "message": "调度器已启动",
+            "data": scheduler.get_status()
+        }
+    except Exception as e:
+        logger.error(f"启动调度器失败: {e}")
+        raise HTTPException(status_code=500, detail=f"启动调度器失败: {str(e)}")
+
+@app.post("/api/scheduler/stop")
+async def stop_scheduler(
+    current_user: User = Depends(get_current_user)
+):
+    """停止调度器"""
+    require_admin(current_user)
+    
+    try:
+        from chart_scrapers import stop_auto_scheduler
+        await stop_auto_scheduler()
+        return {
+            "status": "success",
+            "message": "调度器已停止"
+        }
+    except Exception as e:
+        logger.error(f"停止调度器失败: {e}")
+        raise HTTPException(status_code=500, detail=f"停止调度器失败: {str(e)}")
+
+@app.post("/api/scheduler/test-notification")
+async def test_notification(
+    current_user: User = Depends(get_current_user)
+):
+    """测试Telegram通知"""
+    require_admin(current_user)
+    
+    try:
+        from chart_scrapers import telegram_notifier
+        success = await telegram_notifier.send_message("🧪 *测试通知*\\n\\n这是一条测试消息，用于验证Telegram通知功能是否正常工作。")
+        
+        if success:
+            return {
+                "status": "success",
+                "message": "测试通知发送成功"
+            }
+        else:
+            return {
+                "status": "error",
+                "message": "测试通知发送失败，请检查Telegram配置"
+            }
+    except Exception as e:
+        logger.error(f"测试通知失败: {e}")
+        raise HTTPException(status_code=500, detail=f"测试通知失败: {str(e)}")
+
 @app.get("/api/charts/status")
 async def get_charts_status(db: Session = Depends(get_db)):
     """获取榜单数据状态"""
