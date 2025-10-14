@@ -1812,14 +1812,15 @@ class TMDBMatcher:
 
 class TelegramNotifier:
     def __init__(self):
-        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        # 硬编码Telegram配置
+        self.bot_token = "8467848454:AAEaNsEPqfGd28y786KLYDy6JuwXQ-rxJJk"
+        self.chat_id = "6467626360"
         self.enabled = bool(self.bot_token and self.chat_id)
         
         if self.enabled:
             logger.info("Telegram通知已启用")
         else:
-            logger.warning("Telegram通知未配置 - 请设置TELEGRAM_BOT_TOKEN和TELEGRAM_CHAT_ID环境变量")
+            logger.warning("Telegram通知未配置")
     
     async def send_message(self, message: str, parse_mode: str = "Markdown") -> bool:
         """发送Telegram消息"""
