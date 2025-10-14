@@ -7,8 +7,10 @@ import asyncio
 import re
 import time
 import logging
+import os
+import httpx
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from playwright.async_api import Page
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, not_, func
@@ -1805,6 +1807,98 @@ class TMDBMatcher:
         return None
 
 # ==========================================
+# Telegram通知功能
+# ==========================================
+
+class TelegramNotifier:
+    def __init__(self):
+        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        self.enabled = bool(self.bot_token and self.chat_id)
+        
+        if self.enabled:
+            logger.info("Telegram通知已启用")
+        else:
+            logger.warning("Telegram通知未配置 - 请设置TELEGRAM_BOT_TOKEN和TELEGRAM_CHAT_ID环境变量")
+    
+    async def send_message(self, message: str, parse_mode: str = "Markdown") -> bool:
+        """发送Telegram消息"""
+        if not self.enabled:
+            logger.debug("Telegram通知未启用，跳过发送消息")
+            return False
+            
+        try:
+            url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+            data = {
+                "chat_id": self.chat_id,
+                "text": message,
+                "parse_mode": parse_mode
+            }
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(url, json=data)
+                response.raise_for_status()
+                
+            logger.info("Telegram消息发送成功")
+            return True
+            
+        except Exception as e:
+            logger.error(f"发送Telegram消息失败: {e}")
+            return False
+    
+    async def send_update_success(self, results: Dict[str, int], duration: float):
+        """发送更新成功通知"""
+        beijing_tz = timezone(timedelta(hours=8))
+        now_beijing = datetime.now(beijing_tz)
+        
+        message = f"🎉 *榜单更新成功*\\n\\n"
+        message += f"⏰ 更新时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)\\n"
+        message += f"⏱️ 耗时: {duration:.1f}秒\\n\\n"
+        message += f"📊 *更新结果:*\\n"
+        
+        for platform, count in results.items():
+            message += f"• {platform}: {count}条记录\\n"
+        
+        await self.send_message(message)
+    
+    async def send_update_error(self, error: str, platform: str = None):
+        """发送更新失败通知"""
+        beijing_tz = timezone(timedelta(hours=8))
+        now_beijing = datetime.now(beijing_tz)
+        
+        message = f"❌ *榜单更新失败*\\n\\n"
+        message += f"⏰ 失败时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)\\n"
+        if platform:
+            message += f"🔧 失败平台: {platform}\\n"
+        message += f"💥 错误信息: {error}\\n"
+        
+        await self.send_message(message)
+    
+    async def send_scheduler_status(self, status: Dict):
+        """发送调度器状态通知"""
+        beijing_tz = timezone(timedelta(hours=8))
+        now_beijing = datetime.now(beijing_tz)
+        
+        message = f"📋 *调度器状态报告*\\n\\n"
+        message += f"⏰ 报告时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)\\n"
+        message += f"🔄 运行状态: {'✅ 运行中' if status.get('running') else '❌ 已停止'}\\n"
+        
+        if status.get('next_update'):
+            next_update = datetime.fromisoformat(status['next_update'].replace('Z', '+00:00'))
+            next_update_beijing = next_update.astimezone(beijing_tz)
+            message += f"⏰ 下次更新: {next_update_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)\\n"
+        
+        if status.get('last_update'):
+            last_update = datetime.fromisoformat(status['last_update'].replace('Z', '+00:00'))
+            last_update_beijing = last_update.astimezone(beijing_tz)
+            message += f"🕐 上次更新: {last_update_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)\\n"
+        
+        await self.send_message(message)
+
+# 全局通知器实例
+telegram_notifier = TelegramNotifier()
+
+# ==========================================
 # 定时自动更新调度器
 # ==========================================
 
@@ -1823,6 +1917,10 @@ class AutoUpdateScheduler:
         self.running = True
         logger.info("定时任务调度器已启动")
         
+        # 发送启动通知
+        await telegram_notifier.send_message("🔄 *定时调度器已启动*\\n\\n⏰ 启动时间: " + 
+                                           datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S') + " (北京时间)\\n\\n📅 每天21:30自动更新所有榜单")
+        
         try:
             # 创建后台任务
             self.task = asyncio.create_task(self._update_loop())
@@ -1830,15 +1928,20 @@ class AutoUpdateScheduler:
         except Exception as e:
             logger.error(f"创建后台任务失败: {e}")
             self.running = False
+            await telegram_notifier.send_update_error(f"调度器启动失败: {str(e)}")
             raise
     
-    def stop(self):
+    async def stop(self):
         """停止定时任务调度器"""
         self.running = False
         if self.task:
             self.task.cancel()
             self.task = None
         logger.info("定时任务调度器已停止")
+        
+        # 发送停止通知
+        await telegram_notifier.send_message("⏹️ *定时调度器已停止*\\n\\n⏰ 停止时间: " + 
+                                           datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S') + " (北京时间)")
     
     
     def get_status(self) -> dict:
@@ -1888,30 +1991,63 @@ class AutoUpdateScheduler:
     
     async def update_all_charts(self):
         """更新所有榜单数据"""
+        start_time = time.time()
         logger.info("开始执行定时更新任务...")
         
+        # 发送开始更新通知
+        await telegram_notifier.send_message("🚀 *开始执行定时更新任务*\\n\\n⏰ 开始时间: " + 
+                                           datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S') + " (北京时间)")
+        
         db = SessionLocal()
+        results = {}
+        error_occurred = False
+        
         try:
             scraper = ChartScraper(db)
             
             # 执行所有平台的更新
-            await scraper.update_rotten_movies()
-            await scraper.update_rotten_tv()
-            await scraper.update_letterboxd_popular()
-            await scraper.update_metacritic_movies()
-            await scraper.update_metacritic_shows()
-            await scraper.update_tmdb_trending_all_week()
-            await scraper.update_trakt_movies_weekly()
-            await scraper.update_trakt_shows_weekly()
-            await scraper.update_imdb_top10()
-            await scraper.update_douban_weekly_movie()
-            await scraper.update_douban_weekly_chinese_tv()
-            await scraper.update_douban_weekly_global_tv()
+            update_tasks = [
+                ("烂番茄电影", scraper.update_rotten_movies),
+                ("烂番茄TV", scraper.update_rotten_tv),
+                ("Letterboxd", scraper.update_letterboxd_popular),
+                ("Metacritic电影", scraper.update_metacritic_movies),
+                ("Metacritic剧集", scraper.update_metacritic_shows),
+                ("TMDB趋势", scraper.update_tmdb_trending_all_week),
+                ("Trakt电影", scraper.update_trakt_movies_weekly),
+                ("Trakt剧集", scraper.update_trakt_shows_weekly),
+                ("IMDb", scraper.update_imdb_top10),
+                ("豆瓣电影", scraper.update_douban_weekly_movie),
+                ("豆瓣华语剧集", scraper.update_douban_weekly_chinese_tv),
+                ("豆瓣全球剧集", scraper.update_douban_weekly_global_tv)
+            ]
+            
+            for platform_name, update_func in update_tasks:
+                try:
+                    logger.info(f"开始更新 {platform_name}...")
+                    count = await update_func()
+                    results[platform_name] = count
+                    logger.info(f"{platform_name} 更新完成，获得 {count} 条记录")
+                except Exception as e:
+                    logger.error(f"{platform_name} 更新失败: {e}")
+                    results[platform_name] = 0
+                    error_occurred = True
+                    # 发送单个平台失败通知
+                    await telegram_notifier.send_update_error(str(e), platform_name)
             
             self.last_update = datetime.now()
-            logger.info("定时更新任务完成")
+            duration = time.time() - start_time
+            
+            if error_occurred:
+                logger.warning("定时更新任务完成，但部分平台更新失败")
+                await telegram_notifier.send_message(f"⚠️ *定时更新任务完成*\\n\\n⏱️ 耗时: {duration:.1f}秒\\n\\n部分平台更新失败，请查看详细日志")
+            else:
+                logger.info("定时更新任务完成")
+                await telegram_notifier.send_update_success(results, duration)
+                
         except Exception as e:
+            duration = time.time() - start_time
             logger.error(f"定时更新任务失败: {e}")
+            await telegram_notifier.send_update_error(str(e))
         finally:
             db.close()
 
@@ -1952,11 +2088,11 @@ async def start_auto_scheduler():
     logger.info(f"返回调度器实例: {scheduler_instance}")
     return scheduler_instance
 
-def stop_auto_scheduler():
+async def stop_auto_scheduler():
     """停止全局调度器"""
     global scheduler_instance
     if scheduler_instance:
-        scheduler_instance.stop()
+        await scheduler_instance.stop()
 
 def get_scheduler_status() -> dict:
     """获取调度器状态"""
