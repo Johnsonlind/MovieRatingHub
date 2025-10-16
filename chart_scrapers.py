@@ -470,8 +470,22 @@ class ChartScraper:
         async def scrape(browser):
             page = await browser.new_page()
             try:
-                await page.goto(url, wait_until="domcontentloaded")
-                await page.wait_for_load_state("networkidle")
+                # 设置更长的超时时间，特别是针对烂番茄网站
+                page.set_default_timeout(120000)  # 2分钟超时
+                
+                # 使用更宽松的加载策略
+                await page.goto(url, wait_until="domcontentloaded", timeout=120000)
+                
+                # 等待页面完全加载，但设置合理的超时时间
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=60000)  # 1分钟网络空闲等待
+                except Exception:
+                    # 如果网络空闲等待超时，继续执行，可能数据已经加载完成
+                    logger.warning("网络空闲等待超时，继续执行")
+                
+                # 额外等待一段时间确保动态内容加载完成
+                await asyncio.sleep(3)
+                
                 handles = await page.query_selector_all('script[type="application/ld+json"]')
                 for h in handles:
                     raw = await h.inner_text()
@@ -536,7 +550,23 @@ class ChartScraper:
         """烂番茄 Popular Streaming Movies：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
         matcher = TMDBMatcher(self.db)
         url = 'https://www.rottentomatoes.com/browse/movies_at_home/sort:popular'
-        items = await self._rt_extract_itemlist(url, 'Movie')
+        
+        # 添加重试机制
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"烂番茄电影榜单抓取尝试 {attempt + 1}/{max_retries}")
+                items = await self._rt_extract_itemlist(url, 'Movie')
+                if not items:
+                    raise Exception("未获取到榜单数据")
+                break
+            except Exception as e:
+                logger.warning(f"烂番茄电影榜单抓取失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt == max_retries - 1:
+                    logger.error("烂番茄电影榜单抓取最终失败")
+                    return 0
+                await asyncio.sleep(5 * (attempt + 1))  # 递增等待时间
+        
         saved = 0
         rank = 1
         for it in items[:10]:
@@ -1143,7 +1173,23 @@ class ChartScraper:
         """烂番茄 Popular TV：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
         matcher = TMDBMatcher(self.db)
         url = 'https://www.rottentomatoes.com/browse/tv_series_browse/sort:popular'
-        items = await self._rt_extract_itemlist(url, 'TVSeries')
+        
+        # 添加重试机制
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"烂番茄TV榜单抓取尝试 {attempt + 1}/{max_retries}")
+                items = await self._rt_extract_itemlist(url, 'TVSeries')
+                if not items:
+                    raise Exception("未获取到榜单数据")
+                break
+            except Exception as e:
+                logger.warning(f"烂番茄TV榜单抓取失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt == max_retries - 1:
+                    logger.error("烂番茄TV榜单抓取最终失败")
+                    return 0
+                await asyncio.sleep(5 * (attempt + 1))  # 递增等待时间
+        
         saved = 0
         rank = 1
         for it in items[:10]:
