@@ -1,27 +1,7 @@
 // ==========================================
 // 评分 API
 // ==========================================
-import { TMDB, TRAKT } from './api';
-
-// 获取 IMDb ID
-async function getImdbId(mediaType: 'movies' | 'shows', tmdbId: string) {
-  try {
-    const response = await fetch(
-      `${TMDB.baseUrl}/${mediaType === 'movies' ? 'movie' : 'tv'}/${tmdbId}/external_ids`
-    );
-
-    if (!response.ok) {
-      throw new Error(`Failed to get IMDb ID: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    return data.imdb_id;
-  } catch (error) {
-    console.error('Error getting IMDb ID:', error);
-    return null;
-  }
-} 
+import { TMDB } from './api';
 
 // 获取 TMDB 评分
 export async function fetchTMDBRating(mediaType: 'movie' | 'tv', id: string) {
@@ -69,80 +49,50 @@ export async function fetchTMDBRating(mediaType: 'movie' | 'tv', id: string) {
 }
 
 // 获取 Trakt 评分
+// 改为调用后端API，后端会处理IMDB ID缺失的情况
 export async function fetchTraktRating(mediaType: 'movies' | 'shows', tmdbId: string) {
   try {
-    // 获取IMDb ID
-    const imdbId = await getImdbId(mediaType, tmdbId);
-    if (!imdbId) return null;
-
-    // 获取整体评分
-    const endpoint = mediaType === 'shows' ? 'shows' : 'movies';
-    const response = await fetch(
-      `${TRAKT.baseUrl}/${endpoint}/${imdbId}/ratings`
-    );
-
+    // 直接调用后端API，后端会：
+    // 1. 尝试TMDB ID搜索
+    // 2. 回退到标题搜索
+    // 3. 不依赖IMDB ID
+    const type = mediaType === 'movies' ? 'movie' : 'tv';
+    const response = await fetch(`/api/ratings/trakt/${type}/${tmdbId}`);
+    
     if (!response.ok) {
-      throw new Error(`${endpoint} ratings failed with status: ${response.status}`);
+      console.warn(`后端Trakt API返回错误: ${response.status}`);
+      return null;
     }
-
-    const ratingData = await response.json();
-
-    // 如果是电影，直接返回评分数据
-    if (mediaType === 'movies') {
-      return {
-        rating: ratingData.rating,
-        votes: ratingData.votes,
-        distribution: ratingData.distribution
-      };
+    
+    const data = await response.json();
+    
+    // 检查状态
+    if (data.status !== 'Successful') {
+      console.warn(`Trakt评分获取失败: ${data.status}`);
+      return null;
     }
-
-    // 如果是电视剧，继续获取季度评分
-    // 从TMDB获取季数信息
-    const tmdbResponse = await fetch(
-      `${TMDB.baseUrl}/tv/${tmdbId}?language=zh-CN`
-    );
-
-    if (!tmdbResponse.ok) {
-      throw new Error('Failed to fetch TMDB season info');
-    }
-
-    const tmdbData = await tmdbResponse.json();
-    const seasons = tmdbData.seasons || [];
-
-    // 获取每季评分
-    const seasonPromises = seasons.map(async (season: any) => {
-      try {
-        const seasonResponse = await fetch(
-          `${TRAKT.baseUrl}/shows/${imdbId}/seasons/${season.season_number}/ratings`
-        );
-
-        if (!seasonResponse.ok) {
-          console.warn(`Failed to fetch season ${season.season_number} ratings`);
-          return null;
-        }
-
-        const seasonData = await seasonResponse.json();
-
-        return {
-          season_number: season.season_number,
-          rating: seasonData.rating || 0,
-          votes: seasonData.votes || 0,
-          distribution: seasonData.distribution || {}
-        };
-      } catch (error) {
-        console.error(`Error fetching season ${season.season_number} ratings:`, error);
-        return null;
-      }
-    });
-
-    const validSeasons = (await Promise.all(seasonPromises)).filter(Boolean);
-
-    return {
-      rating: ratingData.rating,
-      votes: ratingData.votes,
-      distribution: ratingData.distribution,
-      seasons: validSeasons
+    
+    // 转换为前端期望的格式
+    // 注意：对于选集剧的单季条目，后端返回的是整体评分
+    // 我们将其作为第1季的评分
+    const result: any = {
+      rating: parseFloat(data.rating) || 0,
+      votes: parseInt(data.votes) || 0,
+      distribution: data.distribution || {}
     };
+    
+    // 如果是剧集，需要seasons数组
+    if (type === 'tv') {
+      // 对于单季剧集（如选集剧的一季），将整体评分作为第1季评分
+      result.seasons = [{
+        season_number: 1,
+        rating: parseFloat(data.rating) || 0,
+        votes: parseInt(data.votes) || 0,
+        distribution: data.distribution || {}
+      }];
+    }
+    
+    return result;
 
   } catch (error) {
     console.error('获取Trakt评分失败:', error);
