@@ -1605,9 +1605,32 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
 
 router = APIRouter()
 
+# 创建全局 httpx 客户端用于 TMDB API（复用连接）
+_tmdb_client = None
+
+async def get_tmdb_client():
+    """获取或创建 TMDB API 客户端（连接池）"""
+    global _tmdb_client
+    if _tmdb_client is None or _tmdb_client.is_closed:
+        _tmdb_client = httpx.AsyncClient(
+            http2=True,  # 启用 HTTP/2
+            timeout=httpx.Timeout(10.0),  # 10秒超时
+            limits=httpx.Limits(
+                max_connections=100,  # 最大连接数
+                max_keepalive_connections=20,  # 保持活动的连接数
+                keepalive_expiry=30.0  # 连接保持30秒
+            ),
+            headers={
+                "accept": "application/json",
+                "accept-encoding": "gzip, deflate",  # 启用压缩
+                "Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
+            }
+        )
+    return _tmdb_client
+
 @router.get("/api/tmdb-proxy/{path:path}")
 async def tmdb_proxy(path: str, request: Request):
-    """代理 TMDB API 请求并缓存结果"""
+    """代理 TMDB API 请求并缓存结果（优化版：HTTP/2 + 连接池 + Bearer Token）"""
     try:
         # 构建缓存键
         cache_key = f"tmdb:{path}:{request.query_params}"
@@ -1617,39 +1640,44 @@ async def tmdb_proxy(path: str, request: Request):
         if cached_data:
             return cached_data
             
-        # 获取原始查询参数
+        # 获取原始查询参数（不需要 api_key，使用 Bearer Token）
         params = dict(request.query_params)
-        params["api_key"] = "4f681fa7b5ab7346a4e184bbf2d41715"
         
         # 构建完整的 TMDB URL
         tmdb_url = f"https://api.themoviedb.org/3/{path}"
         
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-            async with session.get(tmdb_url, params=params) as response:
-                # 获取响应数据（即使失败也尽量读取，便于错误诊断）
-                text_body = await response.text()
-                if response.status != 200:
-                    try:
-                        err_json = json.loads(text_body)
-                    except Exception:
-                        err_json = {"error": text_body}
-                    raise HTTPException(status_code=response.status, detail={
-                        "message": "TMDB API 请求失败",
-                        "status": response.status,
-                        "body": err_json
-                    })
-                
-                # 成功则解析 JSON
+        # 使用连接池客户端
+        client = await get_tmdb_client()
+        
+        try:
+            response = await client.get(tmdb_url, params=params)
+            
+            if response.status_code != 200:
                 try:
-                    data = json.loads(text_body)
+                    err_json = response.json()
                 except Exception:
-                    raise HTTPException(status_code=500, detail="TMDB 返回的不是有效的JSON")
+                    err_json = {"error": response.text}
+                raise HTTPException(status_code=response.status_code, detail={
+                    "message": "TMDB API 请求失败",
+                    "status": response.status_code,
+                    "body": err_json
+                })
+            
+            # 解析 JSON
+            data = response.json()
+            
+            # 缓存结果
+            await set_cache(cache_key, data)
+            
+            return data
+            
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="TMDB API 请求超时")
+        except httpx.HTTPError as e:
+            raise HTTPException(status_code=500, detail=f"HTTP 请求错误: {str(e)}")
                 
-                # 缓存结果
-                await set_cache(cache_key, data)
-                
-                return data
-                
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
 
@@ -2546,3 +2574,12 @@ async def shutdown_event():
         print("浏览器池已清理")
     except Exception as e:
         print(f"浏览器池清理失败: {e}")
+    
+    # 清理 TMDB 客户端连接池
+    global _tmdb_client
+    if _tmdb_client and not _tmdb_client.is_closed:
+        try:
+            await _tmdb_client.aclose()
+            print("TMDB 客户端连接池已关闭")
+        except Exception as e:
+            print(f"TMDB 客户端清理失败: {e}")
