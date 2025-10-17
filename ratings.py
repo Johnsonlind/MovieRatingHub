@@ -17,6 +17,7 @@ import unicodedata
 from datetime import datetime
 from typing import Dict, Any
 from browser_pool import browser_pool
+from anthology_handler import anthology_handler
 
 # TMDB API 配置
 TMDB_API_KEY = "4f681fa7b5ab7346a4e184bbf2d41715"
@@ -328,6 +329,45 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
                     "episode_count": s.get("episode_count", 0)
                 } for s in en_data.get("seasons", [])]
             })
+            
+            # === 选集剧处理 ===
+            # 检查是否为选集剧（启发式判断）
+            is_anthology = anthology_handler.is_anthology_series(result)
+            result["is_anthology"] = is_anthology
+            
+            if is_anthology:
+                print(f"\n=== 检测到可能的选集剧: {title} ===")
+                
+                # 提取主系列信息（动态提取，不依赖硬编码）
+                series_info = anthology_handler.extract_main_series_info(result)
+                if series_info:
+                    result["series_info"] = series_info
+                    print(f"提取主系列: {series_info.get('main_title')}")
+                
+                # 如果IMDB ID为空，尝试从多个来源获取
+                if not result["imdb_id"]:
+                    print("IMDB ID为空，尝试从多个来源获取...")
+                    enhanced_imdb_id = await anthology_handler.get_imdb_id_from_multiple_sources(
+                        result, 
+                        series_info
+                    )
+                    if enhanced_imdb_id:
+                        result["imdb_id"] = enhanced_imdb_id
+                        print(f"✓ 增强获取到IMDB ID: {enhanced_imdb_id}")
+                
+                # 生成搜索标题变体（多策略）
+                # 这些变体会在搜索各平台时依次尝试
+                search_variants = anthology_handler.generate_search_variants(
+                    result,
+                    series_info
+                )
+                result["search_variants"] = search_variants
+                
+                print("==================\n")
+            else:
+                # 即使不是选集剧，也生成基本的搜索变体
+                # 保证所有剧集都有搜索变体
+                result["search_variants"] = anthology_handler.generate_search_variants(result, None)
         
         # 检查请求是否已被取消，只在未取消时输出信息
         if not request or not (await request.is_disconnected()):
@@ -345,20 +385,185 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
         return None
 
 def extract_year(year_str):
-    """从字符串中提取4位年份"""
-    match = re.search(r'\d{4}', str(year_str))
+    """
+    从字符串中提取4位年份，如果无法提取则返回None
+    支持格式：
+    - "2025"
+    - "2022–2025" (范围，返回第一年)
+    - "2022–" (开放范围)
+    - "(2025)" (括号中的年份)
+    """
+    if not year_str:
+        return None
+    
+    year_str = str(year_str)
+    
+    # 尝试提取年份范围的第一年（如 "2022–2025" 或 "2022–"）
+    range_match = re.search(r'(\d{4})\s*[–-]\s*(\d{4})?', year_str)
+    if range_match:
+        return int(range_match.group(1))
+    
+    # 普通年份提取
+    match = re.search(r'\b(19\d{2}|20\d{2})\b', year_str)
     if match:
-        return int(match.group())
-    raise ValueError(f"无法从'{year_str}'中提取年份")
+        return int(match.group(1))
+    
+    # 不抛出异常，返回None让调用者处理
+    return None
 
 async def calculate_match_degree(tmdb_info, result, platform=""):
     """计算搜索结果与TMDB信息的匹配度"""
+    import traceback as tb  # 导入traceback模块
     try:
         # 如果结果已经有匹配分数，直接返回
         if "match_score" in result:
             return result["match_score"]      
           
         score = 0
+        
+        # === 选集剧特殊匹配逻辑 ===
+        # 如果使用的是选集剧策略（主系列标题），需要特殊处理
+        if tmdb_info.get("is_anthology"):
+            search_variant_used = result.get("search_variant_used")
+            if not search_variant_used:
+                # 尝试从tmdb_info获取当前使用的搜索变体
+                search_variants = tmdb_info.get("search_variants", [])
+                # 假设使用的是第一个变体（这个逻辑可以改进）
+                search_variant_used = search_variants[0] if search_variants else {}
+            
+            # 如果使用的是anthology_series策略（主系列标题）
+            if search_variant_used.get("strategy") == "anthology_series":
+                print(f"  [选集剧匹配] 使用主系列标题搜索策略")
+                
+                result_title = result.get("title", "").lower()
+                search_title = search_variant_used.get("title", "").lower()
+                
+                # 1. 主系列标题严格匹配（关键！避免Monsterland被当成Monster）
+                # 不使用模糊匹配，而是检查标题是否包含或等于搜索词
+                
+                # 清理标题：移除年份、括号等
+                cleaned_result_title = re.sub(r'\s*\([^)]*\)\s*', '', result_title).strip()
+                cleaned_search_title = search_title.strip()
+                
+                # 严格匹配逻辑
+                is_exact_match = (cleaned_result_title == cleaned_search_title)
+                is_contained = (cleaned_search_title in cleaned_result_title.split() or 
+                               cleaned_result_title.startswith(cleaned_search_title + " ") or
+                               cleaned_result_title == cleaned_search_title)
+                
+                print(f"  结果标题(清理后): '{cleaned_result_title}'")
+                print(f"  搜索标题: '{cleaned_search_title}'")
+                
+                if is_exact_match:
+                    score = 70  # 完全匹配！
+                    print(f"  ✓✓✓ 标题完全匹配！")
+                elif is_contained:
+                    score = 65  # 包含关系也接受（如"Monster: Season 1"包含"Monster"）
+                    print(f"  ✓✓ 标题包含搜索词")
+                else:
+                    # 使用模糊匹配作为最后手段，但要求很高
+                    fuzzy_score = fuzz.ratio(search_title, result_title)
+                    print(f"  模糊匹配度: {fuzzy_score}%")
+                    if fuzzy_score >= 95:
+                        score = 60
+                        print(f"  ✓ 模糊匹配度很高")
+                    else:
+                        # 不接受模糊匹配度<95%的，避免Monsterland这种错误
+                        score = 0
+                        print(f"  ✗ 标题不匹配（避免错误如Monsterland）")
+                        return 0  # 直接返回0，不继续计算
+                
+                # 2. 年份处理（关键！用于区分同名剧集）
+                result_year_text = result.get("year", "")
+                tmdb_year = tmdb_info.get("year", "")
+                search_year = search_variant_used.get("year", "")
+                
+                # 提取年份（支持范围如"2022–"）
+                result_year_int = extract_year(result_year_text)
+                tmdb_year_int = extract_year(tmdb_year)
+                search_year_int = extract_year(search_year) if search_year else None
+                
+                # === 年份验证（区分同名剧集）===
+                year_valid = False
+                
+                if result_year_int and tmdb_year_int:
+                    # 情况A：年份范围（如"2022–"表示系列）
+                    if "–" in result_year_text or "-" in result_year_text:
+                        # 检查目标年份是否在系列范围内
+                        end_year_match = re.search(r'[–-]\s*(\d{4})', result_year_text)
+                        if end_year_match:
+                            end_year = int(end_year_match.group(1))
+                            if result_year_int <= tmdb_year_int <= end_year:
+                                score += 25
+                                year_valid = True
+                                print(f"  ✓✓ 目标年份在系列范围内: {result_year_int}–{end_year} ∋ {tmdb_year_int}")
+                        else:
+                            # 开放范围（如"2022–"）
+                            if result_year_int <= tmdb_year_int:
+                                score += 30
+                                year_valid = True
+                                print(f"  ✓✓ 目标年份在开放系列范围内: {result_year_int}– ∋ {tmdb_year_int}")
+                    
+                    # 情况B：单一年份（选集剧的关键逻辑！）
+                    else:
+                        year_diff = abs(result_year_int - tmdb_year_int)
+                        
+                        # 对于选集剧：综合判断
+                        if year_diff == 0:
+                            # 年份精确匹配
+                            score += 20
+                            year_valid = True
+                            print(f"  ✓✓ 年份精确匹配: {result_year_int}")
+                        elif year_diff <= 3:
+                            # 年份非常接近（3年内）
+                            score += 15
+                            year_valid = True
+                            print(f"  ✓ 年份接近: 差距{year_diff}年")
+                        elif result_year_int < tmdb_year_int and year_diff <= 5:
+                            # 结果年份早于目标，且在5年内 → 可能是选集剧系列
+                            score += 10
+                            year_valid = True  
+                            print(f"  ✓ 结果年份略早于目标: {result_year_int} < {tmdb_year_int}（差{year_diff}年，可能是系列）")
+                        elif result_year_int < tmdb_year_int and year_diff <= 10:
+                            # 在10年内，给少量分数
+                            score += 5
+                            year_valid = True
+                            print(f"  ⚠️ 结果年份较早: {result_year_int} < {tmdb_year_int}（差{year_diff}年）")
+                        else:
+                            # 年份差距过大或方向错误
+                            print(f"  ✗ 年份不合理: {result_year_int} vs {tmdb_year_int}（差{year_diff}年）")
+                elif not result_year_int:
+                    # 没有年份信息，不加分也不减分
+                    year_valid = True
+                    print(f"  结果无年份信息")
+                
+                # 3. 副标题匹配（关键！通用方案的核心）
+                # 不需要知道首播年份，只需要匹配副标题
+                subtitle_hint = search_variant_used.get("subtitle_hint", "")
+                if subtitle_hint:
+                    subtitle_lower = subtitle_hint.lower()
+                    # 完全包含副标题 - 这是最可靠的匹配
+                    if subtitle_lower in result_title:
+                        score += 40  # 高分！
+                        print(f"  ✓✓ 结果包含目标副标题: '{subtitle_hint}' → 很可能是正确的")
+                    else:
+                        # 模糊匹配副标题的各个部分
+                        subtitle_match = fuzz.partial_ratio(subtitle_lower, result_title)
+                        if subtitle_match > 70:
+                            score += subtitle_match * 0.3
+                            print(f"  ✓ 副标题模糊匹配: {subtitle_match}")
+                
+                # 4. 对于IMDB，如果是"Monster" + 年份范围包含我们的目标年份，也应该匹配
+                if platform == "imdb":
+                    # 检查年份范围（如 "2022–2025" 或 "2022–"）
+                    if "–" in result_year_text or "-" in result_year_text:
+                        if result_year_int and tmdb_year_int:
+                            if result_year_int <= tmdb_year_int:
+                                score += 15
+                                print(f"  ✓ 年份在系列范围内: {result_year_int}– 包含 {tmdb_year_int}")
+                
+                print(f"  [选集剧匹配] 最终得分: {score}")
+                return score
         
         # 专门针对豆瓣平台
         if platform == "douban":
@@ -450,17 +655,25 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                     tmdb_year = str(tmdb_info.get("year", ""))
                     result_year = str(result.get("year", ""))
                     
-                    if tmdb_year and result_year:  
-                        year_diff = abs(extract_year(tmdb_year) - extract_year(result_year))
+                    if tmdb_year and result_year:
+                        tmdb_year_int = extract_year(tmdb_year)
+                        result_year_int = extract_year(result_year)
                         
-                        if year_diff == 0:
-                            score += 30
-                        elif year_diff == 1:
-                            score += 15
-                        elif year_diff == 2:
-                            score += 5
-                        elif year_diff > 2:
-                            return 0
+                        # 只有两个年份都能提取时才比较
+                        if tmdb_year_int and result_year_int:
+                            year_diff = abs(tmdb_year_int - result_year_int)
+                            
+                            if year_diff == 0:
+                                score += 30
+                            elif year_diff == 1:
+                                score += 15
+                            elif year_diff == 2:
+                                score += 5
+                            elif year_diff > 2:
+                                return 0
+                        else:
+                            # 无法提取年份，不影响匹配，但也不加分
+                            print(f"  年份无法提取: TMDB={tmdb_year}, 结果={result_year}")
                 else: 
                     # 剧集
                     # 先检查是否是单季剧集
@@ -494,16 +707,20 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                                 break
                         
                         if season_air_date and result_year:
-                            year_diff = abs(extract_year(season_air_date) - extract_year(result_year))
+                            season_year_int = extract_year(season_air_date)
+                            result_year_int = extract_year(result_year)
                             
-                            if year_diff == 0:
-                                score += 20
-                            elif year_diff == 1:
-                                score += 10
-                            elif year_diff == 2:
-                                score += 5
-                            elif year_diff > 2:
-                                return 0
+                            if season_year_int and result_year_int:
+                                year_diff = abs(season_year_int - result_year_int)
+                                
+                                if year_diff == 0:
+                                    score += 20
+                                elif year_diff == 1:
+                                    score += 10
+                                elif year_diff == 2:
+                                    score += 5
+                                elif year_diff > 2:
+                                    return 0
                     else:
                         # 如果是单季剧集但没有找到季数标识，使用第一季的播出年份
                         if is_single_season:
@@ -511,21 +728,26 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                                 if season.get("season_number") == 1:
                                     season_air_date = season.get("air_date", "")[:4]
                                     if season_air_date and result_year:
-                                        year_diff = abs(extract_year(season_air_date) - extract_year(result_year))
+                                        season_year_int = extract_year(season_air_date)
+                                        result_year_int = extract_year(result_year)
                                         
-                                        if year_diff == 0:
-                                            score += 20
-                                        elif year_diff == 1:
-                                            score += 10
-                                        elif year_diff == 2:
-                                            score += 5
-                                        elif year_diff > 2:
-                                            return 0
+                                        if season_year_int and result_year_int:
+                                            year_diff = abs(season_year_int - result_year_int)
+                                            
+                                            if year_diff == 0:
+                                                score += 20
+                                            elif year_diff == 1:
+                                                score += 10
+                                            elif year_diff == 2:
+                                                score += 5
+                                            elif year_diff > 2:
+                                                return 0
                                     break
 
             except (ValueError, TypeError) as e:
                 print(f"年份比较出错: {e}")
-                print(f"错误详情: {traceback.format_exc()}")
+                # traceback已在函数开头导入为tb
+                print(f"错误详情: {tb.format_exc()}")
             
             # 5. IMDB ID匹配（10分）
             if tmdb_info.get("imdb_id") and result.get("imdb_id"):
@@ -556,15 +778,19 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                 result_year = str(result.get("year", ""))
                 
                 if tmdb_year and result_year:
-                    year_diff = abs(extract_year(tmdb_year) - extract_year(result_year))
-                    if year_diff == 0:
-                        score += 30
-                    elif year_diff == 1:
-                        score += 15
+                    tmdb_year_int = extract_year(tmdb_year)
+                    result_year_int = extract_year(result_year)
+                    
+                    if tmdb_year_int and result_year_int:
+                        year_diff = abs(tmdb_year_int - result_year_int)
+                        if year_diff == 0:
+                            score += 30
+                        elif year_diff == 1:
+                            score += 15
 
             except (ValueError, TypeError) as e:
                 print(f"年份比较出错: {e}")
-                print(f"错误详情: {traceback.format_exc()}")
+                print(f"错误详情: {tb.format_exc()}")
             
             # 3. IMDB ID匹配（10分）
             if tmdb_info.get("imdb_id") and result.get("imdb_id"):
@@ -728,11 +954,21 @@ def get_client_ip(request: Request) -> str:
     return request.client.host
 
 async def search_platform(platform, tmdb_info, request=None):
-    """在各平台搜索并返回搜索结果"""
+    """
+    在各平台搜索并返回搜索结果
+    使用多策略搜索：依次尝试所有搜索变体直到找到匹配
+    """
     try:
         # 检查请求是否已被取消
         if request and await request.is_disconnected():
             return {"status": "cancelled"}
+
+        # === Trakt特殊处理 ===
+        # Trakt不需要通过搜索页面，直接在extract_rating_info中通过API处理
+        # 这里返回一个标记，让后续逻辑知道使用API
+        if platform == "trakt":
+            print("Trakt使用API直接获取，不需要搜索页面")
+            return [{"use_api": True, "title": tmdb_info.get("title", "")}]
 
         # 对于IMDB,如果有IMDB ID则直接返回详情页URL
         if platform == "imdb" and tmdb_info.get("imdb_id"):
@@ -745,17 +981,37 @@ async def search_platform(platform, tmdb_info, request=None):
                 "direct_match": True
             }]
 
-        if platform == "douban":
-            search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
-        else:
-            search_title = tmdb_info["title"] or tmdb_info["original_title"]
-
+        # === 多策略搜索 ===
+        # 获取搜索变体（如果有）
+        search_variants = tmdb_info.get("search_variants", [])
+        
+        # 如果没有搜索变体，使用默认标题
+        if not search_variants:
+            if platform == "douban":
+                search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
+            else:
+                search_title = tmdb_info["title"] or tmdb_info["original_title"]
+            
+            search_variants = [{
+                "title": search_title,
+                "year": tmdb_info.get("year", ""),
+                "type": "default",
+                "strategy": "standalone",
+                "priority": 1
+            }]
+        
         media_type = tmdb_info["type"]
-        search_url = construct_search_url(search_title, media_type, platform)
-
-        # 使用浏览器池执行搜索操作
-        async def execute_search(browser):
+        
+        # 依次尝试每个搜索变体直到找到匹配
+        print(f"\n=== {platform} 多策略搜索 ===")
+        print(f"共有 {len(search_variants)} 个搜索变体")
+        
+        # 定义单次搜索的执行函数
+        async def execute_single_search(search_title, variant_info, browser):
+            """执行单个搜索变体的搜索"""
             context = None
+            search_url = construct_search_url(search_title, media_type, platform)
+            
             try:
                 # 先选择 User-Agent
                 selected_user_agent = random.choice(USER_AGENTS)
@@ -769,11 +1025,11 @@ async def search_platform(platform, tmdb_info, request=None):
                     'java_script_enabled': True,
                     'has_touch': False,
                     'is_mobile': False,
-                    'locale': 'zh-CN',  # 改为中文
-                    'timezone_id': 'Asia/Shanghai',  # 改为中国时区
+                    'locale': 'zh-CN',
+                    'timezone_id': 'Asia/Shanghai',
                     'extra_http_headers': {
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',  # 改为中文优先
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                         'Accept-Encoding': 'gzip, deflate, br',
                         'DNT': '1',
                         'Connection': 'keep-alive',
@@ -788,7 +1044,7 @@ async def search_platform(platform, tmdb_info, request=None):
                 # 创建上下文
                 context = await browser.new_context(**context_options)
 
-                # 添加请求拦截 - 只拦截明显的非必要资源
+                # 添加请求拦截
                 await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
                 await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
                 await context.route("**/beacon/**", lambda route: route.abort())
@@ -808,15 +1064,19 @@ async def search_platform(platform, tmdb_info, request=None):
                         'X-Real-IP': client_ip
                     })
 
-                print(f"正在搜索 {platform}: {search_url}")
+                print(f"搜索URL: {search_url}")
 
                 # 添加请求监控
-                async def log_request(request):
-                    if request.resource_type == "document":
+                async def log_request(req):
+                    if req.resource_type == "document":
                         pass
                     page.remove_listener('request', log_request)
 
                 page.on('request', log_request)
+                
+                # 初始化results变量
+                results = None
+                
                 try:
                     # 在每个关键操作前检查请求状态
                     async def check_request():
@@ -836,6 +1096,10 @@ async def search_platform(platform, tmdb_info, request=None):
                         results = await handle_rt_search(page, search_url, tmdb_info)
                     elif platform == "metacritic":
                         results = await handle_metacritic_search(page, search_url)
+                    else:
+                        # 不支持的平台
+                        print(f"平台 {platform} 不支持通过搜索页面")
+                        return None
 
                     # 检查访问限制
                     await check_request()
@@ -863,17 +1127,26 @@ async def search_platform(platform, tmdb_info, request=None):
 
                     # 根据匹配度过滤结果
                     await check_request()
-                    threshold = {
-                        "douban": 70,
-                        "imdb": 70,
-                        "letterboxd": 70,
-                        "rottentomatoes": 70,
-                        "metacritic": 70
-                    }.get(platform, 70)
+                    # 对于选集剧策略，降低阈值
+                    # 因为我们通过副标题匹配，基础分可能较低
+                    if variant_info.get("strategy") == "anthology_series":
+                        threshold = 60  # 选集剧降低阈值
+                        print(f"  使用选集剧阈值: {threshold}")
+                    else:
+                        threshold = {
+                            "douban": 70,
+                            "imdb": 70,
+                            "letterboxd": 70,
+                            "rottentomatoes": 70,
+                            "metacritic": 70
+                        }.get(platform, 70)
 
                     matched_results = []
                     for result in results:
                         await check_request()
+                        # 将当前使用的变体信息添加到result中
+                        result["search_variant_used"] = variant_info
+                        
                         # 如果结果已经有匹配分数，直接使用
                         if "match_score" in result:
                             match_score = result["match_score"]
@@ -882,18 +1155,21 @@ async def search_platform(platform, tmdb_info, request=None):
 
                         if match_score >= threshold:
                             matched_results.append(result)
+                        else:
+                            print(f"  结果被过滤: 匹配度{match_score} < 阈值{threshold}")
 
                     if not matched_results:
-                        print(f"{platform} 未找到足够匹配的结果")
-                        return []
+                        print(f"变体未找到足够匹配的结果")
+                        return None  # 返回None表示这个变体失败，尝试下一个
 
+                    print(f"✓ 找到 {len(matched_results)} 个匹配结果")
                     return matched_results
 
                 except RequestCancelledException:
                     print("所有请求已取消")
                     return {"status": "cancelled"}
                 except Exception as e:
-                    print(f"处理 {platform} 搜索时出错: {e}")
+                    print(f"处理搜索时出错: {e}")
                     print(traceback.format_exc())
                     if "Timeout" in str(e):
                         return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"} 
@@ -906,9 +1182,54 @@ async def search_platform(platform, tmdb_info, request=None):
                         await context.close()
                     except Exception:
                         pass
-
-        # 使用浏览器池执行搜索
-        return await browser_pool.execute_in_browser(execute_search)
+        
+        # === 主搜索循环：依次尝试每个变体 ===
+        for i, variant in enumerate(search_variants, 1):
+            # 检查请求是否已被取消
+            if request and await request.is_disconnected():
+                return {"status": "cancelled"}
+            
+            search_title = variant["title"]
+            print(f"\n尝试变体 {i}/{len(search_variants)}: {search_title} ({variant['year']})")
+            print(f"  策略: {variant['strategy']}, 类型: {variant['type']}")
+            
+            try:
+                # 使用浏览器池执行这个变体的搜索
+                # 使用默认参数固定变量值，避免lambda捕获问题
+                results = await browser_pool.execute_in_browser(
+                    lambda browser, st=search_title, v=variant: execute_single_search(st, v, browser)
+                )
+                
+                # 检查结果
+                if isinstance(results, dict) and "status" in results:
+                    # 如果是错误状态且是最后一个变体，返回错误
+                    if i == len(search_variants):
+                        return results
+                    # 否则尝试下一个变体
+                    print(f"  ✗ 变体失败: {results.get('status_reason', results.get('status'))}")
+                    continue
+                
+                if isinstance(results, list) and len(results) > 0:
+                    print(f"  ✓ 变体成功！找到 {len(results)} 个匹配结果")
+                    # 标记这个变体成功
+                    for result in results:
+                        result['search_variant_used'] = variant
+                    return results
+                
+                # 结果为空或None，尝试下一个变体
+                print(f"  ✗ 变体未找到匹配，尝试下一个...")
+                
+            except Exception as e:
+                print(f"  ✗ 变体搜索出错: {e}")
+                # 如果是最后一个变体，返回错误
+                if i == len(search_variants):
+                    return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": str(e)}
+                # 否则继续尝试下一个
+                continue
+        
+        # 所有变体都失败
+        print(f"\n✗ 所有 {len(search_variants)} 个搜索变体都失败")
+        return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "所有搜索策略都未找到匹配"}
 
     except Exception as e:
         print(f"搜索 {platform} 时出错: {e}")
@@ -1027,18 +1348,41 @@ async def handle_imdb_search(page, search_url):
             for item in items:
                 try:
                     title_elem = await item.query_selector('a.ipc-metadata-list-summary-item__t')
-                    year_elem = await item.query_selector('.ipc-inline-list__item .ipc-metadata-list-summary-item__li')
-                
-                    if title_elem and year_elem:
+                    
+                    if title_elem:
                         title = await title_elem.inner_text()
                         url = await title_elem.get_attribute('href')
-                        year = await year_elem.inner_text()
-                    
+                        
+                        # 尝试从多个位置提取年份
+                        year = None
+                        
+                        # 方法1：尝试从所有inline-list项中查找年份
+                        all_list_items = await item.query_selector_all('.ipc-inline-list__item')
+                        for list_item in all_list_items:
+                            text = await list_item.inner_text()
+                            # 提取4位数字年份
+                            year_match = re.search(r'\b(19\d{2}|20\d{2})\b', text)
+                            if year_match:
+                                year = year_match.group(1)
+                                break
+                        
+                        # 方法2：如果还没找到，从标题中提取年份
+                        if not year:
+                            year_match = re.search(r'\((\d{4})\)', title)
+                            if year_match:
+                                year = year_match.group(1)
+                        
+                        # 如果实在找不到年份，至少获取类型信息
+                        if not year:
+                            type_elem = await item.query_selector('.ipc-inline-list__item .ipc-metadata-list-summary-item__li')
+                            if type_elem:
+                                year = await type_elem.inner_text()  # 可能是 "TV Series" 等
+                        
                         if url and "/title/" in url:
                             imdb_id = url.split("/title/")[1].split("/")[0]
                             results.append({
                                 "title": title,
-                                "year": year,
+                                "year": year or "",
                                 "imdb_id": imdb_id,
                                 "url": f"https://www.imdb.com/title/{imdb_id}/"
                             })
@@ -1121,6 +1465,54 @@ async def handle_rt_search(page, search_url, tmdb_info):
             
             print(f"找到 {len(items)} 个{media_type}类型结果")
             
+            # === 选集剧特殊处理：如果使用副标题搜索，直接接受第一个结果 ===
+            is_anthology = tmdb_info.get("is_anthology", False)
+            search_variants = tmdb_info.get("search_variants", [])
+            
+            # 检查当前搜索是否使用了副标题
+            using_subtitle_search = False
+            if is_anthology and search_variants:
+                # 从URL中提取搜索关键词
+                import urllib.parse
+                search_query = urllib.parse.unquote(search_url.split("search=")[-1].split("&")[0] if "search=" in search_url else "").lower()
+                
+                # 检查是否匹配副标题变体（必须完全匹配，不是包含关系）
+                for variant in search_variants:
+                    if variant.get("for_rottentomatoes"):
+                        variant_title = variant.get("title", "").lower()
+                        # 严格匹配：搜索的就是纯副标题（不包含主标题）
+                        if variant_title == search_query:
+                            using_subtitle_search = True
+                            print(f"[选集剧] 使用副标题搜索：{variant.get('title')}")
+                            print(f"[选集剧] 直接接受第一个结果，无需计算匹配度")
+                            break
+            
+            if using_subtitle_search and items:
+                # 直接取第一个结果
+                item = items[0]
+                try:
+                    # 获取标题和链接
+                    title_elem = await item.query_selector('[data-qa="info-name"]')
+                    if title_elem:
+                        title = (await title_elem.inner_text()).strip()
+                        url = await title_elem.get_attribute('href')
+                        year = await item.get_attribute('startyear')
+                        
+                        print(f"✓ 选集剧第一个结果: {title} ({year})")
+                        print(f"   URL: {url}")
+                        
+                        return [{
+                            "title": title,
+                            "year": year or tmdb_info.get('year'),
+                            "url": url,
+                            "match_score": 100,  # 直接给最高分
+                            "is_anthology_match": True
+                        }]
+                except Exception as e:
+                    print(f"获取选集剧第一个结果时出错: {e}")
+                    # 继续正常流程
+            
+            # === 正常搜索流程 ===
             for item in items:
                 try:
                     # 获取标题和链接
@@ -1377,6 +1769,49 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             if request and await request.is_disconnected():
                 print("请求已被取消,停止执行")
                 return {"status": "cancelled"}
+
+            # === Trakt 特殊处理 ===
+            # Trakt使用API而不是网页爬取，需要特殊处理
+            if platform == "trakt":
+                try:
+                    print(f"\n=== 开始Trakt评分获取 ===")
+                    
+                    # 获取选集剧信息（如果有）
+                    series_info = tmdb_info.get("series_info")
+                    
+                    # 使用anthology_handler搜索Trakt
+                    trakt_data = await anthology_handler.search_trakt(tmdb_info, series_info)
+                    
+                    if trakt_data:
+                        print(f"Trakt评分获取成功: {trakt_data.get('rating')}/10")
+                        return {
+                            "rating": str(trakt_data.get("rating", "暂无")),
+                            "votes": str(trakt_data.get("votes", "暂无")),
+                            "distribution": trakt_data.get("distribution", {}),
+                            "url": trakt_data.get("url", ""),
+                            "status": RATING_STATUS["SUCCESSFUL"]
+                        }
+                    else:
+                        print("Trakt评分获取失败：未找到匹配")
+                        return {
+                            "rating": "暂无",
+                            "votes": "暂无",
+                            "distribution": {},
+                            "url": "",
+                            "status": RATING_STATUS["NO_FOUND"]
+                        }
+                except Exception as e:
+                    print(f"Trakt评分获取失败: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    return {
+                        "rating": "暂无",
+                        "votes": "暂无",
+                        "distribution": {},
+                        "url": "",
+                        "status": RATING_STATUS["FETCH_FAILED"],
+                        "status_reason": str(e)
+                    }
 
             # 处理特殊状态
             if isinstance(search_results, dict) and "status" in search_results:
@@ -1940,67 +2375,166 @@ async def extract_rt_rating(page, media_type, tmdb_info):
             }
             
             # 处理剧集分季数据
-            if media_type == "tv" and tmdb_info.get("number_of_seasons", 0) > 0:
-                base_url = page.url.split("/tv/")[1].split("/")[0]
+            if media_type == "tv":
+                # === 选集剧特殊处理：从页面解析所有季，根据年份匹配 ===
+                if tmdb_info.get("is_anthology"):
+                    print(f"\n[选集剧] Rotten Tomatoes分季处理")
+                    tmdb_year = tmdb_info.get("year", "")
+                    print(f"目标年份: {tmdb_year}")
+                    
+                    # 解析页面中的Seasons部分
+                    # <tile-season href="/tv/monster_2022/s01">
+                    #   <rt-text slot="title">DAHMER -- The Jeffrey Dahmer Story</rt-text>
+                    #   <rt-text slot="airDate">Sep 2022</rt-text>
+                    season_tiles = re.findall(
+                        r'<tile-season[^>]*href="([^"]+)"[^>]*>.*?'
+                        r'<rt-text[^>]*slot="title"[^>]*>([^<]+)</rt-text>.*?'
+                        r'<rt-text[^>]*slot="airDate"[^>]*>([^<]+)</rt-text>',
+                        content,
+                        re.DOTALL | re.IGNORECASE
+                    )
+                    
+                    print(f"解析到 {len(season_tiles)} 个季")
+                    
+                    # 根据年份匹配到正确的季
+                    matched_season = None
+                    for season_url, season_title, season_date in season_tiles:
+                        # 从日期中提取年份 (如 "Oct 2025" -> "2025")
+                        year_match = re.search(r'(\d{4})', season_date)
+                        if year_match:
+                            season_year = year_match.group(1)
+                            print(f"  {season_title.strip()}: {season_date.strip()} (年份: {season_year})")
+                            if season_year == tmdb_year:
+                                # 从URL中提取季号（如 /tv/monster_2022/s03 -> 3）
+                                season_num_match = re.search(r'/s(\d+)', season_url)
+                                if season_num_match:
+                                    season_number = int(season_num_match.group(1))
+                                    matched_season = (season_url, season_number, season_title.strip(), season_year)
+                                    print(f"  ✓ 年份匹配！Season {season_number} ({season_year})")
+                                    break
+                    
+                    if matched_season:
+                        season_url, season_number, season_title, season_year = matched_season
+                        # 确保URL完整
+                        if not season_url.startswith('http'):
+                            season_url = f"https://www.rottentomatoes.com{season_url}"
+                        
+                        print(f"访问匹配的季: {season_url}")
+                        try:
+                            await page.goto(season_url)
+                            await asyncio.sleep(0.5)
+                            season_content = await page.content()
+                            
+                            # 对于选集剧单季条目：映射为Season 1
+                            tmdb_season_number = 1
+                            
+                            season_json_match = re.search(r'<script[^>]*id="media-scorecard-json"[^>]*>\s*({[^<]+})\s*</script>', season_content)
+                            if season_json_match:
+                                season_score_data = json.loads(season_json_match.group(1))
+                                season_overlay = season_score_data.get("overlay", {})
+                                
+                                season_has_audience = season_overlay.get("hasAudienceAll", False)
+                                season_has_critics = season_overlay.get("hasCriticsAll", False)
+                                
+                                season_audience = season_overlay.get("audienceAll", {})
+                                season_critics = season_overlay.get("criticsAll", {})
+                                
+                                season_data = {
+                                    "season_number": tmdb_season_number,  # 映射为Season 1
+                                    "tomatometer": "暂无",
+                                    "audience_score": "暂无",
+                                    "critics_avg": "暂无",
+                                    "critics_count": "暂无",
+                                    "audience_count": "暂无",
+                                    "audience_avg": "暂无",
+                                    "_original_season": season_number,
+                                    "_season_title": season_title,
+                                    "_season_year": season_year
+                                }
+                                
+                                if season_has_critics:
+                                    season_data["tomatometer"] = season_critics.get("scorePercent", "暂无").rstrip("%") if season_critics.get("scorePercent") else "暂无"
+                                    season_data["critics_avg"] = season_critics.get("averageRating", "暂无")
+                                    season_data["critics_count"] = season_critics.get("scoreLinkText", "暂无").split()[0] if season_critics.get("scoreLinkText") else "暂无"
+                                    print(f"从Rotten Tomatoes Season {season_number}提取到专业评分: {season_data['tomatometer']}")
+                                    print(f"  → 映射为TMDB Season {tmdb_season_number}")
+                                
+                                if season_has_audience:
+                                    season_data["audience_score"] = season_audience.get("scorePercent", "暂无").rstrip("%") if season_audience.get("scorePercent") else "暂无"
+                                    season_data["audience_avg"] = season_audience.get("averageRating", "暂无")
+                                    season_data["audience_count"] = season_audience.get("bandedRatingCount", "暂无")
+                                
+                                ratings["seasons"].append(season_data)
+                                print(f"✓ 成功获取并映射为TMDB Season {tmdb_season_number}评分数据")
+                        
+                        except Exception as e:
+                            print(f"✗ 获取Season {season_number}评分数据时出错: {e}")
+                    else:
+                        print(f"⚠️ 未找到与年份{tmdb_year}匹配的季")
                 
-                for season in range(1, tmdb_info.get("number_of_seasons", 0) + 1):
-                    try:
-                        season_url = f"https://www.rottentomatoes.com/tv/{base_url}/s{str(season).zfill(2)}"
-                        await page.goto(season_url)
-                        season_content = await page.content()
-                        
-                        season_json_match = re.search(r'<script[^>]*id="media-scorecard-json"[^>]*>\s*({[^<]+})\s*</script>', season_content)
-                        if not season_json_match:
+                # 普通多季剧集处理
+                elif tmdb_info.get("number_of_seasons", 0) > 1:
+                    print(f"\n[普通剧集] Rotten Tomatoes分季处理")
+                    base_url = page.url.split("/tv/")[1].split("/")[0]
+                    
+                    for season in range(1, tmdb_info.get("number_of_seasons", 0) + 1):
+                        try:
+                            season_url = f"https://www.rottentomatoes.com/tv/{base_url}/s{str(season).zfill(2)}"
+                            await page.goto(season_url)
+                            season_content = await page.content()
+                            
+                            season_json_match = re.search(r'<script[^>]*id="media-scorecard-json"[^>]*>\s*({[^<]+})\s*</script>', season_content)
+                            if not season_json_match:
+                                continue
+                                
+                            season_score_data = json.loads(season_json_match.group(1))
+                            season_overlay = season_score_data.get("overlay", {})
+                            
+                            # 检查分季是否有观众和专业评分数据
+                            season_has_audience = season_overlay.get("hasAudienceAll", False)
+                            season_has_critics = season_overlay.get("hasCriticsAll", False)
+                            
+                            # 如果两种评分都没有，跳过这一季
+                            if not season_has_audience and not season_has_critics:
+                                continue
+                                
+                            season_audience = season_overlay.get("audienceAll", {})
+                            season_critics = season_overlay.get("criticsAll", {})
+                            
+                            # 提取分季评分数据
+                            season_tomatometer = "暂无"
+                            season_critics_avg = "暂无"
+                            season_critics_count = "暂无"
+                            season_audience_avg = "暂无"
+                            if season_has_critics:
+                                season_tomatometer = season_critics.get("scorePercent", "暂无").rstrip("%") if season_critics.get("scorePercent") else "暂无"
+                                season_critics_avg = season_critics.get("averageRating", "暂无")
+                                season_critics_count = season_critics.get("scoreLinkText", "暂无").split()[0] if season_critics.get("scoreLinkText") else "暂无"
+                                
+                            season_audience_score = "暂无"
+                            season_audience_avg = "暂无"
+                            season_audience_count = "暂无"
+                            if season_has_audience:
+                                season_audience_score = season_audience.get("scorePercent", "暂无").rstrip("%") if season_audience.get("scorePercent") else "暂无"
+                                avg_rating = season_audience.get("averageRating")
+                                season_audience_avg = avg_rating if avg_rating and avg_rating not in ["暂无", ""] else "暂无"
+                                season_audience_count = season_audience.get("bandedRatingCount", "暂无")
+                            
+                            season_data = {
+                                "season_number": season,
+                                "tomatometer": season_tomatometer,
+                                "audience_score": season_audience_score,
+                                "critics_avg": season_critics_avg,
+                                "audience_avg": season_audience_avg,
+                                "critics_count": season_critics_count,
+                                "audience_count": season_audience_count
+                            }
+                            
+                            ratings["seasons"].append(season_data)
+                            
+                        except Exception as e:
+                            print(f"获取第{season}季评分数据时出错: {e}")
                             continue
-                            
-                        season_score_data = json.loads(season_json_match.group(1))
-                        season_overlay = season_score_data.get("overlay", {})
-                        
-                        # 检查分季是否有观众和专业评分数据
-                        season_has_audience = season_overlay.get("hasAudienceAll", False)
-                        season_has_critics = season_overlay.get("hasCriticsAll", False)
-                        
-                        # 如果两种评分都没有，跳过这一季
-                        if not season_has_audience and not season_has_critics:
-                            continue
-                            
-                        season_audience = season_overlay.get("audienceAll", {})
-                        season_critics = season_overlay.get("criticsAll", {})
-                        
-                        # 提取分季评分数据
-                        season_tomatometer = "暂无"
-                        season_critics_avg = "暂无"
-                        season_critics_count = "暂无"
-                        season_audience_avg = "暂无"
-                        if season_has_critics:
-                            season_tomatometer = season_critics.get("scorePercent", "暂无").rstrip("%") if season_critics.get("scorePercent") else "暂无"
-                            season_critics_avg = season_critics.get("averageRating", "暂无")
-                            season_critics_count = season_critics.get("scoreLinkText", "暂无").split()[0] if season_critics.get("scoreLinkText") else "暂无"
-                            
-                        season_audience_score = "暂无"
-                        season_audience_avg = "暂无"
-                        season_audience_count = "暂无"
-                        if season_has_audience:
-                            season_audience_score = season_audience.get("scorePercent", "暂无").rstrip("%") if season_audience.get("scorePercent") else "暂无"
-                            avg_rating = season_audience.get("averageRating")
-                            season_audience_avg = avg_rating if avg_rating and avg_rating not in ["暂无", ""] else "暂无"
-                            season_audience_count = season_audience.get("bandedRatingCount", "暂无")
-                        
-                        season_data = {
-                            "season_number": season,
-                            "tomatometer": season_tomatometer,
-                            "audience_score": season_audience_score,
-                            "critics_avg": season_critics_avg,
-                            "audience_avg": season_audience_avg,
-                            "critics_count": season_critics_count,
-                            "audience_count": season_audience_count
-                        }
-                        
-                        ratings["seasons"].append(season_data)
-                        
-                    except Exception as e:
-                        print(f"获取第{season}季评分数据时出错: {e}")
-                        continue
                             
             return ratings
             
@@ -2085,87 +2619,183 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                 if match:
                     ratings["overall"]["users_count"] = match.group(1).replace(',', '')
 
-        # 如果是剧集且有多季,获取每一季的评分数据
-        if media_type == "tv" and tmdb_info.get("number_of_seasons", 0) > 0:
-            base_url = page.url.rstrip('/')
-            
-            for season in tmdb_info.get("seasons", []):
-                season_number = season.get("season_number")
-                try:
-                    season_url = f"{base_url}/season-{season_number}/"
-                    await page.goto(season_url, wait_until='domcontentloaded')
-                    await asyncio.sleep(0.5)
-
-                    season_data = {
-                        "season_number": season_number,
-                        "metascore": "暂无",
-                        "critics_count": "暂无",
-                        "userscore": "暂无",
-                        "users_count": "暂无"
-                    }
-
-                    # 获取分季页面源代码
-                    season_content = await page.content()
+        # 如果是剧集,尝试解析分季信息
+        if media_type == "tv":
+            # === 选集剧特殊处理：从页面解析所有季，根据年份匹配 ===
+            if tmdb_info.get("is_anthology"):
+                print(f"\n[选集剧] Metacritic分季处理")
+                tmdb_year = tmdb_info.get("year", "")
+                print(f"目标年份: {tmdb_year}")
+                
+                # 解析页面中的All Seasons列表
+                season_cards = re.findall(
+                    r'<div[^>]*data-testid="seasons-modal-card"[^>]*>.*?'
+                    r'<a href="([^"]+)".*?'
+                    r'SEASON\s+(\d+).*?'
+                    r'<span>\s*(\d{4})\s*</span>',
+                    content,
+                    re.DOTALL | re.IGNORECASE
+                )
+                
+                print(f"解析到 {len(season_cards)} 个季")
+                
+                # 根据年份匹配到正确的季
+                matched_season = None
+                for season_url, season_num, season_year in season_cards:
+                    print(f"  Season {season_num}: {season_year}")
+                    if season_year == tmdb_year:
+                        matched_season = (season_url, int(season_num), season_year)
+                        print(f"  ✓ 年份匹配！Season {season_num} ({season_year})")
+                        break
+                
+                if matched_season:
+                    season_url, season_number, season_year = matched_season
+                    # 确保URL完整
+                    if not season_url.startswith('http'):
+                        season_url = f"https://www.metacritic.com{season_url}"
                     
-                    # 从网页源代码中提取分季专业评分
-                    season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
-                    if season_metascore_match:
-                        season_data["metascore"] = season_metascore_match.group(1)
-                        print(f"从Metacritic源代码提取到第{season_number}季专业评分: {season_metascore_match.group(1)}")
-                    else:
-                        # 备选方案：使用DOM选择器
-                        season_metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
-                        if season_metascore_elem:
-                            metascore_text = await season_metascore_elem.inner_text()
-                            if metascore_text and metascore_text.lower() != 'tbd':
-                                season_data["metascore"] = metascore_text
+                    print(f"访问匹配的季: {season_url}")
+                    try:
+                        await page.goto(season_url, wait_until='domcontentloaded')
+                        await asyncio.sleep(0.5)
 
-                    # 从网页源代码中提取分季专业评分人数
-                    season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
-                    if season_critics_count_match:
-                        season_data["critics_count"] = season_critics_count_match.group(1)
-                        print(f"从Metacritic源代码提取到第{season_number}季专业评分人数: {season_critics_count_match.group(1)}")
-                    else:
-                        # 备选方案：使用DOM选择器
-                        season_critics_elem = await page.query_selector('a[data-testid="critic-path"] span')
-                        if season_critics_elem:
-                            critics_text = await season_critics_elem.inner_text()
-                            match = re.search(r'Based on (\d+) Critic', critics_text)
-                            if match:
-                                season_data["critics_count"] = match.group(1)
+                        # 对于选集剧单季条目：
+                        # Metacritic的Season 3 → 映射为 Season 1（因为TMDB认为这是单季剧集）
+                        # 这样前端就能找到评分数据
+                        tmdb_season_number = 1  # 单季剧集总是Season 1
+                        
+                        season_data = {
+                            "season_number": tmdb_season_number,  # 使用TMDB的季号（1）
+                            "metascore": "暂无",
+                            "critics_count": "暂无",
+                            "userscore": "暂无",
+                            "users_count": "暂无",
+                            "_original_season": season_number,  # 保存Metacritic的原始季号
+                            "_season_year": season_year  # 保存年份信息
+                        }
 
-                    # 从网页源代码中提取分季用户评分
-                    season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
-                    if season_userscore_match:
-                        season_data["userscore"] = season_userscore_match.group(1)
-                        print(f"从Metacritic源代码提取到第{season_number}季用户评分: {season_userscore_match.group(1)}")
-                    else:
-                        # 备选方案：使用DOM选择器
-                        season_userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
-                        if season_userscore_elem:
-                            userscore_text = await season_userscore_elem.inner_text()
-                            if userscore_text and userscore_text.lower() != 'tbd':
-                                season_data["userscore"] = userscore_text
+                        # 获取分季页面源代码
+                        season_content = await page.content()
+                        
+                        # 从网页源代码中提取分季专业评分
+                        season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
+                        if season_metascore_match:
+                            season_data["metascore"] = season_metascore_match.group(1)
+                            print(f"从Metacritic Season {season_number}提取到专业评分: {season_metascore_match.group(1)}")
+                            print(f"  → 映射为TMDB Season {tmdb_season_number}")
+                        
+                        # 提取其他评分数据
+                        season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
+                        if season_critics_count_match:
+                            season_data["critics_count"] = season_critics_count_match.group(1)
+                        
+                        season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
+                        if season_userscore_match:
+                            season_data["userscore"] = season_userscore_match.group(1)
+                        
+                        season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
+                        if season_users_count_match:
+                            season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
 
-                    # 从网页源代码中提取分季用户评分人数
-                    season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
-                    if season_users_count_match:
-                        season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
-                        print(f"从Metacritic源代码提取到第{season_number}季用户评分人数: {season_users_count_match.group(1)}")
-                    else:
-                        # 备选方案：使用DOM选择器
-                        season_users_elem = await page.query_selector('a[data-testid="user-path"] span')
-                        if season_users_elem:
-                            users_text = await season_users_elem.inner_text()
-                            match = re.search(r'Based on ([\d,]+) User', users_text)
-                            if match:
-                                season_data["users_count"] = match.group(1).replace(',', '')
+                        ratings["seasons"].append(season_data)
+                        print(f"✓ 成功获取并映射为TMDB Season {tmdb_season_number}评分数据")
 
-                    ratings["seasons"].append(season_data)
+                    except Exception as e:
+                        print(f"✗ 获取Season {season_number}评分数据时出错: {e}")
+                else:
+                    print(f"⚠️ 未找到与年份{tmdb_year}匹配的季")
+            
+            # 普通多季剧集处理
+            elif tmdb_info.get("number_of_seasons", 0) > 1:
+                print(f"\n[普通剧集] Metacritic分季处理")
+                base_url = page.url.rstrip('/')
+                
+                for season in tmdb_info.get("seasons", []):
+                    season_number = season.get("season_number")
+                    try:
+                        season_url = f"{base_url}/season-{season_number}/"
+                        await page.goto(season_url, wait_until='domcontentloaded')
+                        await asyncio.sleep(0.5)
 
-                except Exception as e:
-                    print(f"获取第{season_number}季评分数据时出错: {e}")
-                    continue
+                        season_data = {
+                            "season_number": season_number,
+                            "metascore": "暂无",
+                            "critics_count": "暂无",
+                            "userscore": "暂无",
+                            "users_count": "暂无"
+                        }
+
+                        season_content = await page.content()
+                        
+                        # 提取评分数据（与选集剧相同的逻辑）
+                        season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
+                        if season_metascore_match:
+                            season_data["metascore"] = season_metascore_match.group(1)
+                        
+                        season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
+                        if season_critics_count_match:
+                            season_data["critics_count"] = season_critics_count_match.group(1)
+                        
+                        season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
+                        if season_userscore_match:
+                            season_data["userscore"] = season_userscore_match.group(1)
+                        
+                        season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
+                        if season_users_count_match:
+                            season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
+
+                        ratings["seasons"].append(season_data)
+
+                    except Exception as e:
+                        print(f"获取第{season_number}季评分数据时出错: {e}")
+                        continue
+                else:
+                    print(f"⚠️ 未找到与年份{tmdb_year}匹配的季")
+            
+            # 普通多季剧集处理
+            elif tmdb_info.get("number_of_seasons", 0) > 1:
+                print(f"\n[普通剧集] Metacritic分季处理")
+                base_url = page.url.rstrip('/')
+                
+                for season in tmdb_info.get("seasons", []):
+                    season_number = season.get("season_number")
+                    try:
+                        season_url = f"{base_url}/season-{season_number}/"
+                        await page.goto(season_url, wait_until='domcontentloaded')
+                        await asyncio.sleep(0.5)
+
+                        season_data = {
+                            "season_number": season_number,
+                            "metascore": "暂无",
+                            "critics_count": "暂无",
+                            "userscore": "暂无",
+                            "users_count": "暂无"
+                        }
+
+                        season_content = await page.content()
+                        
+                        # 提取评分数据（与选集剧相同的逻辑）
+                        season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
+                        if season_metascore_match:
+                            season_data["metascore"] = season_metascore_match.group(1)
+                        
+                        season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
+                        if season_critics_count_match:
+                            season_data["critics_count"] = season_critics_count_match.group(1)
+                        
+                        season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
+                        if season_userscore_match:
+                            season_data["userscore"] = season_userscore_match.group(1)
+                        
+                        season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
+                        if season_users_count_match:
+                            season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
+
+                        ratings["seasons"].append(season_data)
+
+                    except Exception as e:
+                        print(f"获取第{season_number}季评分数据时出错: {e}")
+                        continue
 
         # 检查评分状态
         all_no_rating = all(
@@ -2293,6 +2923,12 @@ def check_movie_status(platform_data, platform):
         return RATING_STATUS["SUCCESSFUL"] if (platform_data.get("rating") not in [None, "暂无"] and 
                                             platform_data.get("rating_count") not in [None, "暂无"]) else RATING_STATUS["FETCH_FAILED"]
     
+    elif platform == "trakt":
+        if platform_data.get("rating") == "暂无" and platform_data.get("votes") == "暂无":
+            return RATING_STATUS["NO_RATING"]
+        return RATING_STATUS["SUCCESSFUL"] if (platform_data.get("rating") not in [None, "暂无"] and 
+                                            platform_data.get("votes") not in [None, "暂无"]) else RATING_STATUS["FETCH_FAILED"]
+    
     return RATING_STATUS["FETCH_FAILED"]
 
 def check_tv_status(platform_data, platform):
@@ -2394,6 +3030,12 @@ def check_tv_status(platform_data, platform):
         return RATING_STATUS["SUCCESSFUL"] if (platform_data.get("rating") not in [None, "暂无"] and 
                                             platform_data.get("rating_count") not in [None, "暂无"]) else RATING_STATUS["FETCH_FAILED"]
     
+    elif platform == "trakt":
+        if platform_data.get("rating") == "暂无" and platform_data.get("votes") == "暂无":
+            return RATING_STATUS["NO_RATING"]
+        return RATING_STATUS["SUCCESSFUL"] if (platform_data.get("rating") not in [None, "暂无"] and 
+                                            platform_data.get("votes") not in [None, "暂无"]) else RATING_STATUS["FETCH_FAILED"]
+    
     return RATING_STATUS["FETCH_FAILED"]
 
 def create_empty_rating_data(platform, media_type, status):
@@ -2443,6 +3085,14 @@ def create_empty_rating_data(platform, media_type, status):
             "seasons": [],
             "status": status
         }
+    elif platform == "trakt":
+        return {
+            "rating": "暂无",
+            "votes": "暂无",
+            "distribution": {},
+            "url": "",
+            "status": status
+        }
 
 def create_error_rating_data(platform, media_type="movie", status=RATING_STATUS["FETCH_FAILED"], status_reason="获取失败"):
     """为出错的平台创建数据结构    
@@ -2481,6 +3131,16 @@ def create_error_rating_data(platform, media_type="movie", status=RATING_STATUS[
         return {
             "rating": "出错",
             "rating_count": "出错",
+            "status": status,
+            "status_reason": status_reason
+        }
+    
+    elif platform == "trakt":
+        return {
+            "rating": "出错",
+            "votes": "出错",
+            "distribution": {},
+            "url": "",
             "status": status,
             "status_reason": status_reason
         }
