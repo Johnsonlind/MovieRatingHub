@@ -1837,13 +1837,21 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     
                     if trakt_data:
                         print(f"Trakt评分获取成功: {trakt_data.get('rating')}/10")
-                        return {
+                        
+                        result = {
                             "rating": str(trakt_data.get("rating", "暂无")),
                             "votes": str(trakt_data.get("votes", "暂无")),
                             "distribution": trakt_data.get("distribution", {}),
                             "url": trakt_data.get("url", ""),
                             "status": RATING_STATUS["SUCCESSFUL"]
                         }
+                        
+                        # 如果有分季评分数据，也一并返回
+                        if "seasons" in trakt_data and trakt_data["seasons"]:
+                            result["seasons"] = trakt_data["seasons"]
+                            print(f"  包含 {len(trakt_data['seasons'])} 季的评分数据")
+                        
+                        return result
                     else:
                         print("Trakt评分获取失败：未找到匹配")
                         return {
