@@ -1,5 +1,6 @@
 # ==========================================
-# 数据库模型
+# 数据库模型 - SQLAlchemy ORM模型定义
+# 包含: 用户、收藏、收藏列表、关注、榜单条目、密码重置、调度器状态
 # ==========================================
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
