@@ -113,58 +113,80 @@ export function calculateMedianVoteCount(
   const { includeSeasons = false, checkOtherSeasons = false } = options;
   const voteCounts: number[] = [];
   
-  // 收集所有有效的评分人数
+  // 收集所有有效的评分人数（必须>0且非NaN）
   // 1. 豆瓣
   if (ratingData.douban?.rating_people) {
-    voteCounts.push(parseFloat(ratingData.douban.rating_people.replace(/[^0-9]/g, '')));
+    const count = parseFloat(ratingData.douban.rating_people.replace(/[^0-9]/g, ''));
+    if (!isNaN(count) && count > 0) {
+      voteCounts.push(count);
+    }
   }
   
   // 2. IMDB
   if (ratingData.imdb?.rating_people) {
-    voteCounts.push(parseFloat(ratingData.imdb.rating_people.replace(/[^0-9]/g, '')));
+    const count = parseFloat(ratingData.imdb.rating_people.replace(/[^0-9]/g, ''));
+    if (!isNaN(count) && count > 0) {
+      voteCounts.push(count);
+    }
   }
   
   // 3. 烂番茄 - 处理电影和电视剧不同的数据结构
   if (ratingData.rottentomatoes?.series?.critics_count) {
-    voteCounts.push(parseFloat(ratingData.rottentomatoes.series.critics_count.replace(/[^0-9]/g, '')));
+    const count = parseFloat(ratingData.rottentomatoes.series.critics_count.replace(/[^0-9]/g, ''));
+    if (!isNaN(count) && count > 0) voteCounts.push(count);
   } else if (ratingData.rottentomatoes?.critics_count) {
-    voteCounts.push(parseFloat(ratingData.rottentomatoes.critics_count.replace(/[^0-9]/g, '')));
+    const count = parseFloat(ratingData.rottentomatoes.critics_count.replace(/[^0-9]/g, ''));
+    if (!isNaN(count) && count > 0) voteCounts.push(count);
   }
   
   if (ratingData.rottentomatoes?.series?.audience_count) {
-    voteCounts.push(parseFloat(ratingData.rottentomatoes.series.audience_count.replace(/[^0-9]/g, '')));
+    const count = parseFloat(ratingData.rottentomatoes.series.audience_count.replace(/[^0-9]/g, ''));
+    if (!isNaN(count) && count > 0) voteCounts.push(count);
   } else if (ratingData.rottentomatoes?.audience_count) {
     // 处理 "10,000+ Ratings" 这样的格式
-    const count = ratingData.rottentomatoes.audience_count.replace(/[^0-9]/g, '');
-    voteCounts.push(parseFloat(count));
+    const count = parseFloat(ratingData.rottentomatoes.audience_count.replace(/[^0-9]/g, ''));
+    if (!isNaN(count) && count > 0) voteCounts.push(count);
   }
   
   // 4. Metacritic - 处理电影和电视剧不同的数据结构
   if (ratingData.metacritic?.overall?.critics_count) {
-    voteCounts.push(parseFloat(ratingData.metacritic.overall.critics_count));
+    const count = parseFloat(ratingData.metacritic.overall.critics_count);
+    if (!isNaN(count) && count > 0) voteCounts.push(count);
   } else if (ratingData.metacritic?.critics_count) {
-    voteCounts.push(parseFloat(ratingData.metacritic.critics_count));
+    const count = parseFloat(ratingData.metacritic.critics_count);
+    if (!isNaN(count) && count > 0) voteCounts.push(count);
   }
   
   if (ratingData.metacritic?.overall?.users_count) {
-    voteCounts.push(parseFloat(ratingData.metacritic.overall.users_count));
+    const count = parseFloat(ratingData.metacritic.overall.users_count);
+    if (!isNaN(count) && count > 0) voteCounts.push(count);
   } else if (ratingData.metacritic?.users_count) {
-    voteCounts.push(parseFloat(ratingData.metacritic.users_count));
+    const count = parseFloat(ratingData.metacritic.users_count);
+    if (!isNaN(count) && count > 0) voteCounts.push(count);
   }
   
   // 5. TMDB
   if (ratingData.tmdb?.voteCount) {
-    voteCounts.push(ratingData.tmdb.voteCount);
+    const count = ratingData.tmdb.voteCount;
+    if (!isNaN(count) && count > 0) {
+      voteCounts.push(count);
+    }
   }
   
   // 6. Trakt
   if (ratingData.trakt?.votes) {
-    voteCounts.push(ratingData.trakt.votes);
+    const count = parseInt(ratingData.trakt.votes);
+    if (!isNaN(count) && count > 0) {
+      voteCounts.push(count);
+    }
   }
   
   // 7. Letterboxd
   if (ratingData.letterboxd?.rating_count) {
-    voteCounts.push(parseFloat(ratingData.letterboxd.rating_count.replace(/[^0-9]/g, '')));
+    const count = parseFloat(ratingData.letterboxd.rating_count.replace(/[^0-9]/g, ''));
+    if (!isNaN(count) && count > 0) {
+      voteCounts.push(count);
+    }
   }
 
   // 如果是电视剧,还要收集分季评分人数
@@ -178,25 +200,32 @@ export function calculateMedianVoteCount(
       trakt?: Partial<TraktSeasonRating>;
     }) => {
       if (season.douban?.rating_people) {
-        voteCounts.push(parseFloat(season.douban.rating_people.replace(/[^0-9]/g, '')));
+        const count = parseFloat(season.douban.rating_people.replace(/[^0-9]/g, ''));
+        if (!isNaN(count) && count > 0) voteCounts.push(count);
       }
       if (season.rottentomatoes?.critics_count) {
-        voteCounts.push(parseFloat(season.rottentomatoes.critics_count.replace(/[^0-9]/g, '')));
+        const count = parseFloat(season.rottentomatoes.critics_count.replace(/[^0-9]/g, ''));
+        if (!isNaN(count) && count > 0) voteCounts.push(count);
       }
       if (season.rottentomatoes?.audience_count) {
-        voteCounts.push(parseFloat(season.rottentomatoes.audience_count.replace(/[^0-9]/g, '')));
+        const count = parseFloat(season.rottentomatoes.audience_count.replace(/[^0-9]/g, ''));
+        if (!isNaN(count) && count > 0) voteCounts.push(count);
       }
       if (season.metacritic?.critics_count) {
-        voteCounts.push(parseFloat(season.metacritic.critics_count));
+        const count = parseFloat(season.metacritic.critics_count);
+        if (!isNaN(count) && count > 0) voteCounts.push(count);
       }
       if (season.metacritic?.users_count) {
-        voteCounts.push(parseFloat(season.metacritic.users_count));
+        const count = parseFloat(season.metacritic.users_count);
+        if (!isNaN(count) && count > 0) voteCounts.push(count);
       }
       if (season.tmdb?.voteCount) {
-        voteCounts.push(season.tmdb.voteCount);
+        const count = season.tmdb.voteCount;
+        if (!isNaN(count) && count > 0) voteCounts.push(count);
       }
       if (season.trakt?.votes) {
-        voteCounts.push(season.trakt.votes);
+        const count = typeof season.trakt.votes === 'number' ? season.trakt.votes : parseInt(season.trakt.votes);
+        if (!isNaN(count) && count > 0) voteCounts.push(count);
       }
     });
   }
