@@ -1,3 +1,7 @@
+# ==========================================
+# 浏览器池管理模块 - Playwright浏览器实例池
+# 功能: 管理浏览器实例、上下文和页面，提供高效的资源复用
+# ==========================================
 import asyncio
 import logging
 from typing import Dict, List, Optional, Tuple
