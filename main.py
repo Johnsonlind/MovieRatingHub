@@ -1,5 +1,6 @@
 # ==========================================
-# 主程序
+# 主程序 - FastAPI后端服务
+# 功能: 用户认证、收藏管理、评分代理、榜单管理
 # ==========================================
 import asyncio
 import os
@@ -201,12 +202,7 @@ async def get_current_user_optional(
 # 缓存辅助函数
 async def get_cache(key: str):
     """从 Redis 获取缓存数据"""
-    print(f"\n=== Redis缓存检查 ===")
-    print(f"缓存键: {key}")
-    print(f"Redis连接状态: {'已连接' if redis else '未连接'}")
-    
     if not redis:
-        print("Redis未连接，跳过缓存")
         return None
         
     try:
@@ -214,13 +210,11 @@ async def get_cache(key: str):
         
         if data:
             data = json.loads(data)
-            # 只返回成功获取的数据
             if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
                 return data
-            print(f"缓存数据无效，状态: {data.get('status')}")
         return None
     except Exception as e:
-        print(f"获取缓存出错: {e}")
+        logger.error(f"获取缓存出错: {e}")
         return None
 
 async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
@@ -228,15 +222,10 @@ async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
     if not redis:
         return
     try:
-        # 只缓存成功获取的数据
         if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
-            await redis.setex(
-                key,
-                expire,
-                json.dumps(data)
-            )
+            await redis.setex(key, expire, json.dumps(data))
     except Exception as e:
-        print(f"设置缓存出错: {e}")
+        logger.error(f"设置缓存出错: {e}")
 
 # 生成重置密码 token
 def generate_reset_token():
@@ -252,9 +241,7 @@ def check_following_status(db: Session, follower_id: Optional[int], following_id
         Follow.following_id == following_id
     ).first()
     
-    result = bool(follow)
-    
-    return result
+    return bool(follow)
 
 # ==========================================
 # 3. 用户认证相关路由
@@ -361,7 +348,6 @@ async def forgot_password(
     try:
         data = await request.json()
         email = data.get("email")
-        print(f"收到重置密码请求，邮箱: {email}")
         
         # 查找用户
         user = db.query(User).filter(User.email == email).first()
@@ -548,11 +534,8 @@ async def update_profile(
         }
     except Exception as e:
         db.rollback()
-        print(f"更新个人资料时出错: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        logger.error(f"更新个人资料时出错: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
 # 4. 收藏相关路由
@@ -805,11 +788,8 @@ async def get_favorite_lists(
         
         return result
     except Exception as e:
-        print(f"获取收藏列表失败: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"获取收藏列表失败: {str(e)}"
-        )
+        logger.error(f"获取收藏列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取收藏列表失败: {str(e)}")
 
 @app.post("/api/favorite-lists")
 async def create_favorite_list(
@@ -912,8 +892,6 @@ async def get_favorite_list(
             Follow.following_id == creator.id
         ).first()
         is_following_creator = follow is not None
-        
-        print(f"Debug - 关注状态: user_id={current_user.id}, creator_id={creator.id}, is_following={is_following_creator}")  # 调试信息
 
     response_data["creator"] = {
         "id": creator.id,
@@ -1229,22 +1207,12 @@ async def get_user_info(
             
         is_following = False
         if current_user:
-            print(f"当前用户: ID={current_user.id}, Email={current_user.email}")
-            print(f"目标用户: ID={user_id}")
-            
-            # 直接查询数据库
             follow = db.query(Follow).filter(
                 Follow.follower_id == current_user.id,
                 Follow.following_id == user_id
             ).first()
             
             is_following = follow is not None
-            
-            # 检查数据库中是否存在关注记录
-            all_follows = db.query(Follow).filter(
-                Follow.follower_id == current_user.id
-            ).all()
-            print(f"当前用户的所有关注: {all_follows}")
         
         return {
             "id": user.id,
@@ -1328,17 +1296,13 @@ async def follow_user(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    
-    # 检查是否试图关注自己
     if current_user.id == user_id:
         raise HTTPException(status_code=400, detail="不能关注自己")
     
-    # 检查要关注的用户是否存在
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="用户不存在")
     
-    # 检查是否已经关注
     follow = db.query(Follow).filter(
         Follow.follower_id == current_user.id,
         Follow.following_id == user_id
@@ -1348,7 +1312,6 @@ async def follow_user(
         raise HTTPException(status_code=400, detail="已经关注该用户")
     
     try:
-        # 创建新的关注关系
         new_follow = Follow(
             follower_id=current_user.id,
             following_id=user_id
@@ -1356,15 +1319,7 @@ async def follow_user(
         
         db.add(new_follow)
         db.commit()
-        
-        # 再次检查关注状态，确保数据已保存
-        follow_check = db.query(Follow).filter(
-            Follow.follower_id == current_user.id,
-            Follow.following_id == user_id
-        ).first()
-        
-        if not follow_check:
-            raise HTTPException(status_code=500, detail="关注操作失败，请重试")
+        db.refresh(new_follow)
             
         return {"message": "关注成功", "is_following": True}
     except Exception as e:
@@ -2227,57 +2182,6 @@ async def auto_update_platform_charts(
         logger.error(f"自动更新 {platform} 榜单失败: {e}")
         raise HTTPException(status_code=500, detail=f"自动更新 {platform} 失败: {str(e)}")
 
-@app.get("/api/scheduler/status")
-async def get_scheduler_status():
-    """获取调度器状态"""
-    try:
-        from chart_scrapers import get_scheduler_status
-        status = get_scheduler_status()
-        return {
-            "status": "success",
-            "data": status
-        }
-    except Exception as e:
-        logger.error(f"获取调度器状态失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取调度器状态失败: {str(e)}")
-
-@app.post("/api/scheduler/start")
-async def start_scheduler(
-    current_user: User = Depends(get_current_user)
-):
-    """启动调度器"""
-    require_admin(current_user)
-    
-    try:
-        from chart_scrapers import start_auto_scheduler
-        scheduler = await start_auto_scheduler()
-        return {
-            "status": "success",
-            "message": "调度器已启动",
-            "data": scheduler.get_status()
-        }
-    except Exception as e:
-        logger.error(f"启动调度器失败: {e}")
-        raise HTTPException(status_code=500, detail=f"启动调度器失败: {str(e)}")
-
-@app.post("/api/scheduler/stop")
-async def stop_scheduler(
-    current_user: User = Depends(get_current_user)
-):
-    """停止调度器"""
-    require_admin(current_user)
-    
-    try:
-        from chart_scrapers import stop_auto_scheduler
-        await stop_auto_scheduler()
-        return {
-            "status": "success",
-            "message": "调度器已停止"
-        }
-    except Exception as e:
-        logger.error(f"停止调度器失败: {e}")
-        raise HTTPException(status_code=500, detail=f"停止调度器失败: {str(e)}")
-
 @app.post("/api/scheduler/test-notification")
 async def test_notification(
     current_user: User = Depends(get_current_user)
@@ -2488,9 +2392,9 @@ async def startup_event():
             encoding='utf-8',
             decode_responses=True
         )
-        print("Redis连接成功")
+        logger.info("Redis连接成功")
     except Exception as e:
-        print(f"Redis 连接初始化失败: {e}")
+        logger.error(f"Redis 连接初始化失败: {e}")
         redis = None
         
     # 初始化浏览器池
@@ -2505,18 +2409,18 @@ async def startup_event():
         browser_pool.max_pages_per_context = BROWSER_POOL_PAGES
         
         await browser_pool.initialize()
-        print(f"浏览器池初始化成功，共 {BROWSER_POOL_SIZE} 个浏览器实例")
+        logger.info(f"浏览器池初始化成功，共 {BROWSER_POOL_SIZE} 个浏览器实例")
     except Exception as e:
-        print(f"浏览器池初始化失败: {e}")
+        logger.error(f"浏览器池初始化失败: {e}")
     
     # 生产环境自动启动调度器（可选）
     if os.getenv("ENV") != "development":
         try:
             from chart_scrapers import start_auto_scheduler
             await start_auto_scheduler()
-            print("生产环境：定时调度器已自动启动")
+            logger.info("生产环境：定时调度器已自动启动")
         except Exception as e:
-            print(f"生产环境：自动启动调度器失败: {e}")
+            logger.error(f"生产环境：自动启动调度器失败: {e}")
 
 @app.post("/api/charts/clear/{platform}")
 async def clear_platform_charts(
