@@ -2472,9 +2472,72 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                     else:
                         print(f"⚠️ 未找到与年份{tmdb_year}匹配的季")
                 
+                # 单季剧集处理
+                elif tmdb_info.get("number_of_seasons", 0) == 1:
+                    print(f"\n[单季剧集] Rotten Tomatoes分季处理")
+                    # 尝试解析页面中的第一季数据
+                    season_tiles = re.findall(
+                        r'<tile-season[^>]*href="([^"]+)"[^>]*>',
+                        content,
+                        re.DOTALL | re.IGNORECASE
+                    )
+                    
+                    if season_tiles:
+                        # 取第一个季的URL
+                        season_url = season_tiles[0]
+                        if not season_url.startswith('http'):
+                            season_url = f"https://www.rottentomatoes.com{season_url}"
+                        
+                        print(f"访问第一季: {season_url}")
+                        try:
+                            await page.goto(season_url)
+                            await asyncio.sleep(0.5)
+                            season_content = await page.content()
+                            
+                            season_json_match = re.search(r'<script[^>]*id="media-scorecard-json"[^>]*>\s*({[^<]+})\s*</script>', season_content)
+                            if season_json_match:
+                                season_score_data = json.loads(season_json_match.group(1))
+                                season_overlay = season_score_data.get("overlay", {})
+                                
+                                season_has_audience = season_overlay.get("hasAudienceAll", False)
+                                season_has_critics = season_overlay.get("hasCriticsAll", False)
+                                
+                                if season_has_audience or season_has_critics:
+                                    season_audience = season_overlay.get("audienceAll", {})
+                                    season_critics = season_overlay.get("criticsAll", {})
+                                    
+                                    season_data = {
+                                        "season_number": 1,
+                                        "tomatometer": "暂无",
+                                        "audience_score": "暂无",
+                                        "critics_avg": "暂无",
+                                        "critics_count": "暂无",
+                                        "audience_count": "暂无",
+                                        "audience_avg": "暂无"
+                                    }
+                                    
+                                    if season_has_critics:
+                                        season_data["tomatometer"] = season_critics.get("scorePercent", "暂无").rstrip("%") if season_critics.get("scorePercent") else "暂无"
+                                        season_data["critics_avg"] = season_critics.get("averageRating", "暂无")
+                                        season_data["critics_count"] = season_critics.get("scoreLinkText", "暂无").split()[0] if season_critics.get("scoreLinkText") else "暂无"
+                                        print(f"从Rotten Tomatoes Season 1提取到专业评分: {season_data['tomatometer']}")
+                                    
+                                    if season_has_audience:
+                                        season_data["audience_score"] = season_audience.get("scorePercent", "暂无").rstrip("%") if season_audience.get("scorePercent") else "暂无"
+                                        season_data["audience_avg"] = season_audience.get("averageRating", "暂无")
+                                        season_data["audience_count"] = season_audience.get("bandedRatingCount", "暂无")
+                                    
+                                    ratings["seasons"].append(season_data)
+                                    print(f"✓ 成功获取单季剧集Season 1评分数据")
+                        
+                        except Exception as e:
+                            print(f"✗ 获取单季剧集Season 1评分数据时出错: {e}")
+                    else:
+                        print(f"⚠️ 未找到分季数据")
+                
                 # 普通多季剧集处理
                 elif tmdb_info.get("number_of_seasons", 0) > 1:
-                    print(f"\n[普通剧集] Rotten Tomatoes分季处理")
+                    print(f"\n[多季剧集] Rotten Tomatoes分季处理")
                     base_url = page.url.split("/tv/")[1].split("/")[0]
                     
                     for season in range(1, tmdb_info.get("number_of_seasons", 0) + 1):
@@ -2705,33 +2768,46 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                 else:
                     print(f"⚠️ 未找到与年份{tmdb_year}匹配的季")
             
-            # 普通多季剧集处理
-            elif tmdb_info.get("number_of_seasons", 0) > 1:
-                print(f"\n[普通剧集] Metacritic分季处理")
-                base_url = page.url.rstrip('/')
+            # 单季剧集处理
+            elif tmdb_info.get("number_of_seasons", 0) == 1:
+                print(f"\n[单季剧集] Metacritic分季处理")
+                # 尝试解析页面中的第一季数据
+                season_cards = re.findall(
+                    r'<div[^>]*data-testid="seasons-modal-card"[^>]*>.*?'
+                    r'<a href="([^"]+)"',
+                    content,
+                    re.DOTALL | re.IGNORECASE
+                )
                 
-                for season in tmdb_info.get("seasons", []):
-                    season_number = season.get("season_number")
+                if season_cards:
+                    # 取第一个季的URL
+                    season_url = season_cards[0]
+                    if not season_url.startswith('http'):
+                        season_url = f"https://www.metacritic.com{season_url}"
+                    
+                    print(f"访问第一季: {season_url}")
                     try:
-                        season_url = f"{base_url}/season-{season_number}/"
                         await page.goto(season_url, wait_until='domcontentloaded')
                         await asyncio.sleep(0.5)
-
+                        
                         season_data = {
-                            "season_number": season_number,
+                            "season_number": 1,
                             "metascore": "暂无",
                             "critics_count": "暂无",
                             "userscore": "暂无",
                             "users_count": "暂无"
                         }
 
+                        # 获取分季页面源代码
                         season_content = await page.content()
                         
-                        # 提取评分数据（与选集剧相同的逻辑）
+                        # 从网页源代码中提取分季专业评分
                         season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
                         if season_metascore_match:
                             season_data["metascore"] = season_metascore_match.group(1)
+                            print(f"从Metacritic Season 1提取到专业评分: {season_metascore_match.group(1)}")
                         
+                        # 提取其他评分数据
                         season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
                         if season_critics_count_match:
                             season_data["critics_count"] = season_critics_count_match.group(1)
@@ -2745,16 +2821,16 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                             season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
 
                         ratings["seasons"].append(season_data)
+                        print(f"✓ 成功获取单季剧集Season 1评分数据")
 
                     except Exception as e:
-                        print(f"获取第{season_number}季评分数据时出错: {e}")
-                        continue
+                        print(f"✗ 获取单季剧集Season 1评分数据时出错: {e}")
                 else:
-                    print(f"⚠️ 未找到与年份{tmdb_year}匹配的季")
+                    print(f"⚠️ 未找到分季数据")
             
             # 普通多季剧集处理
             elif tmdb_info.get("number_of_seasons", 0) > 1:
-                print(f"\n[普通剧集] Metacritic分季处理")
+                print(f"\n[多季剧集] Metacritic分季处理")
                 base_url = page.url.rstrip('/')
                 
                 for season in tmdb_info.get("seasons", []):
@@ -2774,7 +2850,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
 
                         season_content = await page.content()
                         
-                        # 提取评分数据（与选集剧相同的逻辑）
+                        # 提取评分数据
                         season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
                         if season_metascore_match:
                             season_data["metascore"] = season_metascore_match.group(1)
