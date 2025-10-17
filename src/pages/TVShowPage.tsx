@@ -461,22 +461,17 @@ export default function TVShowPage() {
   const seasonCount = tvShow?.seasons?.filter(season => 
     season.seasonNumber > 0).length || 0;
 
-  if (isLoading) {
+  if (queryError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--page-bg)]">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-      </div>
-    );
-  }
-
-  if (queryError || !tvShow) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--page-bg)]">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">Error</h2>
-          <p className="text-gray-600 dark:text-gray-400">{messages.errors.loadMovieFailed}</p>
+      <>
+        <NavBar />
+        <div className="min-h-screen flex items-center justify-center bg-[var(--page-bg)] pt-16">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">Error</h2>
+            <p className="text-gray-600 dark:text-gray-400">{messages.errors.loadMovieFailed}</p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -486,59 +481,104 @@ export default function TVShowPage() {
       <div className="min-h-screen bg-[var(--page-bg)] pt-16">
         <ThemeToggle />
         <ScrollToTopButton />
-        <FavoriteButton 
-          mediaId={id || ''}
-          mediaType="tv"
-          title={tvShow.title || ''}
-          poster={`https://image.tmdb.org/t/p/w500${tvShow.backdrop}`}
-          year={String(tvShow.year || '')}
-          overview={tvShow.overview}
-        />
-        <ExportButton 
-          onExport={handleExport}
-          seasons={tvShow?.seasons}
-          selectedSeason={selectedSeason}
-          onSeasonChange={handleSeasonChange}
-          isExporting={isExporting}
-        />
+        {tvShow && (
+          <>
+            <FavoriteButton 
+              mediaId={id || ''}
+              mediaType="tv"
+              title={tvShow.title || ''}
+              poster={`https://image.tmdb.org/t/p/w500${tvShow.backdrop}`}
+              year={String(tvShow.year || '')}
+              overview={tvShow.overview}
+            />
+            <ExportButton 
+              onExport={handleExport}
+              seasons={tvShow?.seasons}
+              selectedSeason={selectedSeason}
+              onSeasonChange={handleSeasonChange}
+              isExporting={isExporting}
+            />
+          </>
+        )}
       
         <div className="tv-show-content">
-          
-          <TVShowHero 
-            tvShow={tvShow} 
-            backdropUrl={tvShow.backdrop}
-            ratingData={allRatings}
-            isAllDataFetched={backendPlatforms.filter(p => 
-              p.status === 'successful'
-            ).length >= 2 || (
-              tmdbStatus === 'successful' && 
-              traktStatus === 'successful'
-            )}
-          />
-          <TVShowMetadata
-            status={tvShow?.status || ''}
-            firstAirDate={tvShow?.firstAirDate || ''}
-            lastAirDate={tvShow?.lastAirDate || ''}
-            episodeCount={episodeCount}
-            seasonCount={seasonCount}
-            genres={tvShow?.genres || []}
-          />
-          
-          <RatingSection 
-            media={tvShow}
-            ratingData={allRatings}
-            isLoading={false}
-            error={undefined}
-            tmdbStatus={tmdbStatus}
-            traktStatus={traktStatus}
-            backendPlatforms={backendPlatforms}
-            onRetry={handleRetry}
-          />
+          {isLoading || !tvShow ? (
+            // 骨架屏 - 立即显示页面结构
+            <>
+              {/* Hero 骨架屏 */}
+              <div className="relative min-h-[45vh] sm:min-h-[60vh] bg-gray-200 dark:bg-gray-800 animate-pulse">
+                <div className="container mx-auto px-4 py-4 sm:py-8 relative">
+                  <div className="flex flex-col sm:flex-row gap-4 sm:gap-8 items-start">
+                    <div className="w-32 sm:w-48 lg:w-64 mx-auto sm:mx-0 flex-shrink-0">
+                      <div className="w-full aspect-[2/3] bg-gray-300 dark:bg-gray-700 rounded-lg"></div>
+                    </div>
+                    <div className="flex-1 space-y-4">
+                      <div className="h-8 bg-gray-300 dark:bg-gray-700 rounded w-3/4"></div>
+                      <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-full"></div>
+                      <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-5/6"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* 元数据骨架屏 */}
+              <div className="container mx-auto px-4 py-4">
+                <div className="flex gap-4 animate-pulse">
+                  <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-24"></div>
+                  <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-24"></div>
+                  <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-32"></div>
+                </div>
+              </div>
+              
+              {/* 评分区域骨架屏 */}
+              <div className="container mx-auto px-4 py-8">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-pulse">
+                  {[1, 2, 3, 4, 5, 6, 7].map(i => (
+                    <div key={i} className="bg-white dark:bg-gray-800 rounded-lg p-4 h-32"></div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            // 实际内容
+            <>
+              <TVShowHero 
+                tvShow={tvShow} 
+                backdropUrl={tvShow.backdrop}
+                ratingData={allRatings}
+                isAllDataFetched={backendPlatforms.filter(p => 
+                  p.status === 'successful'
+                ).length >= 2 || (
+                  tmdbStatus === 'successful' && 
+                  traktStatus === 'successful'
+                )}
+              />
+              <TVShowMetadata
+                status={tvShow?.status || ''}
+                firstAirDate={tvShow?.firstAirDate || ''}
+                lastAirDate={tvShow?.lastAirDate || ''}
+                episodeCount={episodeCount}
+                seasonCount={seasonCount}
+                genres={tvShow?.genres || []}
+              />
+              
+              <RatingSection 
+                media={tvShow}
+                ratingData={allRatings}
+                isLoading={false}
+                error={undefined}
+                tmdbStatus={tmdbStatus}
+                traktStatus={traktStatus}
+                backendPlatforms={backendPlatforms}
+                onRetry={handleRetry}
+              />
 
-          <Credits
-            cast={tvShow.credits.cast}
-            crew={tvShow.credits.crew}
-          />
+              <Credits
+                cast={tvShow.credits.cast}
+                crew={tvShow.credits.crew}
+              />
+            </>
+          )}
         </div>
 
         <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
