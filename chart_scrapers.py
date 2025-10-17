@@ -1,6 +1,7 @@
 # ==========================================
-# 榜单抓取器 - 整合版本
-# 包含所有平台的榜单抓取、TMDB匹配和定时调度功能
+# 榜单抓取器 - 多平台榜单数据抓取和TMDB匹配
+# 功能: 抓取各平台榜单、匹配TMDB ID、定时自动更新、Telegram通知
+# 支持平台: 豆瓣、IMDB、Letterboxd、烂番茄、Metacritic、TMDB、Trakt
 # ==========================================
 
 import asyncio
@@ -37,18 +38,13 @@ except ImportError:
     REQUESTS_AVAILABLE = False
     logger.warning("requests库未安装，TMDB API调用功能将不可用")
 
-# ==========================================
-# 榜单抓取器类
-# ==========================================
 
 class ChartScraper:
     def __init__(self, db: Session):
         self.db = db
         
-    # ==========================================
-    # 豆瓣榜单抓取
-    # ==========================================
-        
+        # 豆瓣榜单抓取
+            
     async def scrape_douban_weekly_movie_chart(self) -> List[Dict]:
         """抓取豆瓣一周口碑榜（电影）"""
         async def scrape_with_browser(browser):
@@ -315,10 +311,8 @@ class ChartScraper:
             logger.error(f"抓取豆瓣华语剧集榜失败: {e}")
             return []
 
-    # ==========================================
-    # IMDb榜单抓取
-    # ==========================================
-    
+        # IMDb榜单抓取
+        
     async def scrape_imdb_top_10(self) -> List[Dict]:
         """抓取IMDB Top 10 this week - 使用GraphQL API"""
         try:
@@ -413,10 +407,8 @@ class ChartScraper:
             logger.error(traceback.format_exc())
             return []
             
-    # ==========================================
-    # Letterboxd榜单抓取
-    # ==========================================
-    
+        # Letterboxd榜单抓取
+        
     async def scrape_letterboxd_popular(self) -> List[Dict]:
         """抓取Letterboxd Popular films this week"""
         async def scrape_with_browser(browser):
@@ -457,10 +449,8 @@ class ChartScraper:
                 
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
-    # ==========================================
-    # 烂番茄榜单抓取
-    # ==========================================
-    
+        # 烂番茄榜单抓取
+        
 
     async def _rt_extract_itemlist(self, url: str, item_type: str) -> List[Dict]:
         """使用浏览器读取 JSON-LD ItemList，并返回标准化的条目数组
@@ -615,9 +605,6 @@ class ChartScraper:
         logger.info(f"烂番茄 Popular Streaming Movies 入库 {saved} 条")
         return saved
 
-    # ==========================================
-    # Letterboxd 集成更新
-    # ==========================================
     async def update_letterboxd_popular(self) -> int:
         """Letterboxd Popular films this week：进入详情解析 data-tmdb-id，匹配 TMDB 并入库"""
         matcher = TMDBMatcher(self.db)
@@ -693,9 +680,6 @@ class ChartScraper:
         logger.info(f"Letterboxd Popular films this week 入库 {saved} 条")
         return saved
 
-    # ==========================================
-    # Metacritic 集成更新
-    # ==========================================
     async def _extract_imdb_from_metacritic(self, url: str) -> Optional[str]:
         try:
             import requests, urllib3
@@ -804,9 +788,6 @@ class ChartScraper:
         logger.info(f"Metacritic Trending Shows This Week 入库 {saved} 条")
         return saved
 
-    # ==========================================
-    # TMDB / Trakt 集成更新
-    # ==========================================
     async def update_tmdb_trending_all_week(self) -> int:
         """TMDB 趋势本周（页面顺序）。优先抓取网页 remote/panel 顺序，失败回退官方 API。"""
         import urllib3, requests, re
@@ -1012,9 +993,6 @@ class ChartScraper:
             saved += 1
         self.db.commit(); logger.info(f"Trakt Shows weekly 入库 {saved} 条"); return saved
 
-    # ==========================================
-    # IMDb / 豆瓣 集成更新
-    # ==========================================
     async def update_imdb_top10(self) -> int:
         """IMDb Top 10 this week → 'IMDb / Top 10 on IMDb this week'，movie/tv/both 按返回实际类型存储"""
         matcher = TMDBMatcher(self.db)
@@ -1131,32 +1109,32 @@ class ChartScraper:
             match = None
             original_title = None
             
-            print(f"  处理: {title} (豆瓣ID: {douban_id})")
+            logger.debug(f"  处理: {title} (豆瓣ID: {douban_id})")
             
             # 使用通用原名提取函数
             original_title = await matcher.extract_douban_original_title(douban_id)
             if original_title:
-                print(f"    提取到原名: {original_title}")
+                logger.debug(f"    提取到原名: {original_title}")
             
             # 优先用原名匹配 TMDB
             if original_title:
-                print(f"    用原名匹配: {original_title}")
+                logger.debug(f"    用原名匹配: {original_title}")
                 tmdb_id = await matcher.match_by_title_and_year(original_title, 'tv')
                 if tmdb_id:
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if info:
                         match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or original_title, 'poster': info.get('poster_url','')}
-                        print(f"    ✅ 原名匹配成功: {original_title} -> {match['title']}")
+                        logger.info(f"    ✅ 原名匹配成功: {original_title} -> {match['title']}")
             
             # 回退中文名匹配
             if not match:
-                print(f"    回退中文名匹配: {title}")
+                logger.debug(f"    回退中文名匹配: {title}")
                 tmdb_id = await matcher.match_by_title_and_year(title, 'tv')
                 if tmdb_id:
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if info:
                         match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
-                        print(f"    ✅ 中文名匹配成功: {title} -> {match['title']}")
+                        logger.info(f"    ✅ 中文名匹配成功: {title} -> {match['title']}")
             if not match:
                 rank += 1; continue
             existing = self.db.query(ChartEntry).filter(
@@ -1169,6 +1147,7 @@ class ChartScraper:
                                        tmdb_id=match['tmdb_id'], title=match.get('title', title), poster=match.get('poster','')))
             saved += 1; rank += 1
         self.db.commit(); logger.info(f"豆瓣 一周全球剧集口碑榜 入库 {saved} 条"); return saved
+    
     async def update_rotten_tv(self) -> int:
         """烂番茄 Popular TV：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
         matcher = TMDBMatcher(self.db)
@@ -1237,9 +1216,6 @@ class ChartScraper:
         self.db.commit()
         logger.info(f"烂番茄 Popular TV 入库 {saved} 条")
         return saved
-    # ==========================================
-    # Metacritic榜单抓取（保留用于update方法）
-    # ==========================================
     
     async def scrape_metacritic_trending_movies(self) -> List[Dict]:
         """抓取Metacritic Trending Movies This Week"""
@@ -1366,9 +1342,6 @@ class ChartScraper:
                 
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
-# ==========================================
-# TMDB匹配器类
-# ==========================================
 
 class TMDBMatcher:
     def __init__(self, db: Session):
@@ -1852,9 +1825,6 @@ class TMDBMatcher:
         
         return None
 
-# ==========================================
-# Telegram通知功能
-# ==========================================
 
 class TelegramNotifier:
     def __init__(self):
@@ -1945,9 +1915,6 @@ class TelegramNotifier:
 # 全局通知器实例
 telegram_notifier = TelegramNotifier()
 
-# ==========================================
-# 定时自动更新调度器
-# ==========================================
 
 class AutoUpdateScheduler:
     def __init__(self):
