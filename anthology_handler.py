@@ -265,7 +265,7 @@ class AnthologyHandler:
             # 1. 首先尝试使用TMDB ID搜索（最准确）
             tmdb_id = tmdb_info.get("tmdb_id")
             if tmdb_id:
-                trakt_data = await self._search_trakt_by_tmdb_id(tmdb_id, search_type)
+                trakt_data = await self._search_trakt_by_tmdb_id(tmdb_id, search_type, tmdb_info, series_info)
                 if trakt_data:
                     logger.info(f"通过TMDB ID在Trakt找到匹配: {trakt_data.get('title')}")
                     return trakt_data
@@ -274,13 +274,13 @@ class AnthologyHandler:
             if series_info:
                 main_title = series_info.get("main_title")
                 if main_title:
-                    trakt_data = await self._search_trakt_by_title(main_title, year, search_type)
+                    trakt_data = await self._search_trakt_by_title(main_title, year, search_type, tmdb_info, series_info)
                     if trakt_data:
                         logger.info(f"通过主系列标题在Trakt找到匹配: {trakt_data.get('title')}")
                         return trakt_data
             
             # 3. 使用原始标题搜索
-            trakt_data = await self._search_trakt_by_title(title, year, search_type)
+            trakt_data = await self._search_trakt_by_title(title, year, search_type, tmdb_info, series_info)
             if trakt_data:
                 logger.info(f"通过标题在Trakt找到匹配: {trakt_data.get('title')}")
                 return trakt_data
@@ -292,7 +292,7 @@ class AnthologyHandler:
             logger.error(f"Trakt搜索失败: {e}")
             return None
     
-    async def _search_trakt_by_tmdb_id(self, tmdb_id: int, media_type: str) -> Optional[Dict[str, Any]]:
+    async def _search_trakt_by_tmdb_id(self, tmdb_id: int, media_type: str, tmdb_info: Dict[str, Any] = None, series_info: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """通过TMDB ID在Trakt搜索"""
         try:
             url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}"
@@ -312,16 +312,16 @@ class AnthologyHandler:
                             item = results[0]
                             if media_type == "show":
                                 show_data = item.get("show", {})
-                                return await self._get_trakt_rating(show_data.get("ids", {}).get("slug"), media_type)
+                                return await self._get_trakt_rating(show_data.get("ids", {}).get("slug"), media_type, tmdb_info, series_info)
                             else:
                                 movie_data = item.get("movie", {})
-                                return await self._get_trakt_rating(movie_data.get("ids", {}).get("slug"), media_type)
+                                return await self._get_trakt_rating(movie_data.get("ids", {}).get("slug"), media_type, tmdb_info, series_info)
         except Exception as e:
             logger.error(f"通过TMDB ID搜索Trakt失败: {e}")
         
         return None
     
-    async def _search_trakt_by_title(self, title: str, year: Optional[str], media_type: str) -> Optional[Dict[str, Any]]:
+    async def _search_trakt_by_title(self, title: str, year: Optional[str], media_type: str, tmdb_info: Dict[str, Any] = None, series_info: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """通过标题在Trakt搜索"""
         try:
             from urllib.parse import quote
@@ -369,16 +369,32 @@ class AnthologyHandler:
                             if best_match and best_score >= 60:
                                 # 获取详细评分信息
                                 slug = best_match.get("ids", {}).get("slug")
-                                return await self._get_trakt_rating(slug, media_type)
+                                return await self._get_trakt_rating(slug, media_type, tmdb_info, series_info)
         except Exception as e:
             logger.error(f"通过标题搜索Trakt失败: {e}")
         
         return None
     
-    async def _get_trakt_rating(self, slug: str, media_type: str) -> Optional[Dict[str, Any]]:
-        """获取Trakt的详细评分信息"""
+    async def _get_trakt_rating(self, slug: str, media_type: str, tmdb_info: Dict[str, Any] = None, series_info: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """
+        获取Trakt的详细评分信息
+        
+        API调用：
+        1. 整体评分：https://api.trakt.tv/{media_type}s/{slug}/ratings
+        2. 分季评分：https://api.trakt.tv/shows/{slug}/seasons/{season_number}/ratings
+        
+        返回数据结构：
+        - rating: 整体评分（所有类型都返回）
+        - votes: 整体投票数
+        - distribution: 整体评分分布
+        - seasons: 分季评分数组
+        
+        分季评分获取逻辑：
+        - 选集剧：整体评分 + 第1季评分
+        - 单季剧：整体评分 + 第1季评分
+        - 多季剧：整体评分 + 所有季的评分
+        """
         try:
-            url = f"https://api.trakt.tv/{media_type}s/{slug}/ratings"
             headers = {
                 "Content-Type": "application/json",
                 "trakt-api-version": "2",
@@ -386,20 +402,157 @@ class AnthologyHandler:
             }
             
             async with aiohttp.ClientSession() as session:
+                # 1. 获取整体评分
+                url = f"https://api.trakt.tv/{media_type}s/{slug}/ratings"
                 async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return {
-                            "rating": data.get("rating", "暂无"),
-                            "votes": data.get("votes", "暂无"),
-                            "distribution": data.get("distribution", {}),
-                            "slug": slug,
-                            "url": f"https://trakt.tv/{media_type}s/{slug}"
-                        }
+                    if response.status != 200:
+                        logger.error(f"获取Trakt整体评分失败: HTTP {response.status}")
+                        return None
+                    
+                    overall_data = await response.json()
+                    result = {
+                        "rating": overall_data.get("rating", "暂无"),
+                        "votes": overall_data.get("votes", "暂无"),
+                        "distribution": overall_data.get("distribution", {}),
+                        "slug": slug,
+                        "url": f"https://trakt.tv/{media_type}s/{slug}"
+                    }
+                    
+                    # 2. 如果是剧集，获取分季评分
+                    if media_type == "show":
+                        is_anthology = series_info is not None
+                        tmdb_seasons = tmdb_info.get("number_of_seasons", 0) if tmdb_info else 0
+                        
+                        if is_anthology or tmdb_seasons == 1:
+                            # 选集剧 或 单季剧：只获取第1季评分
+                            show_type = "选集剧" if is_anthology else "单季剧"
+                            logger.info(f"[{show_type}] 获取整体评分 + 第1季评分")
+                            season_rating = await self._get_single_season_rating(slug, 1, session, headers)
+                            if season_rating:
+                                result["seasons"] = [season_rating]
+                                logger.info(f"[{show_type}] 成功获取第1季评分: {season_rating['rating']}/10")
+                            else:
+                                # 兜底：获取失败时，将整体评分作为第1季
+                                logger.warning(f"[{show_type}] 未能获取第1季评分，使用整体评分作为兜底")
+                                result["seasons"] = [{
+                                    "season_number": 1,
+                                    "rating": result["rating"],
+                                    "votes": result["votes"],
+                                    "distribution": result["distribution"]
+                                }]
+                        
+                        else:
+                            # 多季剧：获取所有季的评分
+                            logger.info(f"[多季剧] 获取整体评分 + 所有季评分")
+                            seasons_ratings = await self._get_trakt_seasons_ratings(slug, session, headers)
+                            if seasons_ratings:
+                                result["seasons"] = seasons_ratings
+                                logger.info(f"[多季剧] 成功获取 {len(seasons_ratings)} 季的评分")
+                            else:
+                                logger.warning(f"[多季剧] 未能获取分季评分，尝试只获取第1季")
+                                # 兜底：尝试至少获取第1季
+                                season_rating = await self._get_single_season_rating(slug, 1, session, headers)
+                                if season_rating:
+                                    result["seasons"] = [season_rating]
+                                    logger.info(f"[多季剧] 兜底成功：获取到第1季评分")
+                                else:
+                                    logger.warning(f"[多季剧] 完全失败，无法获取任何分季评分")
+                    
+                    return result
+                    
         except Exception as e:
             logger.error(f"获取Trakt评分失败: {e}")
         
         return None
+    
+    async def _get_single_season_rating(
+        self, 
+        slug: str, 
+        season_number: int,
+        session: aiohttp.ClientSession,
+        headers: Dict[str, str]
+    ) -> Optional[Dict[str, Any]]:
+        """获取单个季的评分"""
+        try:
+            season_rating_url = f"https://api.trakt.tv/shows/{slug}/seasons/{season_number}/ratings"
+            logger.info(f"请求第 {season_number} 季评分: {season_rating_url}")
+            
+            async with session.get(season_rating_url, headers=headers) as response:
+                logger.info(f"响应状态码: {response.status}")
+                
+                if response.status == 200:
+                    rating_data = await response.json()
+                    logger.info(f"成功获取第 {season_number} 季评分: {rating_data.get('rating')}/10 ({rating_data.get('votes')} 票)")
+                    return {
+                        "season_number": season_number,
+                        "rating": rating_data.get("rating", 0),
+                        "votes": rating_data.get("votes", 0),
+                        "distribution": rating_data.get("distribution", {})
+                    }
+                else:
+                    logger.warning(f"获取第 {season_number} 季评分失败: HTTP {response.status}")
+                    response_text = await response.text()
+                    logger.debug(f"响应内容: {response_text[:200]}")
+                    
+        except Exception as e:
+            logger.error(f"获取第 {season_number} 季评分异常: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+        
+        return None
+    
+    async def _get_trakt_seasons_ratings(self, slug: str, session: aiohttp.ClientSession, headers: Dict[str, str]) -> Optional[List[Dict[str, Any]]]:
+        """获取剧集每一季的评分"""
+        try:
+            # 首先获取剧集的所有季信息
+            seasons_url = f"https://api.trakt.tv/shows/{slug}/seasons?extended=episodes"
+            async with session.get(seasons_url, headers=headers) as response:
+                if response.status != 200:
+                    logger.error(f"获取剧集季信息失败: HTTP {response.status}")
+                    return None
+                
+                seasons_info = await response.json()
+                
+                # 过滤掉特别篇（season 0）
+                regular_seasons = [s for s in seasons_info if s.get("number", 0) > 0]
+                
+                if not regular_seasons:
+                    logger.warning(f"剧集 {slug} 没有常规季")
+                    return None
+                
+                logger.info(f"找到 {len(regular_seasons)} 个常规季")
+                
+                # 为每一季获取评分
+                seasons_ratings = []
+                for season in regular_seasons:
+                    season_number = season.get("number")
+                    if season_number is None or season_number == 0:
+                        continue
+                    
+                    # 获取该季的评分
+                    season_rating_url = f"https://api.trakt.tv/shows/{slug}/seasons/{season_number}/ratings"
+                    try:
+                        async with session.get(season_rating_url, headers=headers) as rating_response:
+                            if rating_response.status == 200:
+                                rating_data = await rating_response.json()
+                                seasons_ratings.append({
+                                    "season_number": season_number,
+                                    "rating": rating_data.get("rating", 0),
+                                    "votes": rating_data.get("votes", 0),
+                                    "distribution": rating_data.get("distribution", {})
+                                })
+                                logger.info(f"  第 {season_number} 季: {rating_data.get('rating', 0)}/10 ({rating_data.get('votes', 0)} 票)")
+                            else:
+                                logger.warning(f"  第 {season_number} 季评分获取失败: HTTP {rating_response.status}")
+                    except Exception as e:
+                        logger.error(f"  获取第 {season_number} 季评分失败: {e}")
+                        continue
+                
+                return seasons_ratings if seasons_ratings else None
+                
+        except Exception as e:
+            logger.error(f"获取分季评分失败: {e}")
+            return None
     
     def generate_search_variants(self, tmdb_info: Dict[str, Any], series_info: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
         """
