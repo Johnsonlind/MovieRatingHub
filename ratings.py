@@ -22,6 +22,31 @@ from anthology_handler import anthology_handler
 # TMDB API 配置
 TMDB_API_KEY = "4f681fa7b5ab7346a4e184bbf2d41715"
 TMDB_API_BASE_URL = "https://api.themoviedb.org/3/"
+TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
+
+# 创建全局 httpx 客户端用于 TMDB API（复用连接，提高性能）
+import httpx
+_tmdb_http_client = None
+
+def get_tmdb_http_client():
+    """获取或创建 TMDB API 客户端（连接池，HTTP/2）"""
+    global _tmdb_http_client
+    if _tmdb_http_client is None or _tmdb_http_client.is_closed:
+        _tmdb_http_client = httpx.AsyncClient(
+            http2=True,  # 启用 HTTP/2
+            timeout=httpx.Timeout(10.0),  # 10秒超时
+            limits=httpx.Limits(
+                max_connections=100,
+                max_keepalive_connections=20,
+                keepalive_expiry=30.0
+            ),
+            headers={
+                "accept": "application/json",
+                "accept-encoding": "gzip, deflate",
+                "Authorization": f"Bearer {TMDB_BEARER_TOKEN}"
+            }
+        )
+    return _tmdb_http_client
 
 # 常见的User-Agent列表，可根据实际情况扩充更新
 USER_AGENTS = [
@@ -248,7 +273,7 @@ def construct_search_url(title, media_type, platform):
     return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
         
 async def get_tmdb_info(tmdb_id, media_type, request=None):
-    """通过TMDB API获取影视基本信息
+    """通过TMDB API获取影视基本信息（优化版：使用 Bearer Token + HTTP/2 + 连接池）
     
     Args:
         tmdb_id: TMDB ID
@@ -258,33 +283,61 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
     try:
         if request and await request.is_disconnected():
             return None
+        
+        # 使用全局 httpx 客户端（连接池）
+        client = get_tmdb_http_client()
+        
+        # 构建请求URL和参数（使用 Bearer Token，不需要 api_key）
+        endpoint_en = f"{TMDB_API_BASE_URL}{media_type}/{tmdb_id}"
+        params_en = {
+            "language": "en-US",
+            "append_to_response": "credits,external_ids"
+        }
+        
+        # 并行获取英文和中文数据（性能优化）
+        try:
+            en_response, zh_response = await asyncio.gather(
+                client.get(endpoint_en, params=params_en),
+                client.get(endpoint_en, params={"language": "zh-CN", "append_to_response": "credits,external_ids"}),
+                return_exceptions=True
+            )
             
-        async with aiohttp.ClientSession() as session:
-            # 直接根据media_type获取对应类型的信息
-            endpoint = f"{TMDB_API_BASE_URL}{media_type}/{tmdb_id}?api_key={TMDB_API_KEY}&language=en-US&append_to_response=credits,external_ids"
-            async with session.get(endpoint) as response:
-                if response.status == 200:
-                    if not request or not (await request.is_disconnected()):
-                        print(f"影视类型为{media_type}")
-                    en_data = await response.json()
-                else:
-                    if not request or not (await request.is_disconnected()):
-                        print(f"获取{media_type}信息失败")
-                    return None
-
-            if not en_data:
+            # 处理英文数据
+            if isinstance(en_response, Exception):
+                print(f"获取{media_type}英文信息失败: {en_response}")
+                return None
+            
+            if en_response.status_code != 200:
                 if not request or not (await request.is_disconnected()):
-                    print("API返回的数据为空")
+                    print(f"获取{media_type}信息失败，状态码: {en_response.status_code}")
                 return None
+            
+            en_data = en_response.json()
+            
+            if not request or not (await request.is_disconnected()):
+                print(f"影视类型为{media_type}")
+            
+            # 处理中文数据
+            if isinstance(zh_response, Exception) or zh_response.status_code != 200:
+                zh_data = en_data
+            else:
+                zh_data = zh_response.json()
                 
-            # 检查请求是否已被取消
-            if request and await request.is_disconnected():
-                return None
-                
-            # 获取中文数据
-            zh_endpoint = endpoint.replace("language=en-US", "language=zh-CN")
-            async with session.get(zh_endpoint) as zh_response:
-                zh_data = await zh_response.json() if zh_response.status == 200 else en_data
+        except httpx.TimeoutException:
+            print("TMDB API 请求超时")
+            return None
+        except Exception as e:
+            print(f"TMDB API 请求失败: {e}")
+            return None
+
+        if not en_data:
+            if not request or not (await request.is_disconnected()):
+                print("API返回的数据为空")
+            return None
+            
+        # 检查请求是否已被取消
+        if request and await request.is_disconnected():
+            return None
         
         # 提取基本信息
         if media_type == "movie":
