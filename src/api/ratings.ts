@@ -56,6 +56,7 @@ export async function fetchTraktRating(mediaType: 'movies' | 'shows', tmdbId: st
     // 1. 尝试TMDB ID搜索
     // 2. 回退到标题搜索
     // 3. 不依赖IMDB ID
+    // 4. 对于剧集，获取每一季的单独评分
     const type = mediaType === 'movies' ? 'movie' : 'tv';
     const response = await fetch(`/api/ratings/trakt/${type}/${tmdbId}`);
     
@@ -73,23 +74,31 @@ export async function fetchTraktRating(mediaType: 'movies' | 'shows', tmdbId: st
     }
     
     // 转换为前端期望的格式
-    // 注意：对于选集剧的单季条目，后端返回的是整体评分
-    // 我们将其作为第1季的评分
     const result: any = {
       rating: parseFloat(data.rating) || 0,
       votes: parseInt(data.votes) || 0,
       distribution: data.distribution || {}
     };
     
-    // 如果是剧集，需要seasons数组
-    if (type === 'tv') {
-      // 对于单季剧集（如选集剧的一季），将整体评分作为第1季评分
+    // 如果是剧集，处理分季评分
+    if (type === 'tv' && data.seasons) {
+      // 后端返回了每一季的真实评分
+      result.seasons = data.seasons.map((season: any) => ({
+        season_number: season.season_number,
+        rating: parseFloat(season.rating) || 0,
+        votes: parseInt(season.votes) || 0,
+        distribution: season.distribution || {}
+      }));
+      console.log(`获取到 ${result.seasons.length} 季的Trakt评分`);
+    } else if (type === 'tv') {
+      // 如果后端没有返回分季评分（例如单季剧），将整体评分作为第1季评分
       result.seasons = [{
         season_number: 1,
         rating: parseFloat(data.rating) || 0,
         votes: parseInt(data.votes) || 0,
         distribution: data.distribution || {}
       }];
+      console.log('使用整体评分作为第1季评分');
     }
     
     return result;
