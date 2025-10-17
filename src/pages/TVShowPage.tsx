@@ -378,7 +378,7 @@ export default function TVShowPage() {
             '9': Number(data.distribution?.['9'] || 0),
             '10': Number(data.distribution?.['10'] || 0)
           },
-          seasons: data.seasons?.map(season => ({
+          seasons: data.seasons?.map((season: any) => ({
             season_number: Number(season.season_number),
             rating: Number(season.rating),
             votes: Number(season.votes || season.voteCount),
