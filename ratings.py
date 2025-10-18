@@ -1353,11 +1353,11 @@ async def handle_douban_search(page, search_url):
         
         # 等待网络空闲，确保页面完全加载
         try:
-            await page.wait_for_load_state('networkidle', timeout=10000)
+            await page.wait_for_load_state('networkidle', timeout=3000)
         except Exception as e:
             print(f"等待网络空闲超时: {e}")
         
-        await asyncio.sleep(0.5)  # 减少等待时间
+        await asyncio.sleep(0.2)  # 减少等待时间
         
         # 立即检查是否出现访问频率限制
         rate_limit = await check_rate_limit(page, "douban")
@@ -1435,8 +1435,8 @@ async def handle_imdb_search(page, search_url):
     try:
         await random_delay()
         print(f"访问 IMDB 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
-        await asyncio.sleep(0.3)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await asyncio.sleep(0.2)
     
         # 立即检查是否出现访问频率限制
         rate_limit = await check_rate_limit(page, "imdb")
@@ -1517,8 +1517,8 @@ async def handle_rt_search(page, search_url, tmdb_info):
     try:
         await random_delay()
         print(f"访问 Rotten Tomatoes 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
-        await asyncio.sleep(0.3)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await asyncio.sleep(0.2)
     
         # 立即检查是否出现访问频率限制
         rate_limit = await check_rate_limit(page, "rottentomatoes")
@@ -1733,8 +1733,8 @@ async def handle_metacritic_search(page, search_url):
     try:
         await random_delay()
         print(f"访问 Metacritic 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
-        await asyncio.sleep(0.3)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await asyncio.sleep(0.2)
     
         # 立即检查是否出现访问频率限制
         rate_limit = await check_rate_limit(page, "metacritic")
@@ -1788,8 +1788,8 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     try:
         print(f"访问 Letterboxd 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
-        await asyncio.sleep(0.3)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=8000)
+        await asyncio.sleep(0.2)
     
         # 检查访问限制
         rate_limit = await check_rate_limit(page, "letterboxd")
@@ -1834,8 +1834,8 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             for result in results:
                 try:
                     print(f"\n检查结果: {result['title']} ({result['year']})")
-                    await page.goto(result["url"], wait_until='domcontentloaded')
-                    await asyncio.sleep(0.3)
+                    await page.goto(result["url"], wait_until='domcontentloaded', timeout=10000)
+                    await asyncio.sleep(0.2)
                     
                     # 获取页面源代码
                     content = await page.content()
@@ -2046,28 +2046,28 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     # 根据平台特点设置不同的加载策略
                     if platform == "imdb":
                         # IMDB 评分是动态加载的
-                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(0.3)
                     elif platform == "douban":
                         # 豆瓣评分在 DOM 中就有
-                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(0.3)
                     elif platform == "letterboxd":
                         # Letterboxd 评分在 DOM 中就有
-                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(0.3)
                     elif platform == "rottentomatoes":
                         # 烂番茄需要等待评分加载
-                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(0.3)
                     elif platform == "metacritic":
                         # Metacritic 评分在 DOM 中就有
-                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(0.3)
                     else:
                         # 默认策略
-                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=30000)
-                        await asyncio.sleep(1)
+                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(0.3)
 
                     try:
                         if platform == "douban":
@@ -2144,7 +2144,7 @@ async def extract_douban_rating(page, media_type, matched_results):
     """从豆瓣详情页提取评分数据"""
     try:
         # 等待页面加载完成
-        await page.wait_for_load_state("networkidle", timeout=10000)
+        await page.wait_for_load_state("networkidle", timeout=3000)
         content = await page.content()
         
         # 使用正则表达式提取JSON数据
@@ -2243,7 +2243,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                 # 为每个季创建新的页面上下文，避免连续访问导致的问题
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                    await asyncio.sleep(0.5)  # 减少等待时间
+                    await asyncio.sleep(0.2)  # 减少等待时间
                 except Exception as e:
                     print(f"访问第{season_number}季页面失败: {e}")
                     continue
@@ -2298,7 +2298,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                         if attempt < 2:
                             await random_delay()
                             await page.reload()
-                            await page.wait_for_load_state("networkidle", timeout=15000)
+                            await page.wait_for_load_state("networkidle", timeout=5000)
                             season_content = await page.content()
                             continue
                 
@@ -2561,7 +2561,7 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                         print(f"访问匹配的季: {season_url}")
                         try:
                             await page.goto(season_url)
-                            await asyncio.sleep(0.5)
+                            await asyncio.sleep(0.2)
                             season_content = await page.content()
                             
                             # 对于选集剧单季条目：映射为Season 1
@@ -2630,7 +2630,7 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                         print(f"访问第一季: {season_url}")
                         try:
                             await page.goto(season_url)
-                            await asyncio.sleep(0.5)
+                            await asyncio.sleep(0.2)
                             season_content = await page.content()
                             
                             season_json_match = re.search(r'<script[^>]*id="media-scorecard-json"[^>]*>\s*({[^<]+})\s*</script>', season_content)
@@ -2859,7 +2859,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     print(f"访问匹配的季: {season_url}")
                     try:
                         await page.goto(season_url, wait_until='domcontentloaded')
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.2)
 
                         # 对于选集剧单季条目：
                         # Metacritic的Season 3 → 映射为 Season 1（因为TMDB认为这是单季剧集）
@@ -2927,7 +2927,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     print(f"访问第一季: {season_url}")
                     try:
                         await page.goto(season_url, wait_until='domcontentloaded')
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.2)
                         
                         season_data = {
                             "season_number": 1,
@@ -2977,7 +2977,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     try:
                         season_url = f"{base_url}/season-{season_number}/"
                         await page.goto(season_url, wait_until='domcontentloaded')
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(0.2)
 
                         season_data = {
                             "season_number": season_number,
