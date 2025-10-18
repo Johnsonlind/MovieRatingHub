@@ -1445,6 +1445,266 @@ async def debug_follows(
 async def root():
     return {"status": "ok", "message": "RateFuse API is running"}
 
+@app.post("/api/ratings/batch")
+async def get_batch_ratings(request: Request, db: Session = Depends(get_db)):
+    """批量获取多个影视的评分信息（高性能版）
+    
+    请求格式：
+    {
+        "items": [
+            {"type": "movie", "id": "550"},
+            {"type": "tv", "id": "1396"},
+            ...
+        ],
+        "max_concurrent": 5  // 可选，最大并发数，默认5
+    }
+    
+    响应格式：
+    {
+        "results": {
+            "550": { "ratings": {...}, "status": "success" },
+            "1396": { "ratings": {...}, "status": "success" }
+        },
+        "_performance": {
+            "total_time": 12.5,
+            "total_items": 10,
+            "cached_items": 3,
+            "fetched_items": 7,
+            "avg_time_per_item": 1.25
+        }
+    }
+    """
+    start_time = time.time()
+    try:
+        body = await request.json()
+        items = body.get('items', [])
+        max_concurrent = body.get('max_concurrent', 5)
+        
+        if not items or len(items) == 0:
+            raise HTTPException(status_code=400, detail="items不能为空")
+        
+        if len(items) > 50:
+            raise HTTPException(status_code=400, detail="单次最多支持50个影视")
+        
+        logger.info(f"\n{'='*60}\n  批量获取评分 | 数量: {len(items)} | 并发: {max_concurrent}\n{'='*60}")
+        
+        # 步骤1：并行检查缓存和获取TMDB信息
+        async def get_item_info(item):
+            media_id = item['id']
+            media_type = item['type']
+            
+            # 检查缓存
+            cache_key = f"ratings:all:{media_type}:{media_id}"
+            cached = await get_cache(cache_key)
+            if cached:
+                return media_id, {'cached': True, 'data': cached}
+            
+            # 获取TMDB信息
+            try:
+                tmdb_info = await get_tmdb_info(media_id, media_type, request)
+                if not tmdb_info:
+                    return media_id, {'error': 'TMDB信息获取失败'}
+                
+                return media_id, {'tmdb_info': tmdb_info, 'type': media_type}
+            except Exception as e:
+                return media_id, {'error': str(e)}
+        
+        # 并行获取所有TMDB信息
+        tmdb_tasks = [get_item_info(item) for item in items]
+        tmdb_results = await asyncio.gather(*tmdb_tasks, return_exceptions=True)
+        
+        # 分离缓存命中和需要爬取的
+        cached_results = {}
+        to_fetch = []
+        errors = {}
+        
+        for result in tmdb_results:
+            if isinstance(result, Exception):
+                continue
+            media_id, data = result
+            if data.get('cached'):
+                cached_results[media_id] = data['data']
+            elif 'tmdb_info' in data:
+                to_fetch.append((media_id, data['tmdb_info'], data['type']))
+            elif 'error' in data:
+                errors[media_id] = data['error']
+        
+        logger.info(f"📊 缓存: {len(cached_results)} | 爬取: {len(to_fetch)} | 错误: {len(errors)}")
+        
+        # 步骤2：并行获取所有需要爬取的评分（严格控制并发）
+        sem = asyncio.Semaphore(max_concurrent)
+        
+        async def fetch_one_item(media_id, tmdb_info, media_type):
+            async with sem:
+                try:
+                    item_start = time.time()
+                    title = tmdb_info.get('zh_title') or tmdb_info.get('title', media_id)
+                    logger.info(f"  → {title[:30]}... (ID: {media_id})")
+                    
+                    from ratings import parallel_extract_ratings
+                    
+                    # 单个影视超时控制（20秒）
+                    ratings = await asyncio.wait_for(
+                        parallel_extract_ratings(tmdb_info, media_type, request),
+                        timeout=20.0
+                    )
+                    
+                    # 缓存结果
+                    cache_key = f"ratings:all:{media_type}:{media_id}"
+                    if ratings:
+                        await set_cache(cache_key, ratings, expire=CACHE_EXPIRE_TIME)
+                    
+                    item_time = time.time() - item_start
+                    logger.info(f"  ✓ {media_id}: {item_time:.1f}s")
+                    
+                    return media_id, {'ratings': ratings, 'status': 'success', 'time': item_time}
+                    
+                except asyncio.TimeoutError:
+                    logger.warning(f"  ⏱ {media_id}: 超时")
+                    return media_id, {'status': 'timeout', 'error': '获取超时（>20秒）'}
+                except Exception as e:
+                    logger.error(f"  ✗ {media_id}: {str(e)[:30]}")
+                    return media_id, {'status': 'error', 'error': str(e)}
+        
+        # 并行爬取（控制并发数）
+        if to_fetch:
+            fetch_tasks = [
+                fetch_one_item(media_id, tmdb_info, media_type)
+                for media_id, tmdb_info, media_type in to_fetch
+            ]
+            fetch_results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+        else:
+            fetch_results = []
+        
+        # 步骤3：合并所有结果
+        final_results = {}
+        
+        # 添加缓存结果
+        for media_id, data in cached_results.items():
+            final_results[media_id] = {
+                'ratings': data,
+                'status': 'success',
+                'from_cache': True
+            }
+        
+        # 添加爬取结果
+        for result in fetch_results:
+            if isinstance(result, Exception):
+                continue
+            media_id, data = result
+            final_results[media_id] = data
+        
+        # 添加错误结果
+        for media_id, error in errors.items():
+            final_results[media_id] = {
+                'status': 'error',
+                'error': error
+            }
+        
+        total_time = time.time() - start_time
+        success_count = sum(1 for r in final_results.values() if r.get('status') == 'success')
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"  ✓ 批量完成: {success_count}/{len(items)} 个 | 总耗时: {total_time:.1f}s | 平均: {total_time/len(items):.1f}s/个")
+        logger.info(f"{'='*60}\n")
+        
+        return {
+            'results': final_results,
+            '_performance': {
+                'total_time': round(total_time, 2),
+                'total_items': len(items),
+                'cached_items': len(cached_results),
+                'fetched_items': len(to_fetch),
+                'error_items': len(errors),
+                'avg_time_per_item': round(total_time / len(items), 2) if items else 0,
+                'max_concurrent': max_concurrent
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"批量获取评分失败: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"批量获取失败: {str(e)}")
+
+@app.get("/api/ratings/all/{type}/{id}")
+async def get_all_platform_ratings(type: str, id: str, request: Request):
+    """并行获取所有平台的评分信息（性能优化版）"""
+    start_time = time.time()
+    try:
+        # 检查请求是否已被取消
+        if await request.is_disconnected():
+            print("请求已在开始时被取消")
+            return None
+        
+        # 生成整体缓存键
+        cache_key = f"ratings:all:{type}:{id}"
+        
+        # 尝试从缓存获取所有平台数据
+        cached_data = await get_cache(cache_key)
+        if cached_data:
+            print(f"从缓存获取所有平台评分数据，耗时: {time.time() - start_time:.2f}秒")
+            return cached_data
+        
+        # 获取TMDB信息
+        tmdb_info = await get_tmdb_info(id, type, request)
+        if not tmdb_info:
+            if await request.is_disconnected():
+                print("请求在获取TMDB信息时被取消")
+                return None
+            raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
+        
+        # 检查请求是否已被取消
+        if await request.is_disconnected():
+            print("请求在获取TMDB信息后被取消")
+            return None
+        
+        # 使用 parallel_extract_ratings 并行获取所有平台评分（设置超时）
+        from ratings import parallel_extract_ratings
+        
+        try:
+            # 单个影视的超时控制（最多20秒）
+            all_ratings = await asyncio.wait_for(
+                parallel_extract_ratings(tmdb_info, tmdb_info["type"], request),
+                timeout=20.0
+            )
+        except asyncio.TimeoutError:
+            logger.error("获取评分超时（>20秒）")
+            raise HTTPException(status_code=504, detail="获取评分超时")
+        
+        # 检查请求是否已被取消
+        if await request.is_disconnected():
+            return None
+        
+        # 记录总耗时（在parallel_extract_ratings中已打印详细信息）
+        total_time = time.time() - start_time
+        
+        # 缓存结果（24小时）
+        if all_ratings:
+            await set_cache(cache_key, all_ratings, expire=CACHE_EXPIRE_TIME)
+        
+        # 添加性能指标
+        result = {
+            "ratings": all_ratings,
+            "_performance": {
+                "total_time": round(total_time, 2),
+                "cached": False,
+                "parallel": True
+            }
+        }
+        
+        return result
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        if await request.is_disconnected():
+            return None
+        
+        logger.error(f"获取所有平台评分失败: {str(e)[:100]}")
+        raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
+
 @app.get("/api/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(platform: str, type: str, id: str, request: Request):
     """获取指定平台的评分信息，优化缓存和错误处理"""
@@ -2399,10 +2659,10 @@ async def startup_event():
         
     # 初始化浏览器池
     try:
-        # 使用环境变量配置浏览器池
-        BROWSER_POOL_SIZE = int(os.getenv("BROWSER_POOL_SIZE", "3"))
-        BROWSER_POOL_CONTEXTS = int(os.getenv("BROWSER_POOL_CONTEXTS", "2"))
-        BROWSER_POOL_PAGES = int(os.getenv("BROWSER_POOL_PAGES", "3"))
+        # 使用环境变量配置浏览器池（默认值已优化）
+        BROWSER_POOL_SIZE = int(os.getenv("BROWSER_POOL_SIZE", "5"))
+        BROWSER_POOL_CONTEXTS = int(os.getenv("BROWSER_POOL_CONTEXTS", "3"))
+        BROWSER_POOL_PAGES = int(os.getenv("BROWSER_POOL_PAGES", "5"))
         
         browser_pool.max_browsers = BROWSER_POOL_SIZE
         browser_pool.max_contexts_per_browser = BROWSER_POOL_CONTEXTS
