@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 logger = logging.getLogger(__name__)
 
 class BrowserPool:
-    def __init__(self, max_browsers=3, max_contexts_per_browser=2, max_pages_per_context=3):
+    def __init__(self, max_browsers=5, max_contexts_per_browser=3, max_pages_per_context=5):
         self.max_browsers = max_browsers
         self.max_contexts_per_browser = max_contexts_per_browser
         self.max_pages_per_context = max_pages_per_context
@@ -136,4 +136,4 @@ class BrowserPool:
         }
 
 # 全局浏览器池实例
-browser_pool = BrowserPool(max_browsers=3)
+browser_pool = BrowserPool(max_browsers=5, max_contexts_per_browser=3, max_pages_per_context=5)
