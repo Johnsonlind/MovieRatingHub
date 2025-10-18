@@ -1347,6 +1347,16 @@ async def search_platform(platform, tmdb_info, request=None):
 async def handle_douban_search(page, search_url):
     """处理豆瓣搜索"""
     try:
+        # 拦截不必要的资源以加速页面加载
+        async def block_resources(route):
+            resource_type = route.request.resource_type
+            if resource_type in ["image", "stylesheet", "font", "media"]:
+                await route.abort()
+            else:
+                await route.continue_()
+        
+        await page.route("**/*", block_resources)
+        
         await random_delay()
         print(f"访问豆瓣搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
@@ -1433,6 +1443,16 @@ async def handle_douban_search(page, search_url):
 async def handle_imdb_search(page, search_url):
     """处理IMDB搜索"""
     try:
+        # 拦截不必要的资源以加速页面加载
+        async def block_resources(route):
+            resource_type = route.request.resource_type
+            if resource_type in ["image", "stylesheet", "font", "media"]:
+                await route.abort()
+            else:
+                await route.continue_()
+        
+        await page.route("**/*", block_resources)
+        
         await random_delay()
         print(f"访问 IMDB 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
@@ -1515,6 +1535,16 @@ async def handle_imdb_search(page, search_url):
 async def handle_rt_search(page, search_url, tmdb_info):
     """处理Rotten Tomatoes搜索"""
     try:
+        # 拦截不必要的资源以加速页面加载
+        async def block_resources(route):
+            resource_type = route.request.resource_type
+            if resource_type in ["image", "stylesheet", "font", "media"]:
+                await route.abort()
+            else:
+                await route.continue_()
+        
+        await page.route("**/*", block_resources)
+        
         await random_delay()
         print(f"访问 Rotten Tomatoes 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
@@ -1731,6 +1761,16 @@ async def handle_rt_search(page, search_url, tmdb_info):
 async def handle_metacritic_search(page, search_url):
     """处理Metacritic搜索"""
     try:
+        # 拦截不必要的资源以加速页面加载
+        async def block_resources(route):
+            resource_type = route.request.resource_type
+            if resource_type in ["image", "stylesheet", "font", "media"]:
+                await route.abort()
+            else:
+                await route.continue_()
+        
+        await page.route("**/*", block_resources)
+        
         await random_delay()
         print(f"访问 Metacritic 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
@@ -1787,6 +1827,16 @@ async def handle_metacritic_search(page, search_url):
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     try:
+        # 拦截不必要的资源以加速页面加载
+        async def block_resources(route):
+            resource_type = route.request.resource_type
+            if resource_type in ["image", "stylesheet", "font", "media"]:
+                await route.abort()
+            else:
+                await route.continue_()
+        
+        await page.route("**/*", block_resources)
+        
         print(f"访问 Letterboxd 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=8000)
         await asyncio.sleep(0.2)
