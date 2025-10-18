@@ -1347,10 +1347,7 @@ async def search_platform(platform, tmdb_info, request=None):
 async def handle_douban_search(page, search_url):
     """处理豆瓣搜索"""
     try:
-        
-        await page.route("**/*", block_resources)
-        
-        await random_delay()
+        await random_delay()        
         print(f"访问豆瓣搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=20000)
         
