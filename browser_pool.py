@@ -51,7 +51,9 @@ class BrowserPool:
                             '--disable-audio-output',
                             '--disable-web-security',
                             '--disable-features=site-per-process',
-                            '--disable-site-isolation-trials'
+                            '--disable-site-isolation-trials',
+                            '--blink-settings=imagesEnabled=false',
+                            '--disable-remote-fonts'
                         ]
                     )
                     self.browsers.append(browser)
@@ -99,7 +101,13 @@ class BrowserPool:
                     self.browsers.remove(browser)
                     new_browser = await self.playwright.chromium.launch(
                         headless=True,
-                        args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                        args=[
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--disable-dev-shm-usage',
+                            '--blink-settings=imagesEnabled=false',
+                            '--disable-remote-fonts'
+                        ]
                     )
                     self.browsers.append(new_browser)
                     browser = new_browser
