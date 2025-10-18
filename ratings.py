@@ -1347,13 +1347,6 @@ async def search_platform(platform, tmdb_info, request=None):
 async def handle_douban_search(page, search_url):
     """处理豆瓣搜索"""
     try:
-        # 拦截不必要的资源以加速页面加载
-        async def block_resources(route):
-            resource_type = route.request.resource_type
-            if resource_type in ["image", "stylesheet", "font", "media"]:
-                await route.abort()
-            else:
-                await route.continue_()
         
         await page.route("**/*", block_resources)
         
