@@ -293,7 +293,7 @@ def smart_retry(retry_config: RetryConfig):
         return wrapper
     return decorator
 
-def construct_search_url(title, media_type, platform):
+def construct_search_url(title, media_type, platform, tmdb_info):
     """根据影视类型构造各平台搜索URL"""
     encoded_title = quote(title)
     # 为 Metacritic 特别处理标题
@@ -302,7 +302,9 @@ def construct_search_url(title, media_type, platform):
         simplified_title = ''.join(c for c in unicodedata.normalize('NFD', title)
                                   if unicodedata.category(c) != 'Mn')
         encoded_title = quote(simplified_title)
-    
+
+    tmdb_id = tmdb_info.get("tmdb_id")
+
     search_urls = {
         "douban": {
             "movie": f"https://search.douban.com/movie/subject_search?search_text={encoded_title}",
@@ -313,8 +315,8 @@ def construct_search_url(title, media_type, platform):
             "tv": f"https://www.imdb.com/find/?q={encoded_title}&s=tt&ttype=tv&ref_=fn_tv"
         },
         "letterboxd": {
-            "movie": f"https://letterboxd.com/search/films/{encoded_title}/",
-            "tv": f"https://letterboxd.com/search/films/{encoded_title}/"
+            "movie": f"https://letterboxd.com/search/tmdb:{tmdb_id}/",
+            "tv": f"https://letterboxd.com/search/tmdb:{tmdb_id}/"
         },
         "rottentomatoes": {
             "movie": f"https://www.rottentomatoes.com/search?search={encoded_title}",
@@ -328,13 +330,7 @@ def construct_search_url(title, media_type, platform):
     return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
         
 async def get_tmdb_info(tmdb_id, media_type, request=None):
-    """通过TMDB API获取影视基本信息（优化版：使用 Bearer Token + HTTP/2 + 连接池）
-    
-    Args:
-        tmdb_id: TMDB ID
-        media_type: 媒体类型('movie'或'tv')
-        request: 可选,用于检查请求是否被取消
-    """
+    """通过TMDB API获取影视基本信息"""
     try:
         if request and await request.is_disconnected():
             return None
@@ -1118,7 +1114,7 @@ async def search_platform(platform, tmdb_info, request=None):
         async def execute_single_search(search_title, variant_info, browser):
             """执行单个搜索变体的搜索"""
             context = None
-            search_url = construct_search_url(search_title, media_type, platform)
+            search_url = construct_search_url(search_title, media_type, platform, tmdb_info)
             
             try:
                 # 先选择 User-Agent
@@ -1827,8 +1823,9 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         
         await page.route("**/*", block_resources)
         
+        await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=8000)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
         await asyncio.sleep(0.2)
     
         # 检查访问限制
@@ -1838,63 +1835,54 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
-            # 获取所有搜索结果
-            items = await page.query_selector_all('.results li .film-title-wrapper')
+            # 等待搜索结果加载
+            try:
+                await page.wait_for_selector('.results li', timeout=5000)
+            except Exception as e:
+                print(f"等待搜索结果超时: {e}")
+            
+            # 获取搜索结果（TMDB ID搜索通常返回唯一结果）
+            items = await page.query_selector_all('div[data-item-link]')
+            
             if not items:
                 print("Letterboxd: 未找到搜索结果")
                 return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
-            # 一次性收集所有结果信息
-            results = []
-            for item in items:
-                try:
-                    link = await item.query_selector('a')
-                    if not link:
-                        continue
-                        
-                    url = await link.get_attribute('href')
-                    title = await link.inner_text()
-                    
-                    year_elem = await item.query_selector('small.metadata a')
-                    year = await year_elem.inner_text() if year_elem else ""
-                    
-                    if url:
-                        results.append({
-                            "title": title,
-                            "year": year.strip('()'),
-                            "url": f"https://letterboxd.com{url}"
-                        })
-                except Exception as e:
-                    print(f"处理搜索结果项时出错: {e}")
-                    continue
-            
-            print(f"找到 {len(results)} 个搜索结果")
-            
-            # 逐个检查结果的TMDB ID
-            for result in results:
-                try:
-                    print(f"\n检查结果: {result['title']} ({result['year']})")
-                    await page.goto(result["url"], wait_until='domcontentloaded', timeout=10000)
-                    await asyncio.sleep(0.2)
-                    
-                    # 获取页面源代码
-                    content = await page.content()
-                    
-                    # 使用正则表达式匹配TMDB链接
-                    tmdb_match = re.search(r'https://www\.themoviedb\.org/(?:movie|tv)/(\d+)', content)
-                    if tmdb_match:
-                        tmdb_id = tmdb_match.group(1)
-                        print(f"找到TMDB ID: {tmdb_id}")
-                        if tmdb_id == str(tmdb_info.get("tmdb_id")):
-                            print("TMDB ID匹配成功!")
-                            result["match_score"] = 100
-                            return [result]
-                except Exception as e:
-                    print(f"检查结果时出错: {e}")
-                    continue
-            
-            print("Letterboxd: 未找到TMDB ID匹配的结果")
-            return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
+            # 提取第一个结果的详情页链接
+            first_item = items[0]
+            try:
+                detail_path = None
+                title = "Unknown"
+                
+                detail_path = await first_item.get_attribute('data-item-link')
+                if detail_path:
+                    title = await first_item.get_attribute('data-item-name') or title
+                
+                if not detail_path:
+                    print("Letterboxd: 无法提取详情页链接")
+                    # 调试：打印页面HTML片段
+                    html_snippet = await first_item.inner_html()
+                    print(f"HTML片段: {html_snippet[:500]}")
+                    return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
+                
+                # 构建完整URL
+                detail_url = f"https://letterboxd.com{detail_path}" if not detail_path.startswith('http') else detail_path
+                
+                print(f"找到匹配结果: {title}")
+                print(f"详情页: {detail_url}")
+                
+                return [{
+                    "title": title,
+                    "year": tmdb_info.get("year", ""),
+                    "url": detail_url,
+                    "match_score": 100
+                }]
+                
+            except Exception as e:
+                print(f"处理搜索结果项时出错: {e}")
+                import traceback
+                print(traceback.format_exc())
+                return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "解析失败"}
             
         except Exception as e:
             print(f"处理Letterboxd搜索结果时出错: {e}")
