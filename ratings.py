@@ -1333,6 +1333,108 @@ async def search_platform(platform, tmdb_info, request=None):
         
         # 所有变体都失败
         print(f"\n✗ 所有 {len(search_variants)} 个搜索变体都失败")
+        
+        # === 豆瓣特殊处理：尝试使用 IMDB ID 搜索 ===
+        if platform == "douban" and tmdb_info.get("imdb_id"):
+            imdb_id = tmdb_info["imdb_id"]
+            print(f"\n[豆瓣备用策略] 尝试使用IMDB ID搜索: {imdb_id}")
+            
+            try:
+                # 构造 IMDB ID 搜索 URL
+                imdb_search_url = f"https://search.douban.com/movie/subject_search?search_text={imdb_id}"
+                
+                # 定义 IMDB ID 搜索的执行函数
+                async def execute_imdb_search(browser):
+                    context = None
+                    try:
+                        selected_user_agent = random.choice(USER_AGENTS)
+                        context_options = {
+                            'viewport': {'width': 1280, 'height': 720},
+                            'user_agent': selected_user_agent,
+                            'bypass_csp': True,
+                            'ignore_https_errors': True,
+                            'java_script_enabled': True,
+                            'has_touch': False,
+                            'is_mobile': False,
+                            'locale': 'zh-CN',
+                            'timezone_id': 'Asia/Shanghai',
+                            'extra_http_headers': {
+                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                                'Accept-Encoding': 'gzip, deflate, br',
+                                'DNT': '1',
+                                'Connection': 'keep-alive',
+                                'Upgrade-Insecure-Requests': '1',
+                                'Sec-Fetch-Dest': 'document',
+                                'Sec-Fetch-Mode': 'navigate',
+                                'Sec-Fetch-Site': 'none',
+                                'Sec-Fetch-User': '?1'
+                            }
+                        }
+                        
+                        context = await browser.new_context(**context_options)
+                        await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
+                        await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
+                        await context.route("**/beacon/**", lambda route: route.abort())
+                        await context.route("**/telemetry/**", lambda route: route.abort())
+                        await context.route("**/stats/**", lambda route: route.abort())
+                        
+                        page = await context.new_page()
+                        page.set_default_timeout(20000)
+                        
+                        # 如果有请求对象，设置用户IP
+                        if request:
+                            client_ip = get_client_ip(request)
+                            print(f"豆瓣请求使用IP: {client_ip}")
+                            await page.set_extra_http_headers({
+                                'X-Forwarded-For': client_ip,
+                                'X-Real-IP': client_ip
+                            })
+                        
+                        # 执行搜索
+                        results = await handle_douban_search(page, imdb_search_url)
+                        
+                        # 检查结果
+                        if isinstance(results, dict) and "status" in results:
+                            return results
+                        
+                        if isinstance(results, list) and len(results) > 0:
+                            # IMDB ID 搜索通常只返回一个精确结果
+                            print(f"✓ IMDB ID搜索成功！找到 {len(results)} 个结果")
+                            # 给第一个结果（最可能匹配的）高分
+                            if len(results) > 0:
+                                results[0]["match_score"] = 100
+                                results[0]["search_variant_used"] = {
+                                    "title": imdb_id,
+                                    "strategy": "imdb_id",
+                                    "type": "fallback"
+                                }
+                            return results
+                        
+                        return None
+                        
+                    finally:
+                        if context:
+                            try:
+                                await context.close()
+                            except Exception:
+                                pass
+                
+                # 使用浏览器池执行 IMDB ID 搜索
+                results = await browser_pool.execute_in_browser(execute_imdb_search)
+                
+                # 检查结果
+                if isinstance(results, list) and len(results) > 0:
+                    print(f"✓ IMDB ID备用策略成功！")
+                    return results
+                elif isinstance(results, dict) and "status" in results:
+                    print(f"✗ IMDB ID备用策略失败: {results.get('status_reason', results.get('status'))}")
+                else:
+                    print(f"✗ IMDB ID备用策略未找到结果")
+                    
+            except Exception as e:
+                print(f"✗ IMDB ID备用策略出错: {e}")
+        
         return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "所有搜索策略都未找到匹配"}
 
     except Exception as e:
