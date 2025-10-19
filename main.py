@@ -1489,7 +1489,7 @@ async def get_batch_ratings(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="单次最多支持50个影视")
         
         batch_section = f'批量获取评分 | 数量: {len(items)} | 并发: {max_concurrent}'
-        logger.info(f"\n{log.section(batch_section, 60)}")
+        logger.info(f"\n{log.section(batch_section)}")
         
         # 步骤1：并行检查缓存和获取TMDB信息
         async def get_item_info(item):
@@ -1742,7 +1742,7 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
 
         # 搜索平台
         search_section = f'开始搜索 {platform} 平台'
-        logger.info(f"\n{log.section(search_section, 50)}")
+        logger.info(f"\n{log.section(search_section)}")
         search_start_time = time.time()
         search_results = await search_platform(platform, tmdb_info, request)
         search_complete_info = f'{platform} 搜索完成，耗时: {time.time() - search_start_time:.2f}秒'
