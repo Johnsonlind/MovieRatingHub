@@ -16,7 +16,9 @@ import logging
 load_dotenv()
 
 # 设置日志
-logging.basicConfig(level=logging.INFO)
+import sys
+from logging import StreamHandler, Formatter
+
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request, Depends, APIRouter, Response
@@ -27,7 +29,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, SchedulerStatus
 from sqlalchemy.orm import Session
-from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
+from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform, log
 from redis import asyncio as aioredis
 import json
 import base64
@@ -337,7 +339,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
             }
         }
     except Exception as e:
-        print(f"登录过程出错: {str(e)}")
+        logger.error(f"登录过程出错: {str(e)}")
         raise
 
 @app.post("/auth/forgot-password")
@@ -1222,7 +1224,7 @@ async def get_user_info(
             "is_following": is_following
         }
     except Exception as e:
-        print(f"获取用户信息失败: {str(e)}")
+        logger.error(f"获取用户信息失败: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"获取用户信息失败: {str(e)}"
@@ -1486,7 +1488,8 @@ async def get_batch_ratings(request: Request, db: Session = Depends(get_db)):
         if len(items) > 50:
             raise HTTPException(status_code=400, detail="单次最多支持50个影视")
         
-        logger.info(f"\n{'='*60}\n  批量获取评分 | 数量: {len(items)} | 并发: {max_concurrent}\n{'='*60}")
+        batch_section = f'批量获取评分 | 数量: {len(items)} | 并发: {max_concurrent}'
+        logger.info(f"\n{log.section(batch_section, 60)}")
         
         # 步骤1：并行检查缓存和获取TMDB信息
         async def get_item_info(item):
@@ -1624,8 +1627,8 @@ async def get_batch_ratings(request: Request, db: Session = Depends(get_db)):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"批量获取评分失败: {e}")
-        print(traceback.format_exc())
+        logger.error(f"批量获取评分失败: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"批量获取失败: {str(e)}")
 
 @app.get("/api/ratings/all/{type}/{id}")
@@ -1635,7 +1638,7 @@ async def get_all_platform_ratings(type: str, id: str, request: Request):
     try:
         # 检查请求是否已被取消
         if await request.is_disconnected():
-            print("请求已在开始时被取消")
+            logger.info("请求已在开始时被取消")
             return None
         
         # 生成整体缓存键
@@ -1644,20 +1647,20 @@ async def get_all_platform_ratings(type: str, id: str, request: Request):
         # 尝试从缓存获取所有平台数据
         cached_data = await get_cache(cache_key)
         if cached_data:
-            print(f"从缓存获取所有平台评分数据，耗时: {time.time() - start_time:.2f}秒")
+            logger.info(f"从缓存获取所有平台评分数据，耗时: {time.time() - start_time:.2f}秒")
             return cached_data
         
         # 获取TMDB信息
         tmdb_info = await get_tmdb_info(id, type, request)
         if not tmdb_info:
             if await request.is_disconnected():
-                print("请求在获取TMDB信息时被取消")
+                logger.info("请求在获取TMDB信息时被取消")
                 return None
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
         
         # 检查请求是否已被取消
         if await request.is_disconnected():
-            print("请求在获取TMDB信息后被取消")
+            logger.info("请求在获取TMDB信息后被取消")
             return None
         
         # 使用 parallel_extract_ratings 并行获取所有平台评分（设置超时）
@@ -1712,7 +1715,7 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
     try:
         # 检查请求是否已被取消
         if await request.is_disconnected():
-            print(f"{platform} 请求已在开始时被取消")
+            logger.info(f"{platform} 请求已在开始时被取消")
             return None
             
         # 生成缓存键
@@ -1721,72 +1724,76 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
         # 尝试从缓存获取数据
         cached_data = await get_cache(cache_key)
         if cached_data:
-            print(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
+            logger.info(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
             return cached_data
 
         # 获取TMDB信息
         tmdb_info = await get_tmdb_info(id, type, request)
         if not tmdb_info:
             if await request.is_disconnected():
-                print(f"{platform} 请求在获取TMDB信息时被取消")
+                logger.info(f"{platform} 请求在获取TMDB信息时被取消")
                 return None
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
 
         # 检查请求是否已被取消
         if await request.is_disconnected():
-            print(f"{platform} 请求在获取TMDB信息后被取消")
+            logger.info(f"{platform} 请求在获取TMDB信息后被取消")
             return None
 
         # 搜索平台
-        print(f"开始搜索 {platform} 平台...")
+        search_section = f'开始搜索 {platform} 平台'
+        logger.info(f"\n{log.section(search_section, 50)}")
         search_start_time = time.time()
         search_results = await search_platform(platform, tmdb_info, request)
-        print(f"搜索 {platform} 完成，耗时: {time.time() - search_start_time:.2f}秒")
+        search_complete_info = f'{platform} 搜索完成，耗时: {time.time() - search_start_time:.2f}秒'
+        logger.info(f"{log.success(search_complete_info)}")
 
         # 检查请求是否已被取消
         if await request.is_disconnected():
-            print(f"{platform} 请求在搜索平台后被取消")
+            logger.info(f"{platform} 请求在搜索平台后被取消")
             return None
 
         # 检查搜索结果
         if isinstance(search_results, dict) and search_results.get("status") == "cancelled":
-            print(f"{platform} 搜索被取消")
+            logger.info(f"{platform} 搜索被取消")
             return None
 
         # 提取评分信息
-        print(f"开始提取 {platform} 评分信息...")
+        extract_start_info = f'开始提取 {platform} 评分信息...'
+        logger.info(f"{log.info(extract_start_info)}")
         extract_start_time = time.time()
         rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request)
-        print(f"提取 {platform} 评分完成，耗时: {time.time() - extract_start_time:.2f}秒")
+        extract_complete_info = f'{platform} 评分提取完成，耗时: {time.time() - extract_start_time:.2f}秒'
+        logger.info(f"{log.success(extract_complete_info)}")
 
         # 检查请求是否已被取消
         if await request.is_disconnected():
-            print(f"{platform} 请求在获取评分信息后被取消")
+            logger.info(f"{platform} 请求在获取评分信息后被取消")
             return None
 
         # 检查评分信息
         if not rating_info:
             if await request.is_disconnected():
-                print(f"{platform} 请求在处理评分信息时被取消")
+                logger.info(f"{platform} 请求在处理评分信息时被取消")
                 return None
             raise HTTPException(status_code=404, detail=f"未找到 {platform} 的评分信息")
 
         # 检查评分状态
         if isinstance(rating_info, dict) and rating_info.get("status") == "cancelled":
-            print(f"{platform} 评分提取被取消")
+            logger.info(f"{platform} 评分提取被取消")
             return None
 
         # 缓存评分信息
         # 只缓存成功获取的评分信息
         if isinstance(rating_info, dict) and rating_info.get("status") == RATING_STATUS["SUCCESSFUL"]:
             await set_cache(cache_key, rating_info)
-            print(f"已缓存 {platform} 评分数据")
+            logger.info(f"已缓存 {platform} 评分数据")
         else:
-            print(f"不缓存 {platform} 评分数据，状态: {rating_info.get('status')}")
+            logger.info(f"不缓存 {platform} 评分数据，状态: {rating_info.get('status')}")
 
         # 记录总耗时
         total_time = time.time() - start_time
-        print(f"{platform} 评分获取完成，总耗时: {total_time:.2f}秒")
+        logger.info(f"{log.performance(platform, 'success', total_time)}")
         
         # 添加性能指标到响应
         if isinstance(rating_info, dict):
@@ -1805,18 +1812,18 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
     except Exception as e:
         # 检查请求是否已被取消
         if await request.is_disconnected():
-            print(f"{platform} 请求在发生错误时被取消")
+            logger.info(f"{platform} 请求在发生错误时被取消")
             return None
             
         # 记录错误
-        print(f"获取 {platform} 评分时出错: {str(e)}")
-        print(traceback.format_exc())
+        logger.info(f"获取 {platform} 评分时出错: {str(e)}")
+        logger.info(traceback.format_exc())
         
         # 返回HTTP异常
         raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
     finally:
         # 记录请求完成
-        print(f"{platform} 请求处理完成，总耗时: {time.time() - start_time:.2f}秒")
+        logger.info(f"{platform} 请求处理完成，总耗时: {time.time() - start_time:.2f}秒")
 
 router = APIRouter()
 
@@ -1917,7 +1924,7 @@ async def image_proxy(url: str, response: Response):
                     response.status_code = 302
                     return
             except Exception as redis_error:
-                print(f"Redis缓存错误: {str(redis_error)}")
+                logger.info(f"Redis缓存错误: {str(redis_error)}")
                 # 继续执行，不依赖缓存
         
         # 简易 ETag，基于 URL
@@ -1952,7 +1959,7 @@ async def image_proxy(url: str, response: Response):
             try:
                 async with session.get(url, timeout=10) as img_response:
                     if img_response.status != 200:
-                        print(f"图片获取失败，状态码: {img_response.status}, URL: {url}")
+                        logger.info(f"图片获取失败，状态码: {img_response.status}, URL: {url}")
                         raise HTTPException(status_code=img_response.status, detail="图片获取失败")
                     
                     # 获取内容类型
@@ -1983,14 +1990,14 @@ async def image_proxy(url: str, response: Response):
                     }
                     return Response(content=image_data, media_type=content_type, headers=headers)
             except aiohttp.ClientError as client_error:
-                print(f"AIOHTTP客户端错误: {str(client_error)}, URL: {url}")
+                logger.info(f"AIOHTTP客户端错误: {str(client_error)}, URL: {url}")
                 raise HTTPException(status_code=500, detail=f"图片获取失败: {str(client_error)}")
             except asyncio.TimeoutError:
-                print(f"请求超时: URL: {url}")
+                logger.info(f"请求超时: URL: {url}")
                 raise HTTPException(status_code=504, detail="图片请求超时")
                 
     except Exception as e:
-        print(f"图片代理失败: {str(e)}, URL: {url}")
+        logger.info(f"图片代理失败: {str(e)}, URL: {url}")
         raise HTTPException(status_code=500, detail=f"图片代理失败: {str(e)}")
 
 @router.get("/api/trakt-proxy/{path:path}")
@@ -2735,15 +2742,15 @@ async def shutdown_event():
     # 清理浏览器池
     try:
         await browser_pool.cleanup()
-        print("浏览器池已清理")
+        logger.info("浏览器池已清理")
     except Exception as e:
-        print(f"浏览器池清理失败: {e}")
+        logger.info(f"浏览器池清理失败: {e}")
     
     # 清理 TMDB 客户端连接池
     global _tmdb_client
     if _tmdb_client and not _tmdb_client.is_closed:
         try:
             await _tmdb_client.aclose()
-            print("TMDB 客户端连接池已关闭")
+            logger.info("TMDB 客户端连接池已关闭")
         except Exception as e:
-            print(f"TMDB 客户端清理失败: {e}")
+            logger.info(f"TMDB 客户端清理失败: {e}")
