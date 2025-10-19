@@ -304,6 +304,7 @@ def construct_search_url(title, media_type, platform, tmdb_info):
         encoded_title = quote(simplified_title)
 
     tmdb_id = tmdb_info.get("tmdb_id")
+    year = tmdb_info.get("year")
 
     search_urls = {
         "douban": {
@@ -315,8 +316,8 @@ def construct_search_url(title, media_type, platform, tmdb_info):
             "tv": f"https://www.imdb.com/find/?q={encoded_title}&s=tt&ttype=tv&ref_=fn_tv"
         },
         "letterboxd": {
-            "movie": f"https://letterboxd.com/search/tmdb:{tmdb_id}/",
-            "tv": f"https://letterboxd.com/search/tmdb:{tmdb_id}/"
+            "movie": f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/",
+            "tv": f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/"
         },
         "rottentomatoes": {
             "movie": f"https://www.rottentomatoes.com/search?search={encoded_title}",
