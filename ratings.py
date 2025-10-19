@@ -3238,7 +3238,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     print(f"访问匹配的季: {season_url}")
                     try:
                         await page.goto(season_url, wait_until='domcontentloaded')
-                        await asyncio.sleep(0.2)
+                        await asyncio.sleep(0.5)
 
                         # 对于选集剧单季条目：
                         # Metacritic的Season 3 → 映射为 Season 1（因为TMDB认为这是单季剧集）
@@ -3306,7 +3306,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     print(f"访问第一季: {season_url}")
                     try:
                         await page.goto(season_url, wait_until='domcontentloaded')
-                        await asyncio.sleep(0.2)
+                        await asyncio.sleep(0.5)
                         
                         season_data = {
                             "season_number": 1,
@@ -3356,7 +3356,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     try:
                         season_url = f"{base_url}/season-{season_number}/"
                         await page.goto(season_url, wait_until='domcontentloaded')
-                        await asyncio.sleep(0.2)
+                        await asyncio.sleep(0.5)
 
                         season_data = {
                             "season_number": season_number,
@@ -3372,27 +3372,18 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                         season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
                         if season_metascore_match:
                             season_data["metascore"] = season_metascore_match.group(1)
-                            print(f"  ✓ Season {season_number} 专业评分: {season_metascore_match.group(1)}")
                         
                         season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
                         if season_critics_count_match:
                             season_data["critics_count"] = season_critics_count_match.group(1)
-                            print(f"  ✓ Season {season_number} 专业评分人数: {season_critics_count_match.group(1)}")
                         
                         season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
                         if season_userscore_match:
                             season_data["userscore"] = season_userscore_match.group(1)
-                            print(f"  ✓ Season {season_number} 用户评分: {season_userscore_match.group(1)}")
                         
                         season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
                         if season_users_count_match:
                             season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
-                            print(f"  ✓ Season {season_number} 用户评分人数: {season_users_count_match.group(1)}")
-                        
-                        # 输出本季的汇总信息
-                        extracted_count = sum(1 for k in ["metascore", "critics_count", "userscore", "users_count"] 
-                                             if season_data[k] != "暂无")
-                        print(f"  Season {season_number} 提取到 {extracted_count}/4 个数据字段")
 
                         ratings["seasons"].append(season_data)
 
@@ -3401,8 +3392,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                         continue
 
         # 检查评分状态
-        # 检查 overall 数据
-        all_overall_no_rating = all(
+        all_no_rating = all(
             value == "暂无" or value == "tbd" 
             for value in [
                 ratings["overall"]["metascore"],
@@ -3412,27 +3402,10 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
             ]
         )
         
-        # 对于 TV 剧集，还要检查 seasons 数据
-        all_seasons_no_rating = True
-        if media_type == "tv" and ratings["seasons"]:
-            # 检查每季是否都没有评分数据
-            all_seasons_no_rating = all(
-                all(season.get(key) in ["暂无", "tbd"] for key in ["metascore", "critics_count", "userscore", "users_count"])
-                for season in ratings["seasons"]
-            )
-        
-        # 只有当 overall 和 seasons 都没有数据时，才是 NO_RATING
         ratings["status"] = (
-            RATING_STATUS["NO_RATING"] if (all_overall_no_rating and all_seasons_no_rating)
+            RATING_STATUS["NO_RATING"] if all_no_rating
             else RATING_STATUS["SUCCESSFUL"]
         )
-        
-        # 输出状态判断结果
-        print(f"\nMetacritic评分提取完成:")
-        print(f"  Overall数据: {'无评分' if all_overall_no_rating else '有评分'}")
-        if media_type == "tv":
-            print(f"  Seasons数据: {len(ratings['seasons'])}季, {'无评分' if all_seasons_no_rating else '有评分'}")
-        print(f"  最终状态: {ratings['status']}")
 
         return ratings
 
@@ -3625,13 +3598,10 @@ def check_tv_status(platform_data, platform):
         all_overall_no_rating = all(overall_data.get(key) in ["暂无", "tbd"] for key in overall_fields)
         
         # 检查每季数据是否都是"暂无"或"tbd"
-        # 注意：如果 seasons_data 为空列表，应该视为没有分季数据（即 True）
-        all_seasons_no_rating = True
-        if seasons_data:  # 如果有分季数据
-            all_seasons_no_rating = all(
-                all(season.get(key) in ["暂无", "tbd"] for key in ["metascore", "critics_count", "userscore", "users_count"])
-                for season in seasons_data
-            )
+        all_seasons_no_rating = all(
+            all(season.get(key) in ["暂无", "tbd"] for key in ["metascore", "critics_count", "userscore", "users_count"])
+            for season in seasons_data
+        )
         
         if all_overall_no_rating and all_seasons_no_rating:
             return RATING_STATUS["NO_RATING"]
