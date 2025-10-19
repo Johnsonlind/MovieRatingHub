@@ -473,7 +473,7 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
         if not request or not (await request.is_disconnected()):
             # 只在第一次调用时打印TMDB信息，避免重复
             if not hasattr(get_tmdb_info, '_printed_info'):
-                logger.info(f"\n{log.section('TMDB 返回信息', 40)}")
+                logger.info(f"\n{log.section('TMDB 返回信息')}")
                 logger.info(json.dumps(result, ensure_ascii=False, indent=2))
                 logger.info("=" * 40)
                 get_tmdb_info._printed_info = True
