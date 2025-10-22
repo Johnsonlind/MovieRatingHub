@@ -63,6 +63,16 @@ export function TVShowRatingGrid({
 
   const getSeasonRatings = () => {
     if (selectedSeason) {
+      // 豆瓣：优先找分季评分；若无且为第1季，则回退使用整剧评分
+      const doubanSeason = ratingData?.douban?.seasons?.find(s => 
+        s.season_number === selectedSeason
+      );
+      const doubanForSeason = doubanSeason || (selectedSeason === 1 && ratingData?.douban?.rating ? {
+        season_number: 1,
+        rating: ratingData.douban.rating,
+        rating_people: ratingData.douban.rating_people
+      } : undefined);
+
       const tmdbSeasonRating = ratingData?.tmdb?.seasons?.find(s => 
         s.season_number === selectedSeason
       );
@@ -73,7 +83,7 @@ export function TVShowRatingGrid({
 
       return {
         type: 'tv' as const,
-        douban: ratingData?.douban?.seasons?.find(s => s.season_number === selectedSeason),
+        douban: doubanForSeason,
         imdb: null,
         rt: ratingData?.rottentomatoes?.seasons?.find(s => s.season_number === selectedSeason),
         metacritic: ratingData?.metacritic?.seasons?.find(s => s.season_number === selectedSeason),
