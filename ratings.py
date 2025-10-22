@@ -2300,8 +2300,23 @@ async def extract_douban_rating(page, media_type, matched_results):
     """从豆瓣详情页提取评分数据"""
     try:
         # 等待页面加载完成
-        await page.wait_for_load_state("networkidle", timeout=3000)
-        content = await page.content()
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=8000)
+        except Exception as e:
+            print(f"豆瓣等待domcontentloaded超时或失败，继续尝试直接解析: {e}")
+        # 获取页面内容（带简易重试）
+        content = None
+        for attempt in range(2):
+            try:
+                content = await page.content()
+                if content:
+                    break
+            except Exception as e:
+                print(f"豆瓣获取页面内容失败，第{attempt+1}次重试: {e}")
+                await asyncio.sleep(0.3)
+        if not content:
+            # 无法获取内容时返回超时
+            return create_empty_rating_data("douban", media_type, RATING_STATUS["TIMEOUT"])
         
         # 使用正则表达式提取JSON数据
         json_match = re.search(r'"aggregateRating":\s*{\s*"@type":\s*"AggregateRating",\s*"ratingCount":\s*"([^"]+)",\s*"bestRating":\s*"([^"]+)",\s*"worstRating":\s*"([^"]+)",\s*"ratingValue":\s*"([^"]+)"', content)
