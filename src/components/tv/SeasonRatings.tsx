@@ -47,9 +47,11 @@ export function SeasonRatings({
         if (!season.seasonNumber) return null;
 
         // 检查该季是否有任何平台的有效评分数据
-        const doubanRating = ratingData.douban?.seasons?.find(s => 
+        // 豆瓣：若该季无分季评分且为第1季，则把整剧评分视作该季有评分（用于显示该季卡片）
+        const doubanSeason = ratingData.douban?.seasons?.find(s => 
           s.season_number === season.seasonNumber
-        )?.rating;
+        );
+        const doubanRating = doubanSeason?.rating || (season.seasonNumber === 1 ? ratingData.douban?.rating : undefined);
 
         const rtRating = ratingData.rottentomatoes?.seasons?.find(s => 
           s.season_number === season.seasonNumber
