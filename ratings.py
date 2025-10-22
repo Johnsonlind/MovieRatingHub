@@ -2147,32 +2147,33 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
 
                     try:
                         if platform == "douban":
-                            # 优先使用豆瓣API（避免限流）
-                            rating_data = None
-                            douban_id = None
-                            
-                            # 尝试从搜索结果中提取豆瓣ID
-                            if isinstance(search_results, list) and len(search_results) > 0:
-                                first_result = search_results[0]
-                                if isinstance(first_result, dict) and 'url' in first_result:
-                                    # 从URL中提取ID: https://movie.douban.com/subject/12345678/
-                                    url_match = re.search(r'/subject/(\d+)', first_result['url'])
-                                    if url_match:
-                                        douban_id = url_match.group(1)
-                            
-                            # 如果有豆瓣ID，优先使用API
-                            if douban_id:
-                                print(f"尝试使用豆瓣API获取评分 (ID: {douban_id})")
-                                rating_data = await get_douban_rating_via_api(douban_id)
-                            
-                            # 如果API失败，fallback到网页抓取
-                            if not rating_data or rating_data.get("status") not in [RATING_STATUS["SUCCESSFUL"], RATING_STATUS["NO_RATING"]]:
+                            # 多季剧集：优先分季抓取，确保同时获取所有季的评分
+                            if media_type == "tv" and len(tmdb_info.get("seasons", [])) > 1 and matched_results:
+                                print("检测到多季剧集，优先进行分季抓取以获取所有季评分")
+                                rating_data = await extract_douban_rating(page, media_type, matched_results)
+                            else:
+                                # 单季或无法识别出分季：优先使用豆瓣API（避免限流），失败则回退到网页抓取
+                                rating_data = None
+                                douban_id = None
+                                
+                                # 尝试从搜索结果中提取豆瓣ID
+                                if isinstance(search_results, list) and len(search_results) > 0:
+                                    first_result = search_results[0]
+                                    if isinstance(first_result, dict) and 'url' in first_result:
+                                        # 从URL中提取ID: https://movie.douban.com/subject/12345678/
+                                        url_match = re.search(r'/subject/(\d+)', first_result['url'])
+                                        if url_match:
+                                            douban_id = url_match.group(1)
+                                
+                                # 如果有豆瓣ID，优先使用API
                                 if douban_id:
-                                    print("豆瓣API失败，fallback到网页抓取")
-                                # 对于多季剧集，传递所有匹配的结果
-                                if media_type == "tv" and len(tmdb_info.get("seasons", [])) > 1 and matched_results:
-                                    rating_data = await extract_douban_rating(page, media_type, matched_results)
-                                else:
+                                    print(f"尝试使用豆瓣API获取评分 (ID: {douban_id})")
+                                    rating_data = await get_douban_rating_via_api(douban_id)
+                                
+                                # 如果API失败，fallback到网页抓取
+                                if not rating_data or rating_data.get("status") not in [RATING_STATUS["SUCCESSFUL"], RATING_STATUS["NO_RATING"]]:
+                                    if douban_id:
+                                        print("豆瓣API失败，fallback到网页抓取")
                                     rating_data = await extract_douban_rating(page, media_type, search_results)
                         elif platform == "imdb":
                             # 优先使用GraphQL API（速度更快）
