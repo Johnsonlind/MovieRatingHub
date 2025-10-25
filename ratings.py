@@ -3185,7 +3185,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     
                     print(f"Metacritic访问匹配的季: {season_url}")
                     try:
-                        await page.goto(season_url, wait_until='domcontentloaded')
+                        await page.goto(season_url, wait_until='networkidle')
                         await asyncio.sleep(0.5)
 
                         # 对于选集剧单季条目：
@@ -3251,7 +3251,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     
                     print(f"Metacritic访问第一季: {season_url}")
                     try:
-                        await page.goto(season_url, wait_until='domcontentloaded')
+                        await page.goto(season_url, wait_until='networkidle')
                         await asyncio.sleep(0.5)
                         
                         season_data = {
@@ -3300,7 +3300,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     season_number = season.get("season_number")
                     try:
                         season_url = f"{base_url}/season-{season_number}/"
-                        await page.goto(season_url, wait_until='domcontentloaded')
+                        await page.goto(season_url, wait_until='networkidle')
                         await asyncio.sleep(0.5)
 
                         season_data = {
