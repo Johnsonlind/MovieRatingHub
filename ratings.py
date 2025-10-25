@@ -3337,8 +3337,8 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                         print(f"Metacritic获取第{season_number}季评分数据时出错: {e}")
                         continue
 
-        # 检查评分状态
-        all_no_rating = all(
+        # 检查评分状态 - 同时检查整体评分和分季评分
+        overall_no_rating = all(
             value == "暂无" or value == "tbd" 
             for value in [
                 ratings["overall"]["metascore"],
@@ -3348,8 +3348,18 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
             ]
         )
         
+        # 检查是否有任何分季评分
+        has_season_ratings = False
+        if ratings.get("seasons"):
+            for season in ratings["seasons"]:
+                if (season.get("metascore") not in ["暂无", "tbd", None] and season.get("metascore") != "") or \
+                   (season.get("userscore") not in ["暂无", "tbd", None] and season.get("userscore") != ""):
+                    has_season_ratings = True
+                    break
+        
+        # 如果有整体评分或分季评分，则认为是成功的
         ratings["status"] = (
-            RATING_STATUS["NO_RATING"] if all_no_rating
+            RATING_STATUS["NO_RATING"] if (overall_no_rating and not has_season_ratings)
             else RATING_STATUS["SUCCESSFUL"]
         )
 
