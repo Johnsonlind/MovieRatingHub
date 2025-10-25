@@ -3009,6 +3009,67 @@ async def extract_rt_rating(page, media_type, tmdb_info):
         print(f"获取 Rotten Tomatoes 评分数据时出错: {e}")
         return create_empty_rating_data("rottentomatoes", media_type, RATING_STATUS["FETCH_FAILED"])
 
+async def get_metacritic_rating_via_json(page) -> dict:
+    """从Metacritic页面的JSON数据中提取评分"""
+    try:
+        content = await page.content()
+        
+        # 尝试提取页面中的JSON-LD结构化数据
+        json_ld_match = re.search(r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>', content, re.DOTALL)
+        if json_ld_match:
+            try:
+                import json
+                json_data = json.loads(json_ld_match.group(1))
+                
+                # 检查aggregateRating数据
+                if isinstance(json_data, dict) and 'aggregateRating' in json_data:
+                    agg_rating = json_data['aggregateRating']
+                    
+                    # Metacritic的评分是0-100，需要检查
+                    rating_value = agg_rating.get('ratingValue')
+                    rating_count = agg_rating.get('ratingCount')
+                    
+                    if rating_value and rating_count:
+                        print(f"Metacritic评分获取成功")
+                        return {
+                            "metascore": str(rating_value),
+                            "critics_count": str(rating_count),
+                            "source": "json_ld"
+                        }
+            except Exception as e:
+                print(f"Metacritic解析JSON-LD失败: {e}")
+        
+        # 尝试从页面中的其他JSON数据提取
+        # Metacritic页面可能包含window.__REACT_DATA__等全局变量
+        react_data_match = re.search(r'window\.__REACT_DATA__\s*=\s*({.*?});', content, re.DOTALL)
+        if react_data_match:
+            try:
+                import json
+                react_data = json.loads(react_data_match.group(1))
+                
+                # 尝试从React数据中提取评分
+                # 具体路径需要根据实际数据结构调整
+                if 'criticScoreSummary' in react_data:
+                    summary = react_data['criticScoreSummary']
+                    metascore = summary.get('score')
+                    critics_count = summary.get('reviewCount')
+                    
+                    if metascore and critics_count:
+                        print(f"Metacritic评分获取成功")
+                        return {
+                            "metascore": str(metascore),
+                            "critics_count": str(critics_count),
+                            "source": "react_data"
+                        }
+            except Exception as e:
+                print(f"Metacritic解析React数据失败: {e}")
+        
+        return None
+        
+    except Exception as e:
+        print(f"Metacritic JSON提取失败: {e}")
+        return None
+
 async def extract_metacritic_rating(page, media_type, tmdb_info):
     """从Metacritic详情页提取评分数据"""
     try:
