@@ -31,6 +31,19 @@ export function SeasonRatings({
 }: SeasonRatingsProps) {
   if (!seasons?.length) return null;
 
+  // 打印Metacritic评分数据详细信息
+  console.log('=== SeasonRatings组件 - Metacritic数据调试 ===');
+  console.log('所有季度信息:', seasons);
+  console.log('完整评分数据:', ratingData);
+  console.log('Metacritic数据:', ratingData?.metacritic);
+  console.log('Metacritic分季数据:', ratingData?.metacritic?.seasons);
+  if (ratingData?.metacritic?.seasons) {
+    ratingData.metacritic.seasons.forEach((season, index) => {
+      console.log(`Metacritic第${index + 1}季数据:`, season);
+    });
+  }
+  console.log('=== Metacritic数据调试结束 ===');
+
   if (error) {
     return (
       <ErrorMessage
@@ -61,6 +74,27 @@ export function SeasonRatings({
           s.season_number === season.seasonNumber
         );
 
+        // 详细打印第X季的评分检查过程
+        console.log(`\n=== 第${season.seasonNumber}季评分检查 ===`);
+        console.log(`豆瓣评分:`, doubanRating);
+        console.log(`烂番茄评分:`, rtRating);
+        console.log(`Metacritic评分:`, mcRating);
+        console.log(`Metacritic metascore:`, mcRating?.metascore);
+        console.log(`Metacritic userscore:`, mcRating?.userscore);
+        console.log(`Metascore有效性:`, isValidRatingData(mcRating?.metascore));
+        console.log(`Userscore有效性:`, isValidRatingData(mcRating?.userscore));
+        
+        const tmdbSeasonRating = ratingData.tmdb?.seasons?.find(s => 
+          s.season_number === season.seasonNumber && 
+          s.rating > 0
+        );
+        const traktSeasonRating = ratingData.trakt?.seasons?.find(s =>
+          s.season_number === season.seasonNumber &&
+          s.rating > 0
+        );
+        console.log(`TMDB评分:`, tmdbSeasonRating);
+        console.log(`Trakt评分:`, traktSeasonRating);
+
         const hasValidRatings = 
           isValidRatingData(doubanRating) ||
           (rtRating && (
@@ -71,14 +105,11 @@ export function SeasonRatings({
             isValidRatingData(mcRating.metascore) ||
             isValidRatingData(mcRating.userscore)
           )) ||
-          (ratingData.tmdb?.seasons?.some(s => 
-            s.season_number === season.seasonNumber && 
-            s.rating > 0
-          )) ||
-          (ratingData.trakt?.seasons?.some(s =>
-            s.season_number === season.seasonNumber &&
-            s.rating > 0
-          ));
+          !!tmdbSeasonRating ||
+          !!traktSeasonRating;
+
+        console.log(`第${season.seasonNumber}季 hasValidRatings:`, hasValidRatings);
+        console.log(`=== 第${season.seasonNumber}季评分检查结束 ===\n`);
 
         if (!hasValidRatings) return null;
 
