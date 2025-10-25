@@ -3073,20 +3073,12 @@ async def get_metacritic_rating_via_json(page) -> dict:
 async def extract_metacritic_rating(page, media_type, tmdb_info):
     """从Metacritic详情页提取评分数据"""
     try:
-        print(f"\n=== Metacritic评分提取开始 ===")
-        print(f"媒体类型: {media_type}")
-        print(f"TMDB信息: {tmdb_info}")
-        print(f"当前页面URL: {page.url}")
-        
         # 首先尝试快速从JSON提取
-        print(f"\n--- 步骤1: 尝试从JSON提取评分 ---")
         json_rating = await get_metacritic_rating_via_json(page)
-        print(f"JSON提取结果: {json_rating}")
         
-        # 获取页面源代码
-        print(f"\n--- 步骤2: 获取页面源代码 ---")
+        # 获取页面源代码并验证
         content = await page.content()
-        print(f"页面内容长度: {len(content)}")
+        print(f"主页面内容长度: {len(content)}")
         
         # 检查主页面内容是否有效
         if len(content) < 1000:
@@ -3098,14 +3090,6 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                 print(f"主页面返回错误")
                 return create_empty_rating_data("metacritic", media_type, RATING_STATUS["FETCH_FAILED"])
         
-        # 保存页面内容用于调试
-        try:
-            with open('/tmp/metacritic_main_page.html', 'w', encoding='utf-8') as f:
-                f.write(content)
-            print(f"主页面内容已保存到 /tmp/metacritic_main_page.html")
-        except Exception as e:
-            print(f"保存主页面内容失败: {e}")
-        
         # 初始化评分数据
         ratings = {
             "overall": {
@@ -3116,132 +3100,76 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
             },
             "seasons": []
         }
-        print(f"初始化评分数据结构: {ratings}")
         
         # 如果JSON提取成功，优先使用JSON数据（跳过复杂的HTML解析）
-        print(f"\n--- 步骤3: 处理JSON提取结果 ---")
         if json_rating:
-            print(f"JSON提取成功，使用JSON数据")
             if json_rating.get("metascore"):
                 ratings["overall"]["metascore"] = json_rating["metascore"]
-                print(f"从JSON设置metascore: {json_rating['metascore']}")
             if json_rating.get("critics_count"):
                 ratings["overall"]["critics_count"] = json_rating["critics_count"]
-                print(f"从JSON设置critics_count: {json_rating['critics_count']}")
-        else:
-            print(f"JSON提取失败，将使用HTML解析")
 
         # 从网页源代码中提取专业评分（作为fallback）
-        print(f"\n--- 步骤4: 提取专业评分 (Metascore) ---")
         if ratings["overall"]["metascore"] == "暂无":
-            print(f"尝试从HTML提取metascore")
             metascore_match = re.search(r'title="Metascore (\d+) out of 100"', content)
             if metascore_match:
                 ratings["overall"]["metascore"] = metascore_match.group(1)
-                print(f"正则匹配成功: metascore = {metascore_match.group(1)}")
             else:
-                print(f"正则匹配失败，尝试DOM选择器")
                 # 备选方案：使用DOM选择器
                 metascore_elem = await page.query_selector('div[data-v-e408cafe][title*="Metascore"] span')
                 if metascore_elem:
                     metascore_text = await metascore_elem.inner_text()
-                    print(f"DOM选择器找到元素，文本: '{metascore_text}'")
                     if metascore_text and metascore_text.lower() != 'tbd':
                         ratings["overall"]["metascore"] = metascore_text
-                        print(f"DOM选择器成功: metascore = {metascore_text}")
-                    else:
-                        print(f"DOM选择器文本无效: '{metascore_text}'")
-                else:
-                    print(f"DOM选择器未找到元素")
-        else:
-            print(f"metascore已有值: {ratings['overall']['metascore']}")
 
         # 从网页源代码中提取专业评分人数（作为fallback）
-        print(f"\n--- 步骤5: 提取专业评分人数 (Critics Count) ---")
         if ratings["overall"]["critics_count"] == "暂无":
-            print(f"尝试从HTML提取critics_count")
             critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', content)
             if critics_count_match:
                 ratings["overall"]["critics_count"] = critics_count_match.group(1)
-                print(f"正则匹配成功: critics_count = {critics_count_match.group(1)}")
             else:
-                print(f"正则匹配失败，尝试DOM选择器")
                 # 备选方案：使用DOM选择器
                 critics_count_elem = await page.query_selector('a[data-testid="critic-path"] span')
                 if critics_count_elem:
                     critics_text = await critics_count_elem.inner_text()
-                    print(f"DOM选择器找到元素，文本: '{critics_text}'")
                     match = re.search(r'Based on (\d+) Critic', critics_text)
                     if match:
                         ratings["overall"]["critics_count"] = match.group(1)
-                        print(f"DOM选择器成功: critics_count = {match.group(1)}")
-                    else:
-                        print(f"DOM选择器文本不匹配: '{critics_text}'")
-                else:
-                    print(f"DOM选择器未找到元素")
-        else:
-            print(f"critics_count已有值: {ratings['overall']['critics_count']}")
 
         # 从网页源代码中提取用户评分
-        print(f"\n--- 步骤6: 提取用户评分 (User Score) ---")
         userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', content)
         if userscore_match:
             ratings["overall"]["userscore"] = userscore_match.group(1)
-            print(f"正则匹配成功: userscore = {userscore_match.group(1)}")
         else:
-            print(f"正则匹配失败，尝试DOM选择器")
             # 备选方案：使用DOM选择器
             userscore_elem = await page.query_selector('div[data-v-e408cafe][title*="User score"] span')
             if userscore_elem:
                 userscore_text = await userscore_elem.inner_text()
-                print(f"DOM选择器找到元素，文本: '{userscore_text}'")
                 if userscore_text and userscore_text.lower() != 'tbd':
                     ratings["overall"]["userscore"] = userscore_text
-                    print(f"DOM选择器成功: userscore = {userscore_text}")
-                else:
-                    print(f"DOM选择器文本无效: '{userscore_text}'")
-            else:
-                print(f"DOM选择器未找到元素")
 
         # 从网页源代码中提取用户评分人数
-        print(f"\n--- 步骤7: 提取用户评分人数 (Users Count) ---")
         users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', content)
         if users_count_match:
             ratings["overall"]["users_count"] = users_count_match.group(1).replace(',', '')
-            print(f"正则匹配成功: users_count = {users_count_match.group(1)}")
         else:
-            print(f"正则匹配失败，尝试DOM选择器")
             # 备选方案：使用DOM选择器
             users_count_elem = await page.query_selector('a[data-testid="user-path"] span')
             if users_count_elem:
                 users_text = await users_count_elem.inner_text()
-                print(f"DOM选择器找到元素，文本: '{users_text}'")
                 match = re.search(r'Based on ([\d,]+) User', users_text)
                 if match:
                     ratings["overall"]["users_count"] = match.group(1).replace(',', '')
-                    print(f"DOM选择器成功: users_count = {match.group(1)}")
-                else:
-                    print(f"DOM选择器文本不匹配: '{users_text}'")
-            else:
-                print(f"DOM选择器未找到元素")
-        
-        print(f"\n--- 整体评分提取完成 ---")
-        print(f"最终整体评分: {ratings['overall']}")
         
         print(f"Metacritic评分获取成功")
 
         # 如果是剧集,尝试解析分季信息
-        print(f"\n--- 步骤8: 开始分季处理 ---")
         if media_type == "tv":
-            print(f"媒体类型为TV，开始处理分季信息")
             # === 选集剧特殊处理：从页面解析所有季，根据年份匹配 ===
             if tmdb_info.get("is_anthology"):
                 print(f"\n[选集剧]Metacritic分季处理")
                 tmdb_year = tmdb_info.get("year", "")
-                print(f"TMDB年份: {tmdb_year}")
                 
                 # 解析页面中的All Seasons列表
-                print(f"尝试解析页面中的All Seasons列表")
                 season_cards = re.findall(
                     r'<div[^>]*data-testid="seasons-modal-card"[^>]*>.*?'
                     r'<a href="([^"]+)".*?'
@@ -3252,8 +3180,6 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                 )
                 
                 print(f"Metacritic解析到 {len(season_cards)} 个季")
-                for i, (url, num, year) in enumerate(season_cards):
-                    print(f"  第{i+1}个季: URL={url}, 季号={num}, 年份={year}")
                 
                 # 根据年份匹配到正确的季
                 matched_season = None
@@ -3379,21 +3305,28 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
             # 普通多季剧集处理
             elif tmdb_info.get("number_of_seasons", 0) > 1:
                 print(f"\n[多季剧集]Metacritic分季处理")
-                print(f"TMDB总季数: {tmdb_info.get('number_of_seasons', 0)}")
-                print(f"TMDB季信息: {tmdb_info.get('seasons', [])}")
                 base_url = page.url.rstrip('/')
-                print(f"基础URL: {base_url}")
                 
                 for season in tmdb_info.get("seasons", []):
                     season_number = season.get("season_number")
                     print(f"\n--- 处理第 {season_number} 季 ---")
-                    print(f"季信息: {season}")
-                    try:
-                        season_url = f"{base_url}/season-{season_number}/"
-                        print(f"访问URL: {season_url}")
-                        
-                        # 设置更长的超时时间和更好的等待策略
+                    
+                    # 重试机制：最多尝试3次
+                    max_retries = 3
+                    season_content = ""
+                    season_data = {
+                        "season_number": season_number,
+                        "metascore": "暂无",
+                        "critics_count": "暂无",
+                        "userscore": "暂无",
+                        "users_count": "暂无"
+                    }
+                    
+                    for attempt in range(max_retries):
                         try:
+                            season_url = f"{base_url}/season-{season_number}/"
+                            print(f"访问URL: {season_url} (尝试 {attempt + 1}/{max_retries})")
+                            
                             # 设置User-Agent和请求头
                             await page.set_extra_http_headers({
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -3404,9 +3337,10 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                                 'Upgrade-Insecure-Requests': '1',
                             })
                             
+                            # 多种等待策略
                             await page.goto(season_url, wait_until='networkidle', timeout=30000)
                             print(f"页面网络空闲，等待额外时间...")
-                            await asyncio.sleep(3)  # 增加等待时间到3秒
+                            await asyncio.sleep(2 + attempt)  # 递增等待时间
                             
                             # 等待页面标题加载
                             try:
@@ -3414,9 +3348,20 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                                     "document.title && document.title !== ''",
                                     timeout=10000
                                 )
-                                print(f"页面标题已加载: {await page.title()}")
+                                title = await page.title()
+                                print(f"页面标题已加载: {title}")
                             except:
                                 print(f"页面标题加载超时")
+                            
+                            # 等待页面内容加载
+                            try:
+                                await page.wait_for_function(
+                                    "document.body && document.body.innerHTML.length > 1000",
+                                    timeout=15000
+                                )
+                                print(f"页面内容已加载")
+                            except:
+                                print(f"页面内容加载超时")
                             
                             # 等待评分相关元素
                             try:
@@ -3424,104 +3369,74 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                                 print(f"页面基本元素已加载")
                             except:
                                 print(f"页面基本元素加载超时")
+                            
+                            # 获取页面内容并验证
+                            season_content = await page.content()
+                            print(f"第 {season_number} 季页面内容长度: {len(season_content)}")
+                            
+                            # 检查页面内容是否有效
+                            if len(season_content) < 1000:
+                                print(f"警告：第 {season_number} 季页面内容过短，可能加载失败")
+                                print(f"页面内容预览: {season_content[:200]}")
+                                
+                                # 检查是否是错误页面
+                                if "error" in season_content.lower() or "not found" in season_content.lower():
+                                    print(f"第 {season_number} 季页面返回错误")
+                                    if attempt < max_retries - 1:
+                                        print(f"准备重试...")
+                                        await asyncio.sleep(2)  # 重试前等待
+                                        continue
+                                    else:
+                                        print(f"第 {season_number} 季重试次数已达上限，跳过")
+                                        break
+                                else:
+                                    if attempt < max_retries - 1:
+                                        print(f"页面内容过短，准备重试...")
+                                        await asyncio.sleep(2)  # 重试前等待
+                                        continue
+                                    else:
+                                        print(f"第 {season_number} 季重试次数已达上限，跳过")
+                                        break
+                            else:
+                                print(f"第 {season_number} 季页面加载成功")
+                                break  # 成功加载，跳出重试循环
                                 
                         except Exception as e:
-                            print(f"页面加载失败: {e}")
-                            continue
-                        
-                        print(f"页面加载完成")
-
-                        season_data = {
-                            "season_number": season_number,
-                            "metascore": "暂无",
-                            "critics_count": "暂无",
-                            "userscore": "暂无",
-                            "users_count": "暂无"
-                        }
-
-                        season_content = await page.content()
-                        print(f"第 {season_number} 季页面内容长度: {len(season_content)}")
-                        
-                        # 检查页面内容是否有效
-                        if len(season_content) < 1000:
-                            print(f"警告：第 {season_number} 季页面内容过短，可能加载失败")
-                            print(f"页面内容预览: {season_content[:200]}")
-                            
-                            # 检查是否是错误页面
-                            if "error" in season_content.lower() or "not found" in season_content.lower():
-                                print(f"第 {season_number} 季页面返回错误")
+                            print(f"第 {season_number} 季页面加载失败 (尝试 {attempt + 1}): {e}")
+                            if attempt < max_retries - 1:
+                                print(f"准备重试...")
+                                await asyncio.sleep(2)  # 重试前等待
                                 continue
-                        
-                        # 保存分季页面内容用于调试
-                        try:
-                            with open(f'/tmp/metacritic_season_{season_number}.html', 'w', encoding='utf-8') as f:
-                                f.write(season_content)
-                            print(f"第 {season_number} 季页面内容已保存到 /tmp/metacritic_season_{season_number}.html")
-                        except Exception as e:
-                            print(f"保存页面内容失败: {e}")
-                        
-                        # 提取评分数据
-                        print(f"开始提取第 {season_number} 季评分数据")
-                        
-                        # Metascore
-                        season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
-                        if season_metascore_match:
-                            season_data["metascore"] = season_metascore_match.group(1)
-                            print(f"第 {season_number} 季 Metascore: {season_metascore_match.group(1)}")
-                        else:
-                            print(f"第 {season_number} 季 未找到 Metascore")
-                            # 打印页面中包含"Metascore"的部分
-                            metascore_lines = [line for line in season_content.split('\n') if 'Metascore' in line]
-                            print(f"包含'Metascore'的行数: {len(metascore_lines)}")
-                            if metascore_lines:
-                                print(f"前3行包含'Metascore'的内容: {metascore_lines[:3]}")
-                        
-                        # Critics Count
-                        season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
-                        if season_critics_count_match:
-                            season_data["critics_count"] = season_critics_count_match.group(1)
-                            print(f"第 {season_number} 季 Critics Count: {season_critics_count_match.group(1)}")
-                        else:
-                            print(f"第 {season_number} 季 未找到 Critics Count")
-                            # 打印页面中包含"Critic"的部分
-                            critic_lines = [line for line in season_content.split('\n') if 'Critic' in line]
-                            print(f"包含'Critic'的行数: {len(critic_lines)}")
-                            if critic_lines:
-                                print(f"前3行包含'Critic'的内容: {critic_lines[:3]}")
-                        
-                        # User Score
-                        season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
-                        if season_userscore_match:
-                            season_data["userscore"] = season_userscore_match.group(1)
-                            print(f"第 {season_number} 季 User Score: {season_userscore_match.group(1)}")
-                        else:
-                            print(f"第 {season_number} 季 未找到 User Score")
-                            # 打印页面中包含"User score"的部分
-                            userscore_lines = [line for line in season_content.split('\n') if 'User score' in line]
-                            print(f"包含'User score'的行数: {len(userscore_lines)}")
-                            if userscore_lines:
-                                print(f"前3行包含'User score'的内容: {userscore_lines[:3]}")
-                        
-                        # Users Count
-                        season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
-                        if season_users_count_match:
-                            season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
-                            print(f"第 {season_number} 季 Users Count: {season_users_count_match.group(1)}")
-                        else:
-                            print(f"第 {season_number} 季 未找到 Users Count")
-                            # 打印页面中包含"User Ratings"的部分
-                            user_ratings_lines = [line for line in season_content.split('\n') if 'User Ratings' in line]
-                            print(f"包含'User Ratings'的行数: {len(user_ratings_lines)}")
-                            if user_ratings_lines:
-                                print(f"前3行包含'User Ratings'的内容: {user_ratings_lines[:3]}")
-
-                        print(f"第 {season_number} 季 最终数据: {season_data}")
-                        ratings["seasons"].append(season_data)
-                        print(f"Metacritic第{season_number}季评分获取成功")
-
-                    except Exception as e:
-                        print(f"Metacritic获取第{season_number}季评分数据时出错: {e}")
+                            else:
+                                print(f"第 {season_number} 季重试次数已达上限，跳过")
+                                break
+                    
+                    # 如果所有重试都失败了，跳过这一季
+                    if len(season_content) < 1000:
+                        print(f"第 {season_number} 季最终加载失败，跳过")
                         continue
+                    
+                    print(f"第 {season_number} 季页面加载完成")
+                    
+                    # 提取评分数据
+                    season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
+                    if season_metascore_match:
+                        season_data["metascore"] = season_metascore_match.group(1)
+                    
+                    season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
+                    if season_critics_count_match:
+                        season_data["critics_count"] = season_critics_count_match.group(1)
+                    
+                    season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
+                    if season_userscore_match:
+                        season_data["userscore"] = season_userscore_match.group(1)
+                    
+                    season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
+                    if season_users_count_match:
+                        season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
+
+                    ratings["seasons"].append(season_data)
+                    print(f"Metacritic第{season_number}季评分获取成功")
 
         # 检查评分状态
         all_no_rating = all(
