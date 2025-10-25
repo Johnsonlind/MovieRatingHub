@@ -131,15 +131,33 @@ export default function TVShowPage() {
             const data = await response.json();
             
             // 获取到数据后立即更新状态
-            setPlatformStatuses(prev => ({
-              ...prev,
-              [platform]: {
-                status: data.status === 'Successful' ? 'successful' :  
+            const frontendStatus = data.status === 'Successful' ? 'successful' :  
                         data.status === 'No Found' ? 'not_found' :
                         data.status === 'No Rating' ? 'no_rating' :
                         data.status === 'RateLimit' ? 'rate_limit' :
                         data.status === 'Timeout' ? 'timeout' :
-                        data.status === 'Fail' ? 'fail' : 'error',
+                        data.status === 'Fail' ? 'fail' : 'error';
+            
+            // 专门为Metacritic添加详细调试信息
+            if (platform === 'metacritic') {
+              console.log('=== TVShowPage - Metacritic数据接收调试 ===');
+              console.log('平台:', platform);
+              console.log('后端状态:', data.status);
+              console.log('前端状态:', frontendStatus);
+              console.log('完整数据:', data);
+              console.log('分季数据:', data.seasons);
+              if (data.seasons) {
+                data.seasons.forEach((season: any, index: number) => {
+                  console.log(`Metacritic第${index + 1}季数据:`, season);
+                });
+              }
+              console.log('=== Metacritic数据接收调试结束 ===');
+            }
+            
+            setPlatformStatuses(prev => ({
+              ...prev,
+              [platform]: {
+                status: frontendStatus,
                 data
               }
             }));
@@ -292,6 +310,12 @@ export default function TVShowPage() {
     tmdb: tmdbRating || undefined,
     trakt: traktRating || undefined
   };
+
+  // 打印最终组合的Metacritic数据
+  console.log('=== TVShowPage - 最终组合的Metacritic数据 ===');
+  console.log('platformStatuses.metacritic:', platformStatuses.metacritic);
+  console.log('allRatings.metacritic:', allRatings.metacritic);
+  console.log('=== 最终组合的Metacritic数据结束 ===');
 
   const backendPlatforms: BackendPlatformStatus[] = [
     {
