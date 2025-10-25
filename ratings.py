@@ -3293,12 +3293,18 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
             # 普通多季剧集处理
             elif tmdb_info.get("number_of_seasons", 0) > 1:
                 print(f"\n[多季剧集]Metacritic分季处理")
+                print(f"TMDB剧集信息: {tmdb_info}")
+                print(f"总季数: {tmdb_info.get('number_of_seasons', 0)}")
+                print(f"所有季信息: {tmdb_info.get('seasons', [])}")
                 base_url = page.url.rstrip('/')
                 
                 for season in tmdb_info.get("seasons", []):
                     season_number = season.get("season_number")
+                    print(f"\n=== 处理第 {season_number} 季 ===")
+                    print(f"季信息: {season}")
                     try:
                         season_url = f"{base_url}/season-{season_number}/"
+                        print(f"访问URL: {season_url}")
                         await page.goto(season_url, wait_until='domcontentloaded')
                         await asyncio.sleep(0.2)
 
@@ -3311,24 +3317,38 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                         }
 
                         season_content = await page.content()
+                        print(f"第 {season_number} 季页面内容长度: {len(season_content)}")
                         
                         # 提取评分数据
                         season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
                         if season_metascore_match:
                             season_data["metascore"] = season_metascore_match.group(1)
+                            print(f"第 {season_number} 季 Metascore: {season_metascore_match.group(1)}")
+                        else:
+                            print(f"第 {season_number} 季 未找到 Metascore")
                         
                         season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
                         if season_critics_count_match:
                             season_data["critics_count"] = season_critics_count_match.group(1)
+                            print(f"第 {season_number} 季 Critics Count: {season_critics_count_match.group(1)}")
+                        else:
+                            print(f"第 {season_number} 季 未找到 Critics Count")
                         
                         season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
                         if season_userscore_match:
                             season_data["userscore"] = season_userscore_match.group(1)
+                            print(f"第 {season_number} 季 User Score: {season_userscore_match.group(1)}")
+                        else:
+                            print(f"第 {season_number} 季 未找到 User Score")
                         
                         season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
                         if season_users_count_match:
                             season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
+                            print(f"第 {season_number} 季 Users Count: {season_users_count_match.group(1)}")
+                        else:
+                            print(f"第 {season_number} 季 未找到 Users Count")
 
+                        print(f"第 {season_number} 季 最终数据: {season_data}")
                         ratings["seasons"].append(season_data)
                         print(f"Metacritic评分获取成功")
 
@@ -3351,6 +3371,15 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
             RATING_STATUS["NO_RATING"] if all_no_rating
             else RATING_STATUS["SUCCESSFUL"]
         )
+
+        # 打印完整的Metacritic评分数据结构
+        print(f"\n=== Metacritic完整评分数据结构 ===")
+        print(f"状态: {ratings['status']}")
+        print(f"整体评分: {ratings['overall']}")
+        print(f"分季评分数量: {len(ratings.get('seasons', []))}")
+        for i, season in enumerate(ratings.get('seasons', [])):
+            print(f"  第 {i+1} 季: {season}")
+        print(f"=== Metacritic数据结构结束 ===\n")
 
         return ratings
 
