@@ -3088,10 +3088,23 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
         content = await page.content()
         print(f"页面内容长度: {len(content)}")
         
+        # 检查主页面内容是否有效
+        if len(content) < 1000:
+            print(f"警告：主页面内容过短，可能加载失败")
+            print(f"页面内容预览: {content[:200]}")
+            
+            # 检查是否是错误页面
+            if "error" in content.lower() or "not found" in content.lower():
+                print(f"主页面返回错误")
+                return create_empty_rating_data("metacritic", media_type, RATING_STATUS["FETCH_FAILED"])
+        
         # 保存页面内容用于调试
-        with open('/tmp/metacritic_main_page.html', 'w', encoding='utf-8') as f:
-            f.write(content)
-        print(f"主页面内容已保存到 /tmp/metacritic_main_page.html")
+        try:
+            with open('/tmp/metacritic_main_page.html', 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f"主页面内容已保存到 /tmp/metacritic_main_page.html")
+        except Exception as e:
+            print(f"保存主页面内容失败: {e}")
         
         # 初始化评分数据
         ratings = {
@@ -3378,8 +3391,44 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     try:
                         season_url = f"{base_url}/season-{season_number}/"
                         print(f"访问URL: {season_url}")
-                        await page.goto(season_url, wait_until='networkidle')
-                        await asyncio.sleep(0.5)
+                        
+                        # 设置更长的超时时间和更好的等待策略
+                        try:
+                            # 设置User-Agent和请求头
+                            await page.set_extra_http_headers({
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                                'Accept-Language': 'en-US,en;q=0.5',
+                                'Accept-Encoding': 'gzip, deflate',
+                                'Connection': 'keep-alive',
+                                'Upgrade-Insecure-Requests': '1',
+                            })
+                            
+                            await page.goto(season_url, wait_until='networkidle', timeout=30000)
+                            print(f"页面网络空闲，等待额外时间...")
+                            await asyncio.sleep(3)  # 增加等待时间到3秒
+                            
+                            # 等待页面标题加载
+                            try:
+                                await page.wait_for_function(
+                                    "document.title && document.title !== ''",
+                                    timeout=10000
+                                )
+                                print(f"页面标题已加载: {await page.title()}")
+                            except:
+                                print(f"页面标题加载超时")
+                            
+                            # 等待评分相关元素
+                            try:
+                                await page.wait_for_selector('div, span, [data-testid]', timeout=5000)
+                                print(f"页面基本元素已加载")
+                            except:
+                                print(f"页面基本元素加载超时")
+                                
+                        except Exception as e:
+                            print(f"页面加载失败: {e}")
+                            continue
+                        
                         print(f"页面加载完成")
 
                         season_data = {
@@ -3393,10 +3442,23 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                         season_content = await page.content()
                         print(f"第 {season_number} 季页面内容长度: {len(season_content)}")
                         
+                        # 检查页面内容是否有效
+                        if len(season_content) < 1000:
+                            print(f"警告：第 {season_number} 季页面内容过短，可能加载失败")
+                            print(f"页面内容预览: {season_content[:200]}")
+                            
+                            # 检查是否是错误页面
+                            if "error" in season_content.lower() or "not found" in season_content.lower():
+                                print(f"第 {season_number} 季页面返回错误")
+                                continue
+                        
                         # 保存分季页面内容用于调试
-                        with open(f'/tmp/metacritic_season_{season_number}.html', 'w', encoding='utf-8') as f:
-                            f.write(season_content)
-                        print(f"第 {season_number} 季页面内容已保存到 /tmp/metacritic_season_{season_number}.html")
+                        try:
+                            with open(f'/tmp/metacritic_season_{season_number}.html', 'w', encoding='utf-8') as f:
+                                f.write(season_content)
+                            print(f"第 {season_number} 季页面内容已保存到 /tmp/metacritic_season_{season_number}.html")
+                        except Exception as e:
+                            print(f"保存页面内容失败: {e}")
                         
                         # 提取评分数据
                         print(f"开始提取第 {season_number} 季评分数据")
