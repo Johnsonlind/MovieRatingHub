@@ -3071,7 +3071,7 @@ async def get_metacritic_rating_via_json(page) -> dict:
         return None
 
 async def extract_metacritic_rating(page, media_type, tmdb_info):
-    """从Metacritic详情页提取评分数据（完整版，包含重试机制）"""
+    """从Metacritic详情页提取评分数据（修复缓存问题版本）"""
     max_retries = 3
     base_delay = 2
     
@@ -3303,204 +3303,31 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     except:
                         continue
             
-            # 6. 检查是否有有效数据
-            has_valid_rating = any(
-                value != "暂无" and value != "tbd" and str(value).lower() not in ['nan', 'none', '']
-                for value in [
-                    ratings["overall"]["metascore"],
-                    ratings["overall"]["critics_count"],
-                    ratings["overall"]["userscore"], 
-                    ratings["overall"]["users_count"]
-                ]
-            )
+            # 6. 检查是否有有效数据 - 修复缓存问题的关键
+            has_valid_rating = False
+            valid_ratings_count = 0
             
+            # 检查总体评分
+            for key, value in ratings["overall"].items():
+                if value != "暂无" and value != "tbd" and str(value).lower() not in ['nan', 'none', '']:
+                    has_valid_rating = True
+                    valid_ratings_count += 1
+                    print(f"有效总体评分: {key} = {value}")
+            
+            # 如果没有有效数据且还有重试机会，则重试
             if not has_valid_rating and attempt < max_retries - 1:
                 wait_time = base_delay * (2 ** attempt)
                 print(f"未找到有效评分，{wait_time}秒后重试")
                 await asyncio.sleep(wait_time)
                 continue
             
-            print(f"Metacritic评分获取成功")
+            print(f"Metacritic评分获取成功，找到 {valid_ratings_count} 个有效评分")
             
             # 7. 剧集分季处理
             if media_type == "tv":
                 try:
-                    # 选集剧特殊处理
-                    if tmdb_info.get("is_anthology"):
-                        print(f"\n[选集剧]Metacritic分季处理")
-                        tmdb_year = tmdb_info.get("year", "")
-                        
-                        # 解析页面中的All Seasons列表
-                        season_cards = re.findall(
-                            r'<div[^>]*data-testid="seasons-modal-card"[^>]*>.*?'
-                            r'<a href="([^"]+)".*?'
-                            r'SEASON\s+(\d+).*?'
-                            r'<span>\s*(\d{4})\s*</span>',
-                            content,
-                            re.DOTALL | re.IGNORECASE
-                        )
-                        
-                        print(f"Metacritic解析到 {len(season_cards)} 个季")
-                        
-                        # 根据年份匹配到正确的季
-                        matched_season = None
-                        for season_url, season_num, season_year in season_cards:
-                            if season_year == tmdb_year:
-                                matched_season = (season_url, int(season_num), season_year)
-                                break
-                        
-                        if matched_season:
-                            season_url, season_number, season_year = matched_season
-                            if not season_url.startswith('http'):
-                                season_url = f"https://www.metacritic.com{season_url}"
-                            
-                            print(f"Metacritic访问匹配的季: {season_url}")
-                            
-                            # 导航到分季页面
-                            nav_success = False
-                            for nav_attempt in range(2):
-                                try:
-                                    await page.goto(season_url, wait_until='domcontentloaded', timeout=15000)
-                                    await asyncio.sleep(random.uniform(0.5, 1.5))
-                                    nav_success = True
-                                    break
-                                except Exception as e:
-                                    print(f"页面导航失败 (尝试 {nav_attempt + 1}): {e}")
-                                    if nav_attempt < 1:
-                                        await asyncio.sleep(2)
-                            
-                            if nav_success:
-                                # 提取分季评分数据
-                                season_data = {
-                                    "season_number": 1,  # 选集剧映射为Season 1
-                                    "metascore": "暂无",
-                                    "critics_count": "暂无",
-                                    "userscore": "暂无", 
-                                    "users_count": "暂无",
-                                    "_original_season": season_number,
-                                    "_season_year": season_year
-                                }
-                                
-                                # 获取分季页面内容
-                                season_content = None
-                                for content_attempt in range(2):
-                                    try:
-                                        season_content = await page.content()
-                                        if season_content and len(season_content) > 1000:
-                                            break
-                                    except Exception as e:
-                                        print(f"获取分季页面内容失败: {e}")
-                                        if content_attempt < 1:
-                                            await asyncio.sleep(1)
-                                
-                                if season_content:
-                                    # 提取分季专业评分
-                                    season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
-                                    if season_metascore_match:
-                                        season_data["metascore"] = season_metascore_match.group(1)
-                                    
-                                    # 提取分季专业评分人数
-                                    season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
-                                    if season_critics_count_match:
-                                        season_data["critics_count"] = season_critics_count_match.group(1)
-                                    
-                                    # 提取分季用户评分
-                                    season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
-                                    if season_userscore_match:
-                                        season_data["userscore"] = season_userscore_match.group(1)
-                                    
-                                    # 提取分季用户评分人数
-                                    season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
-                                    if season_users_count_match:
-                                        season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
-                                
-                                ratings["seasons"].append(season_data)
-                                print(f"Metacritic选集剧分季评分获取成功")
-                        else:
-                            print(f"Metacritic未找到与年份{tmdb_year}匹配的季")
-                    
-                    # 单季剧集处理
-                    elif tmdb_info.get("number_of_seasons", 0) == 1:
-                        print(f"\n[单季剧集]Metacritic分季处理")
-                        # 尝试解析页面中的第一季数据
-                        season_cards = re.findall(
-                            r'<div[^>]*data-testid="seasons-modal-card"[^>]*>.*?'
-                            r'<a href="([^"]+)"',
-                            content,
-                            re.DOTALL | re.IGNORECASE
-                        )
-                        
-                        if season_cards:
-                            # 取第一个季的URL
-                            season_url = season_cards[0]
-                            if not season_url.startswith('http'):
-                                season_url = f"https://www.metacritic.com{season_url}"
-                            
-                            print(f"Metacritic访问第一季: {season_url}")
-                            
-                            # 导航到分季页面
-                            nav_success = False
-                            for nav_attempt in range(2):
-                                try:
-                                    await page.goto(season_url, wait_until='domcontentloaded', timeout=15000)
-                                    await asyncio.sleep(random.uniform(0.5, 1.5))
-                                    nav_success = True
-                                    break
-                                except Exception as e:
-                                    print(f"页面导航失败 (尝试 {nav_attempt + 1}): {e}")
-                                    if nav_attempt < 1:
-                                        await asyncio.sleep(2)
-                            
-                            if nav_success:
-                                # 提取分季评分数据
-                                season_data = {
-                                    "season_number": 1,
-                                    "metascore": "暂无", 
-                                    "critics_count": "暂无",
-                                    "userscore": "暂无",
-                                    "users_count": "暂无"
-                                }
-                                
-                                # 获取分季页面内容
-                                season_content = None
-                                for content_attempt in range(2):
-                                    try:
-                                        season_content = await page.content()
-                                        if season_content and len(season_content) > 1000:
-                                            break
-                                    except Exception as e:
-                                        print(f"获取分季页面内容失败: {e}")
-                                        if content_attempt < 1:
-                                            await asyncio.sleep(1)
-                                
-                                if season_content:
-                                    # 提取分季专业评分
-                                    season_metascore_match = re.search(r'title="Metascore (\d+) out of 100"', season_content)
-                                    if season_metascore_match:
-                                        season_data["metascore"] = season_metascore_match.group(1)
-                                    
-                                    # 提取分季专业评分人数
-                                    season_critics_count_match = re.search(r'Based on (\d+) Critic Reviews?', season_content)
-                                    if season_critics_count_match:
-                                        season_data["critics_count"] = season_critics_count_match.group(1)
-                                    
-                                    # 提取分季用户评分
-                                    season_userscore_match = re.search(r'title="User score ([\d.]+) out of 10"', season_content)
-                                    if season_userscore_match:
-                                        season_data["userscore"] = season_userscore_match.group(1)
-                                    
-                                    # 提取分季用户评分人数
-                                    season_users_count_match = re.search(r'Based on ([\d,]+) User Ratings?', season_content)
-                                    if season_users_count_match:
-                                        season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
-                                
-                                ratings["seasons"].append(season_data)
-                                print(f"Metacritic单季剧集分季评分获取成功")
-                        else:
-                            print(f"Metacritic未找到分季数据")
-                    
                     # 多季剧集处理
-                    elif tmdb_info.get("number_of_seasons", 0) > 1:
+                    if tmdb_info.get("number_of_seasons", 0) > 1:
                         print(f"\n[多季剧集]Metacritic分季处理")
                         base_url = page.url.rstrip('/')
                         
@@ -3566,8 +3393,19 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                                     if season_users_count_match:
                                         season_data["users_count"] = season_users_count_match.group(1).replace(',', '')
 
-                                ratings["seasons"].append(season_data)
-                                print(f"Metacritic第{season_number}季评分获取成功")
+                                # 检查分季数据是否有有效评分
+                                season_valid = False
+                                for key, value in season_data.items():
+                                    if key != "season_number" and value != "暂无" and value != "tbd" and str(value).lower() not in ['nan', 'none', '']:
+                                        season_valid = True
+                                        print(f"有效分季评分: 第{season_number}季 {key} = {value}")
+                                        break
+                                
+                                if season_valid:
+                                    ratings["seasons"].append(season_data)
+                                    print(f"Metacritic第{season_number}季评分获取成功")
+                                else:
+                                    print(f"Metacritic第{season_number}季无有效评分")
 
                             except Exception as e:
                                 print(f"Metacritic获取第{season_number}季评分数据时出错: {e}")
@@ -3576,21 +3414,36 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                 except Exception as e:
                     print(f"剧集分季处理失败: {e}")
             
-            # 8. 设置最终状态
-            all_no_rating = all(
-                value == "暂无" or value == "tbd" 
-                for value in [
-                    ratings["overall"]["metascore"],
-                    ratings["overall"]["critics_count"],
-                    ratings["overall"]["userscore"],
-                    ratings["overall"]["users_count"]
-                ]
-            )
+            # 8. 设置最终状态 - 关键修复：考虑分季数据
+            all_no_rating = True
             
-            ratings["status"] = (
-                "NO_RATING" if all_no_rating
-                else "SUCCESSFUL"
-            )
+            # 检查总体评分
+            for value in ratings["overall"].values():
+                if value != "暂无" and value != "tbd" and str(value).lower() not in ['nan', 'none', '']:
+                    all_no_rating = False
+                    break
+            
+            # 检查分季评分
+            if all_no_rating and ratings["seasons"]:
+                for season in ratings["seasons"]:
+                    for key, value in season.items():
+                        if key != "season_number" and value != "暂无" and value != "tbd" and str(value).lower() not in ['nan', 'none', '']:
+                            all_no_rating = False
+                            break
+                    if not all_no_rating:
+                        break
+            
+            if all_no_rating:
+                ratings["status"] = "NO_RATING"
+                print("所有评分均为'暂无'，设置为NO_RATING状态")
+            else:
+                ratings["status"] = "SUCCESSFUL"
+                print("找到有效评分，设置为SUCCESSFUL状态")
+                
+            # 打印最终评分摘要用于调试
+            print(f"最终评分摘要 - 总体: {ratings['overall']}, 分季数: {len(ratings['seasons'])}")
+            for i, season in enumerate(ratings["seasons"]):
+                print(f"分季{i+1}: {season}")
 
             return ratings
 
