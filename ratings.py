@@ -3186,6 +3186,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     print(f"Metacritic访问匹配的季: {season_url}")
                     try:
                         await page.goto(season_url, wait_until='networkidle')
+                        await asyncio.sleep(0.5)
 
                         # 对于选集剧单季条目：
                         # Metacritic的Season 3 → 映射为 Season 1（因为TMDB认为这是单季剧集）
@@ -3251,6 +3252,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     print(f"Metacritic访问第一季: {season_url}")
                     try:
                         await page.goto(season_url, wait_until='networkidle')
+                        await asyncio.sleep(0.5)
                         
                         season_data = {
                             "season_number": 1,
@@ -3299,6 +3301,7 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                     try:
                         season_url = f"{base_url}/season-{season_number}/"
                         await page.goto(season_url, wait_until='networkidle')
+                        await asyncio.sleep(0.5)
 
                         season_data = {
                             "season_number": season_number,
