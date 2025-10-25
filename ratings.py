@@ -3338,6 +3338,9 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                         continue
 
         # 检查评分状态 - 同时检查整体评分和分季评分
+        print(f"=== Metacritic评分状态检查开始 ===")
+        print(f"整体评分数据: {ratings['overall']}")
+        
         overall_no_rating = all(
             value == "暂无" or value == "tbd" 
             for value in [
@@ -3347,21 +3350,35 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                 ratings["overall"]["users_count"]
             ]
         )
+        print(f"整体评分检查结果: overall_no_rating={overall_no_rating}")
         
         # 检查是否有任何分季评分
         has_season_ratings = False
         if ratings.get("seasons"):
-            for season in ratings["seasons"]:
-                if (season.get("metascore") not in ["暂无", "tbd", None] and season.get("metascore") != "") or \
-                   (season.get("userscore") not in ["暂无", "tbd", None] and season.get("userscore") != ""):
+            print(f"分季评分数据: {ratings['seasons']}")
+            for i, season in enumerate(ratings["seasons"]):
+                metascore = season.get("metascore")
+                userscore = season.get("userscore")
+                print(f"第{i+1}季: metascore='{metascore}', userscore='{userscore}'")
+                
+                if (metascore not in ["暂无", "tbd", None] and metascore != "") or \
+                   (userscore not in ["暂无", "tbd", None] and userscore != ""):
                     has_season_ratings = True
+                    print(f"第{i+1}季有有效评分，设置has_season_ratings=True")
                     break
+        else:
+            print("没有分季评分数据")
+        
+        print(f"分季评分检查结果: has_season_ratings={has_season_ratings}")
         
         # 如果有整体评分或分季评分，则认为是成功的
         ratings["status"] = (
             RATING_STATUS["NO_RATING"] if (overall_no_rating and not has_season_ratings)
             else RATING_STATUS["SUCCESSFUL"]
         )
+        
+        print(f"最终状态: {ratings['status']}")
+        print(f"=== Metacritic评分状态检查结束 ===")
 
         return ratings
 
