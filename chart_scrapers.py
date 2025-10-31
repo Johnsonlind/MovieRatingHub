@@ -1996,8 +1996,15 @@ class AutoUpdateScheduler:
             if not self.last_update:
                 return True
             
-            # 检查上次更新是否是今天
-            last_update_beijing = self.last_update.replace(tzinfo=beijing_tz)
+            # 检查上次更新是否是今天 - 需要正确转换时区
+            # 如果last_update已经是aware datetime，直接转换；否则认为是naive UTC
+            if self.last_update.tzinfo:
+                last_update_beijing = self.last_update.astimezone(beijing_tz)
+            else:
+                # naive datetime认为是UTC时间，先添加UTC时区再转换
+                last_update_utc = self.last_update.replace(tzinfo=timezone.utc)
+                last_update_beijing = last_update_utc.astimezone(beijing_tz)
+            
             if last_update_beijing.date() < now_beijing.date():
                 return True
         
@@ -2048,7 +2055,8 @@ class AutoUpdateScheduler:
                     # 发送单个平台失败通知
                     await telegram_notifier.send_update_error(str(e), platform_name)
             
-            self.last_update = datetime.now()
+            # 使用UTC时间保存last_update
+            self.last_update = datetime.now(timezone.utc)
             duration = time.time() - start_time
             
             if error_occurred:
