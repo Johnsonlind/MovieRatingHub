@@ -13,7 +13,17 @@ export function calculateSeasonRating(ratings: SeasonRatingData, seasonNumber: n
   const medianVoteCount = calculateMedianVoteCount(ratings);
 
   // 豆瓣分季评分
-  const doubanSeason = ratings.douban?.seasons?.find(s => s.season_number === seasonNumber);
+  let doubanSeason = ratings.douban?.seasons?.find(s => s.season_number === seasonNumber);
+  
+  // 对于单季剧集，如果没有seasons数组，且当前是第1季，则使用整体的rating作为第1季的评分
+  if (!doubanSeason && seasonNumber === 1 && ratings.douban?.rating && !ratings.douban?.seasons) {
+    doubanSeason = {
+      season_number: 1,
+      rating: ratings.douban.rating,
+      rating_people: ratings.douban.rating_people || ''
+    };
+  }
+  
   if (isValidRatingData(doubanSeason?.rating)) {
     const rating = normalizeRating(doubanSeason?.rating, 'douban') ?? 0;
     const rating_people = doubanSeason?.rating_people 
