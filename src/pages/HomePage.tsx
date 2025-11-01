@@ -10,6 +10,7 @@ import { messages } from '../utils/messages';
 import { ThemeToggle } from '../utils/ThemeToggle';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { UserButton } from '../utils/UserButton';
+import { MiniFavoriteButton } from '../utils/MiniFavoriteButton';
 
 // 页脚组件
 const Footer = () => (
@@ -67,24 +68,34 @@ export default function HomePage() {
               {items.slice(0, 5).map((item) => {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
-                  <Link key={`${item.type}-${item.id}`} to={linkPath} className="group">
-                    <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800">
-                      <img
-                        src={item.poster
-                          ? (
-                              item.poster.startsWith('/api/')
-                                ? item.poster
-                                : `/api/image-proxy?url=${encodeURIComponent(item.poster)}`
-                            )
-                          : '/placeholder-poster.png'}
-                        alt={item.title}
-                        className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-                        loading="lazy"
-                        crossOrigin="anonymous"
+                  <div key={`${item.type}-${item.id}`} className="group relative">
+                    <Link to={linkPath}>
+                      <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800 relative">
+                        <img
+                          src={item.poster
+                            ? (
+                                item.poster.startsWith('/api/')
+                                  ? item.poster
+                                  : `/api/image-proxy?url=${encodeURIComponent(item.poster)}`
+                              )
+                            : '/placeholder-poster.png'}
+                          alt={item.title}
+                          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                          loading="lazy"
+                          crossOrigin="anonymous"
+                        />
+                      </div>
+                    </Link>
+                    <div className="absolute bottom-2 right-2">
+                      <MiniFavoriteButton
+                        mediaId={item.id.toString()}
+                        mediaType={item.type}
+                        title={item.title}
+                        poster={item.poster}
                       />
                     </div>
                     <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
@@ -93,24 +104,34 @@ export default function HomePage() {
               {items.slice(5, 10).map((item) => {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
-                  <Link key={`${item.type}-${item.id}`} to={linkPath} className="group">
-                    <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800">
-                      <img
-                        src={item.poster
-                          ? (
-                              item.poster.startsWith('/api/')
-                                ? item.poster
-                                : `/api/image-proxy?url=${encodeURIComponent(item.poster)}`
-                            )
-                          : '/placeholder-poster.png'}
-                        alt={item.title}
-                        className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-                        loading="lazy"
-                        crossOrigin="anonymous"
+                  <div key={`${item.type}-${item.id}`} className="group relative">
+                    <Link to={linkPath}>
+                      <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800 relative">
+                        <img
+                          src={item.poster
+                            ? (
+                                item.poster.startsWith('/api/')
+                                  ? item.poster
+                                  : `/api/image-proxy?url=${encodeURIComponent(item.poster)}`
+                              )
+                            : '/placeholder-poster.png'}
+                          alt={item.title}
+                          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                          loading="lazy"
+                          crossOrigin="anonymous"
+                        />
+                      </div>
+                    </Link>
+                    <div className="absolute bottom-2 right-2">
+                      <MiniFavoriteButton
+                        mediaId={item.id.toString()}
+                        mediaType={item.type}
+                        title={item.title}
+                        poster={item.poster}
                       />
                     </div>
                     <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
