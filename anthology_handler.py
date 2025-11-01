@@ -699,4 +699,3 @@ class AnthologyHandler:
 
 # 全局实例
 anthology_handler = AnthologyHandler()
-
