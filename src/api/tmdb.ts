@@ -175,9 +175,8 @@ export async function searchByImdbId(imdbId: string): Promise<{ movies: Movie[],
 }
 
 export async function getMediaDetails(mediaType: string, mediaId: string) {
-  const apiKey = process.env.REACT_APP_TMDB_API_KEY;
   const response = await fetch(
-    `https://api.themoviedb.org/3/${mediaType}/${mediaId}?api_key=${apiKey}&language=zh-CN`
+    `/api/tmdb-proxy/${mediaType}/${mediaId}?language=zh-CN`
   );
   
   if (!response.ok) {
@@ -189,7 +188,7 @@ export async function getMediaDetails(mediaType: string, mediaId: string) {
     media_id: mediaId,
     media_type: mediaType,
     title: mediaType === 'movie' ? data.title : data.name,
-    poster: `https://image.tmdb.org/t/p/w500${data.poster_path}`,
+    poster: data.poster_path ? `/tmdb-images/${data.poster_path}` : '',
     year: mediaType === 'movie' ? 
       data.release_date?.split('-')[0] : 
       data.first_air_date?.split('-')[0],
