@@ -150,12 +150,12 @@ export function MiniFavoriteButton({
       <button
         onClick={handleButtonClick}
         disabled={isLoading}
-        className={`p-1.5 rounded-full backdrop-blur-sm transition-all z-10
+        className={`${className || 'p-1.5'} rounded-full backdrop-blur-sm transition-all z-10
           ${isFavorited 
             ? 'bg-yellow-500 hover:bg-yellow-600' 
             : 'bg-black/40 hover:bg-black/60'
           }
-          ${className}`}
+        `}
         aria-label={isFavorited ? '已收藏' : '收藏'}
         title={isFavorited ? '已收藏' : '收藏'}
       >
