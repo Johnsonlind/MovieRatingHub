@@ -2,6 +2,7 @@
 // 精简收藏按钮组件 - 用于首页和搜索结果
 // ==========================================
 import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Star } from 'lucide-react';
 import { useAuth } from '../components/auth/AuthContext';
 import { AuthModal } from '../components/auth/AuthModal';
@@ -21,6 +22,11 @@ interface MiniFavoriteButtonProps {
   className?: string;
 }
 
+interface FavoriteList {
+  id: number;
+  name: string;
+}
+
 export function MiniFavoriteButton({ 
   mediaId, 
   mediaType, 
@@ -35,7 +41,6 @@ export function MiniFavoriteButton({
   const [isLoading, setIsLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [lists, setLists] = useState<Array<{id: number; name: string}>>([]);
   const [selectedList, setSelectedList] = useState<number | null>(null);
   const [note, setNote] = useState('');
   const [showCreateList, setShowCreateList] = useState(false);
@@ -45,32 +50,28 @@ export function MiniFavoriteButton({
     is_public: false
   });
 
-  useEffect(() => {
-    // 获取用户的收藏列表
-    const fetchLists = async () => {
-      try {
-        const response = await fetch('/api/favorite-lists', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setLists(data);
-          // 设置默认列表
-          if (data.length > 0) {
-            setSelectedList(data[0].id);
-          }
+  // 使用 React Query 获取收藏列表并缓存
+  const { data: lists = [], refetch } = useQuery<FavoriteList[]>({
+    queryKey: ['favorite-lists'],
+    queryFn: async () => {
+      const response = await fetch('/api/favorite-lists', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
-      } catch (error) {
-        console.error('获取收藏列表失败:', error);
-      }
-    };
+      });
+      if (!response.ok) throw new Error('Failed to fetch lists');
+      return await response.json();
+    },
+    enabled: !!user,
+    staleTime: 1000 * 60 * 5, // 5分钟内认为数据是新鲜的
+  });
 
-    if (user) {
-      fetchLists();
+  // 设置默认列表
+  useEffect(() => {
+    if (lists.length > 0 && !selectedList) {
+      setSelectedList(lists[0].id);
     }
-  }, [user]);
+  }, [lists, selectedList]);
 
   const handleCreateList = async () => {
     try {
@@ -85,10 +86,12 @@ export function MiniFavoriteButton({
 
       if (response.ok) {
         const data = await response.json();
-        setLists([...lists, data]);
+        // 设置新创建的列表为选中状态
         setSelectedList(data.id);
         setShowCreateList(false);
         setNewList({ name: '', description: '', is_public: false });
+        // 重新获取列表数据
+        refetch();
       }
     } catch (error) {
       console.error('创建收藏列表失败:', error);
