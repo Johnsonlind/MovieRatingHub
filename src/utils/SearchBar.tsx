@@ -7,15 +7,27 @@ import { messages } from './messages';
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
+  value?: string;
+  onChange?: (query: string) => void;
 }
 
-export function SearchBar({ onSearch }: SearchBarProps) {
-  const [query, setQuery] = useState('');
+export function SearchBar({ onSearch, value, onChange }: SearchBarProps) {
+  const [internalQuery, setInternalQuery] = useState('');
+  const query = value !== undefined ? value : internalQuery;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
       onSearch(query.trim());
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    if (onChange) {
+      onChange(newValue);
+    } else {
+      setInternalQuery(newValue);
     }
   };
 
@@ -25,7 +37,7 @@ export function SearchBar({ onSearch }: SearchBarProps) {
         <input
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={handleChange}
           placeholder={messages.search.placeholder}
           className="w-full px-4 py-2 sm:py-3 pl-10 sm:pl-12 text-base sm:text-lg rounded-lg border border-gray-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
         />
