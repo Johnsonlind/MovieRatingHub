@@ -162,25 +162,29 @@ export default function HomePage() {
       
       {/* 标头 */}
       <div className="container mx-auto px-4 py-8">
-        <div 
-          className="text-center mb-6 sm:mb-8 cursor-pointer"
-          onClick={() => {
-            setSearchQuery('');
-            setSearchInput('');
-            setPage(1);
-          }}
-        >
-          <div className="flex items-center justify-center mb-3">
-            <img 
-              src={`/logos/home.png`}
-              alt="Rating Card" 
-              className="w-12 h-12 object-contain"
-            />
+        <div className="mb-6 sm:mb-8">
+          <div className="flex justify-center">
+            <div 
+              className="text-center cursor-pointer"
+              onClick={() => {
+                setSearchQuery('');
+                setSearchInput('');
+                setPage(1);
+              }}
+            >
+              <div className="flex items-center justify-center mb-3">
+                <img 
+                  src={`/logos/home.png`}
+                  alt="Rating Card" 
+                  className="w-12 h-12 object-contain"
+                />
+              </div>
+              <h1 className="text-2xl sm:text-4xl font-bold mb-2 dark:text-gray-100">RateFuse</h1>
+              <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+                搜索并对比多平台影视评分
+              </p>
+            </div>
           </div>
-          <h1 className="text-2xl sm:text-4xl font-bold mb-2 dark:text-gray-100">RateFuse</h1>
-          <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-            搜索并对比多平台影视评分
-          </p>
         </div>
 
         <div className="mb-8">
