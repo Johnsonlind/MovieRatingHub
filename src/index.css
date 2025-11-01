@@ -1,0 +1,354 @@
+/* ==========================================
+* 全局样式 - 主题配置、输入框特效、响应式布局
+* ==========================================
+*/
+/* @tailwind base; */
+@import 'tailwindcss/base';
+
+/* @tailwind components; */
+@import 'tailwindcss/components';
+
+/* @tailwind utilities; */
+@import 'tailwindcss/utilities';
+
+/* 自定义样式 */
+:root {
+  --bg-color: #f3f4f6;
+  --text-color: #111827;
+  --card-bg: rgba(82, 112, 157, 0.5);
+  --search-bg: #ffffff;
+  --page-bg: #f9fafb;
+  --gradient-start: #4f46e5;
+  --gradient-end: #7c3aed;
+}
+
+:root[data-theme='dark'] {
+  --bg-color: #1a1a1a;
+  --text-color: #e5e7eb;
+  --card-bg: rgba(30, 41, 59, 0.7);
+  --search-bg: #2d2d2d;
+  --page-bg: #1c1d1f;
+  --gradient-start: #8b5cf6;
+  --gradient-end: #6366f1;
+}
+
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
+  overflow-x: hidden; /* 防止水平溢出 */
+  max-width: 100vw; /* 限制最大宽度 */
+}
+
+/* 确保所有容器不会溢出 */
+.container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+/* 确保所有图片响应式 */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 确保所有文本不会溢出 */
+h1, h2, h3, h4, h5, h6, p, span, div {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+/* 深色模式下的通用样式 */
+:root[data-theme='dark'] .bg-white {
+  background-color: var(--search-bg);
+}
+
+:root[data-theme='dark'] .text-gray-800 {
+  color: #e5e7eb;
+}
+
+:root[data-theme='dark'] .text-gray-600 {
+  color: #9ca3af;
+}
+
+:root[data-theme='dark'] .border-gray-300 {
+  border-color: #374151;
+}
+
+:root[data-theme='dark'] .bg-\[\#52709d\]\/50 {
+  background-color: var(--card-bg);
+}
+
+/* 搜索框深色模式 */
+:root[data-theme='dark'] input {
+  background-color: var(--search-bg);
+  color: var(--text-color);
+}
+
+:root[data-theme='dark'] input::placeholder {
+  color: #6b7280;
+}
+
+/* 添加过渡效果 */
+.bg-white,
+.text-gray-800,
+.text-gray-600,
+.border-gray-300,
+input {
+  transition: all 0.3s ease;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 隐藏滚动条但保持功能 */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
+
+/* 按钮悬停效果 */
+button, 
+.button,
+[type="button"],
+[type="submit"],
+[type="reset"] {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:hover, 
+.button:hover,
+[type="button"]:hover,
+[type="submit"]:hover,
+[type="reset"]:hover {
+  transform: scale(1.05);
+}
+
+/* 所有输入框的基础样式 */
+textarea,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+.input-field,
+[role="textbox"],
+[contenteditable="true"],
+.ant-input,
+.el-input__inner,
+.form-control,
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]) {
+  margin: 0;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  padding: 12px 18px;
+  border-radius: 8px;
+  border: 2px solid #e0e0e0;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  outline: none;
+  position: relative;
+  z-index: 1;
+  background-color: white;
+}
+
+/* 输入框悬停效果 */
+textarea:hover,
+input[type="text"]:hover,
+input[type="email"]:hover,
+input[type="password"]:hover,
+input[type="search"]:hover,
+input[type="number"]:hover,
+input[type="tel"]:hover,
+input[type="url"]:hover,
+.input-field:hover,
+[role="textbox"]:hover,
+[contenteditable="true"]:hover,
+.ant-input:hover,
+.el-input__inner:hover,
+.form-control:hover,
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):hover {
+  border-color: #c0c0c0;
+}
+
+/* 只在聚焦状态下应用流光溢彩效果 - 增强版 */
+textarea:focus,
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+input[type="tel"]:focus,
+input[type="url"]:focus,
+.input-field:focus,
+[role="textbox"]:focus,
+[contenteditable="true"]:focus,
+.ant-input:focus,
+.el-input__inner:focus,
+.form-control:focus,
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):focus {
+  border: 3px solid transparent !important; /* 增加边框宽度 */
+  background-image: 
+    linear-gradient(white, white), 
+    linear-gradient(90deg, 
+      rgba(255, 87, 108, 1), 
+      rgba(255, 147, 251, 1), 
+      rgba(79, 172, 254, 1), 
+      rgba(0, 242, 254, 1), 
+      rgba(79, 172, 254, 1), 
+      rgba(255, 147, 251, 1), 
+      rgba(255, 87, 108, 1)) !important; /* 提高颜色亮度和不透明度 */
+  background-size: 100% 100%, 300% 100% !important;
+  background-origin: border-box !important;
+  background-clip: padding-box, border-box !important;
+  animation: enhanced-border-flow 6s linear infinite !important; /* 加快动画速度 */
+  box-shadow: 0 0 8px rgba(150, 100, 255, 0.5) !important; /* 添加发光效果 */
+}
+
+/* 增强的流光溢彩动画 */
+@keyframes enhanced-border-flow {
+  0% {
+    background-position: 0% 0%, 0% 0%;
+  }
+  50% {
+    background-position: 0% 0%, 150% 0%;
+  }
+  100% {
+    background-position: 0% 0%, 300% 0%;
+  }
+}
+
+/* 有内容但未聚焦时使用普通边框 */
+textarea:not(:placeholder-shown):not(:focus),
+input[type="text"]:not(:placeholder-shown):not(:focus),
+input[type="email"]:not(:placeholder-shown):not(:focus),
+input[type="password"]:not(:placeholder-shown):not(:focus),
+input[type="search"]:not(:placeholder-shown):not(:focus),
+input[type="number"]:not(:placeholder-shown):not(:focus),
+input[type="tel"]:not(:placeholder-shown):not(:focus),
+input[type="url"]:not(:placeholder-shown):not(:focus),
+.input-field:not(:placeholder-shown):not(:focus),
+.ant-input:not(:placeholder-shown):not(:focus),
+.el-input__inner:not(:placeholder-shown):not(:focus),
+.form-control:not(:placeholder-shown):not(:focus),
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not(:placeholder-shown):not(:focus) {
+  border: 2px solid #a0a0a0 !important;
+  background-image: none !important;
+  animation: none !important;
+}
+
+/* 深色模式适配 */
+:root[data-theme='dark'] textarea,
+:root[data-theme='dark'] input[type="text"],
+:root[data-theme='dark'] input[type="email"],
+:root[data-theme='dark'] input[type="password"],
+:root[data-theme='dark'] input[type="search"],
+:root[data-theme='dark'] input[type="number"],
+:root[data-theme='dark'] input[type="tel"],
+:root[data-theme='dark'] input[type="url"],
+:root[data-theme='dark'] .input-field,
+:root[data-theme='dark'] [role="textbox"],
+:root[data-theme='dark'] [contenteditable="true"],
+:root[data-theme='dark'] .ant-input,
+:root[data-theme='dark'] .el-input__inner,
+:root[data-theme='dark'] .form-control,
+:root[data-theme='dark'] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]) {
+  background-color: var(--search-bg);
+  border-color: #3a3a3a;
+  color: var(--text-color);
+}
+
+:root[data-theme='dark'] textarea:hover,
+:root[data-theme='dark'] input[type="text"]:hover,
+:root[data-theme='dark'] input[type="email"]:hover,
+:root[data-theme='dark'] input[type="password"]:hover,
+:root[data-theme='dark'] input[type="search"]:hover,
+:root[data-theme='dark'] input[type="number"]:hover,
+:root[data-theme='dark'] input[type="tel"]:hover,
+:root[data-theme='dark'] input[type="url"]:hover,
+:root[data-theme='dark'] .input-field:hover,
+:root[data-theme='dark'] [role="textbox"]:hover,
+:root[data-theme='dark'] [contenteditable="true"]:hover,
+:root[data-theme='dark'] .ant-input:hover,
+:root[data-theme='dark'] .el-input__inner:hover,
+:root[data-theme='dark'] .form-control:hover,
+:root[data-theme='dark'] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):hover {
+  border-color: #4a4a4a;
+}
+
+:root[data-theme='dark'] textarea:focus,
+:root[data-theme='dark'] input[type="text"]:focus,
+:root[data-theme='dark'] input[type="email"]:focus,
+:root[data-theme='dark'] input[type="password"]:focus,
+:root[data-theme='dark'] input[type="search"]:focus,
+:root[data-theme='dark'] input[type="number"]:focus,
+:root[data-theme='dark'] input[type="tel"]:focus,
+:root[data-theme='dark'] input[type="url"]:focus,
+:root[data-theme='dark'] .input-field:focus,
+:root[data-theme='dark'] [role="textbox"]:focus,
+:root[data-theme='dark'] [contenteditable="true"]:focus,
+:root[data-theme='dark'] .ant-input:focus,
+:root[data-theme='dark'] .el-input__inner:focus,
+:root[data-theme='dark'] .form-control:focus,
+:root[data-theme='dark'] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):focus {
+  background-image: 
+    linear-gradient(var(--search-bg), var(--search-bg)), 
+    linear-gradient(90deg, 
+      rgba(255, 87, 108, 1), 
+      rgba(255, 147, 251, 1), 
+      rgba(79, 172, 254, 1), 
+      rgba(0, 242, 254, 1), 
+      rgba(79, 172, 254, 1), 
+      rgba(255, 147, 251, 1), 
+      rgba(255, 87, 108, 1)) !important;
+  box-shadow: 0 0 12px rgba(150, 100, 255, 0.7) !important; /* 深色模式下增强发光效果 */
+}
+
+:root[data-theme='dark'] textarea:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] input[type="text"]:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] input[type="email"]:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] input[type="password"]:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] input[type="search"]:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] input[type="number"]:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] input[type="tel"]:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] input[type="url"]:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] .input-field:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] .ant-input:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] .el-input__inner:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] .form-control:not(:placeholder-shown):not(:focus),
+:root[data-theme='dark'] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not(:placeholder-shown):not(:focus) {
+  border: 2px solid #5a5a5a !important;
+  background-image: none !important;
+  animation: none !important;
+}
+
+/* 卡片悬停效果 */
+.card,
+[class*="card"],
+div[class*="shadow"] {
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.card:hover,
+[class*="card"]:hover,
+div[class*="shadow"]:hover {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 
+              0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  transform: translateY(-2px);
+}
