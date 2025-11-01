@@ -68,9 +68,9 @@ export default function HomePage() {
               {items.slice(0, 5).map((item) => {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
-                  <div key={`${item.type}-${item.id}`} className="group relative">
-                    <Link to={linkPath}>
-                      <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800 relative">
+                  <div key={`${item.type}-${item.id}`} className="group">
+                    <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800 relative">
+                      <Link to={linkPath}>
                         <img
                           src={item.poster
                             ? (
@@ -84,15 +84,15 @@ export default function HomePage() {
                           loading="lazy"
                           crossOrigin="anonymous"
                         />
+                      </Link>
+                      <div className="absolute bottom-2 right-2">
+                        <MiniFavoriteButton
+                          mediaId={item.id.toString()}
+                          mediaType={item.type}
+                          title={item.title}
+                          poster={item.poster}
+                        />
                       </div>
-                    </Link>
-                    <div className="absolute bottom-2 right-2">
-                      <MiniFavoriteButton
-                        mediaId={item.id.toString()}
-                        mediaType={item.type}
-                        title={item.title}
-                        poster={item.poster}
-                      />
                     </div>
                     <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
                   </div>
@@ -104,9 +104,9 @@ export default function HomePage() {
               {items.slice(5, 10).map((item) => {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
-                  <div key={`${item.type}-${item.id}`} className="group relative">
-                    <Link to={linkPath}>
-                      <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800 relative">
+                  <div key={`${item.type}-${item.id}`} className="group">
+                    <div className="w-full aspect-[2/3] overflow-hidden rounded-md bg-gray-200 dark:bg-gray-800 relative">
+                      <Link to={linkPath}>
                         <img
                           src={item.poster
                             ? (
@@ -120,15 +120,15 @@ export default function HomePage() {
                           loading="lazy"
                           crossOrigin="anonymous"
                         />
+                      </Link>
+                      <div className="absolute bottom-2 right-2">
+                        <MiniFavoriteButton
+                          mediaId={item.id.toString()}
+                          mediaType={item.type}
+                          title={item.title}
+                          poster={item.poster}
+                        />
                       </div>
-                    </Link>
-                    <div className="absolute bottom-2 right-2">
-                      <MiniFavoriteButton
-                        mediaId={item.id.toString()}
-                        mediaType={item.type}
-                        title={item.title}
-                        poster={item.poster}
-                      />
                     </div>
                     <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100">{item.title}</div>
                   </div>
