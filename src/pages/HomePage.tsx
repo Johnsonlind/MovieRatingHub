@@ -29,6 +29,7 @@ const Footer = () => (
 
 export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'movies' | 'tvShows'>('movies');
 
@@ -46,6 +47,7 @@ export default function HomePage() {
   useEffect(() => {
     if (searchFromState) {
       setSearchQuery(searchFromState);
+      setSearchInput(searchFromState);
       navigate('/', { replace: true });
     }
   }, [searchFromState]);
@@ -160,7 +162,14 @@ export default function HomePage() {
       
       {/* 标头 */}
       <div className="container mx-auto px-4 py-8">
-        <div className="text-center mb-6 sm:mb-8">
+        <div 
+          className="text-center mb-6 sm:mb-8 cursor-pointer"
+          onClick={() => {
+            setSearchQuery('');
+            setSearchInput('');
+            setPage(1);
+          }}
+        >
           <div className="flex items-center justify-center mb-3">
             <img 
               src={`/logos/home.png`}
@@ -175,10 +184,15 @@ export default function HomePage() {
         </div>
 
         <div className="mb-8">
-          <SearchBar onSearch={(query) => {
-            setSearchQuery(query);
-            setPage(1);
-          }} />
+          <SearchBar 
+            value={searchInput}
+            onChange={setSearchInput}
+            onSearch={(query) => {
+              setSearchQuery(query);
+              setSearchInput(query);
+              setPage(1);
+            }} 
+          />
         </div>
 
         {/* 移动端标签 */}
