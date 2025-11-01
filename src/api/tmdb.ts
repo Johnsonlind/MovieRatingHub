@@ -184,11 +184,17 @@ export async function getMediaDetails(mediaType: string, mediaId: string) {
   }
   
   const data = await response.json();
+  
+  let posterPath = '';
+  if (data.poster_path) {
+    posterPath = `/tmdb-images${data.poster_path}`;
+  }
+  
   return {
     media_id: mediaId,
     media_type: mediaType,
     title: mediaType === 'movie' ? data.title : data.name,
-    poster: data.poster_path ? `/tmdb-images/${data.poster_path}` : '',
+    poster: posterPath,
     year: mediaType === 'movie' ? 
       data.release_date?.split('-')[0] : 
       data.first_air_date?.split('-')[0],
