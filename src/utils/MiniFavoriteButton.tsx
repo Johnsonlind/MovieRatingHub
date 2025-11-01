@@ -26,6 +26,15 @@ interface MiniFavoriteButtonProps {
 interface FavoriteList {
   id: number;
   name: string;
+  favorites?: Array<{
+    id: number;
+    media_id: string;
+    media_type: string;
+    title: string;
+    poster: string;
+    year: string;
+    overview: string;
+  }>;
 }
 
 export function MiniFavoriteButton({ 
@@ -73,6 +82,23 @@ export function MiniFavoriteButton({
       setSelectedList(lists[0].id);
     }
   }, [lists, selectedList]);
+
+  // 检查当前媒体是否已在收藏列表中
+  useEffect(() => {
+    if (!user || lists.length === 0) {
+      setIsFavorited(false);
+      return;
+    }
+    
+    // 遍历所有收藏列表，检查是否包含当前媒体
+    const isInAnyList = lists.some(list => 
+      list.favorites?.some(
+        fav => fav.media_id === mediaId && fav.media_type === mediaType
+      )
+    );
+    
+    setIsFavorited(isInAnyList);
+  }, [user, lists, mediaId, mediaType]);
 
   const handleCreateList = async () => {
     try {
@@ -145,6 +171,8 @@ export function MiniFavoriteButton({
         setShowDialog(false);
         // 重置状态
         setNote('');
+        // 刷新收藏列表数据以更新状态
+        refetch();
       }
     } catch (error) {
       console.error('收藏操作失败:', error);
