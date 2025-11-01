@@ -11,6 +11,7 @@ import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Button } from '../components/ui/Button';
 import { Switch } from '../components/ui/Switch';
+import { getMediaDetails } from '../api/tmdb';
 
 interface MiniFavoriteButtonProps {
   mediaId: string;
@@ -103,6 +104,24 @@ export function MiniFavoriteButton({
     
     setIsLoading(true);
     try {
+      // 如果没有年份或简介，先从TMDB获取详细信息
+      let finalTitle = title;
+      let finalPoster = poster;
+      let finalYear = year;
+      let finalOverview = overview;
+      
+      if (!year || !overview) {
+        try {
+          const details = await getMediaDetails(mediaType, mediaId);
+          finalTitle = details.title || title;
+          finalPoster = details.poster || poster;
+          finalYear = details.year || year || '';
+          finalOverview = details.overview || overview || '';
+        } catch (error) {
+          console.error('获取影视详情失败，使用已有信息:', error);
+        }
+      }
+      
       const response = await fetch('/api/favorites', {
         method: 'POST',
         headers: {
@@ -112,10 +131,10 @@ export function MiniFavoriteButton({
         body: JSON.stringify({
           media_id: mediaId,
           media_type: mediaType,
-          title,
-          year: year || '',
-          poster,
-          overview: overview || '',
+          title: finalTitle,
+          year: finalYear || '',
+          poster: finalPoster,
+          overview: finalOverview || '',
           list_id: selectedList,
           note
         })
