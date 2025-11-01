@@ -140,7 +140,7 @@ export function MiniFavoriteButton({
         try {
           const details = await getMediaDetails(mediaType, mediaId);
           finalTitle = details.title || title;
-          finalPoster = details.poster || poster;
+          finalPoster = poster || details.poster;
           finalYear = details.year || year || '';
           finalOverview = details.overview || overview || '';
         } catch (error) {
@@ -294,4 +294,3 @@ export function MiniFavoriteButton({
     </>
   );
 }
-
