@@ -2209,6 +2209,8 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                 status = check_tv_status(rating_data, platform)
 
                             rating_data["status"] = status
+                            # 添加详情页URL到返回数据中
+                            rating_data["url"] = detail_url
 
                             # 对于特殊平台的子数据状态设置
                             if platform in ["rottentomatoes", "metacritic"]:
@@ -2478,7 +2480,8 @@ async def extract_douban_rating(page, media_type, matched_results):
                     ratings["seasons"].append({
                         "season_number": season_number,
                         "rating": "暂无",
-                        "rating_people": "暂无"
+                        "rating_people": "暂无",
+                        "url": url
                     })
                 else:
                     if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
@@ -2486,7 +2489,8 @@ async def extract_douban_rating(page, media_type, matched_results):
                         ratings["seasons"].append({
                             "season_number": season_number,
                             "rating": season_rating,
-                            "rating_people": season_rating_people
+                            "rating_people": season_rating_people,
+                            "url": url
                         })
                     else:
                         continue
@@ -2855,7 +2859,8 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                                 "audience_avg": "暂无",
                                 "_original_season": season_number,
                                 "_season_title": season_title,
-                                "_season_year": season_year
+                                "_season_year": season_year,
+                                "url": page.url  # 添加当前页面URL
                             }
                             
                             if season_has_critics:
@@ -2917,7 +2922,8 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                                     "critics_avg": "暂无",
                                     "critics_count": "暂无",
                                     "audience_count": "暂无",
-                                    "audience_avg": "暂无"
+                                    "audience_avg": "暂无",
+                                    "url": season_url  # 添加季度URL
                                 }
                                 
                                 if season_has_critics:
@@ -2993,7 +2999,8 @@ async def extract_rt_rating(page, media_type, tmdb_info):
                             "critics_avg": season_critics_avg,
                             "audience_avg": season_audience_avg,
                             "critics_count": season_critics_count,
-                            "audience_count": season_audience_count
+                            "audience_count": season_audience_count,
+                            "url": season_url
                         }
                         
                         ratings["seasons"].append(season_data)
@@ -3200,7 +3207,8 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                             "userscore": "暂无",
                             "users_count": "暂无",
                             "_original_season": season_number,  # 保存Metacritic的原始季号
-                            "_season_year": season_year  # 保存年份信息
+                            "_season_year": season_year,  # 保存年份信息
+                            "url": season_url  # 添加季度URL
                         }
 
                         # 获取分季页面源代码
@@ -3259,7 +3267,8 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                             "metascore": "暂无",
                             "critics_count": "暂无",
                             "userscore": "暂无",
-                            "users_count": "暂无"
+                            "users_count": "暂无",
+                            "url": season_url  # 添加季度URL
                         }
 
                         # 获取分季页面源代码
@@ -3308,7 +3317,8 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
                             "metascore": "暂无",
                             "critics_count": "暂无",
                             "userscore": "暂无",
-                            "users_count": "暂无"
+                            "users_count": "暂无",
+                            "url": season_url  # 添加季度URL
                         }
 
                         season_content = await page.content()
