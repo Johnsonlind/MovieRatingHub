@@ -53,7 +53,22 @@ export function ExportTVShowRatingCard({
   // 获取当前季的评分数据
   const ratings: CurrentRatings = selectedSeason 
     ? {
-        douban: ratingData.douban?.seasons?.find(s => s.season_number === selectedSeason) ?? null,
+        // 豆瓣：优先从seasons数组查找，如果没有seasons数组且是第1季，使用整体rating
+        douban: (() => {
+          const seasonRating = ratingData.douban?.seasons?.find(s => s.season_number === selectedSeason);
+          if (seasonRating) return seasonRating;
+          
+          // 对于单季剧集（没有seasons数组），且是第1季，使用整体rating
+          if (selectedSeason === 1 && ratingData.douban?.rating && !ratingData.douban?.seasons) {
+            return {
+              season_number: 1,
+              rating: ratingData.douban.rating,
+              rating_people: ratingData.douban.rating_people || ''
+            };
+          }
+          
+          return null;
+        })(),
         imdb: null,
         rt: ratingData.rottentomatoes?.seasons?.find(s => s.season_number === selectedSeason) ?? null,
         metacritic: ratingData.metacritic?.seasons?.find(s => s.season_number === selectedSeason) ?? null,
