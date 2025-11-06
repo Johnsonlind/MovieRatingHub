@@ -1145,7 +1145,9 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                     # 如果提供了用户Cookie，添加到请求头
                     if douban_cookie:
                         headers['Cookie'] = douban_cookie
-                        print("豆瓣请求使用用户自定义Cookie")
+                        print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+                    else:
+                        print("⚠️ 未提供豆瓣Cookie，使用默认方式")
                     if headers:
                         await page.set_extra_http_headers(headers)
 
@@ -1367,7 +1369,9 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                         # 如果提供了用户Cookie，添加到请求头
                         if douban_cookie:
                             headers['Cookie'] = douban_cookie
-                            print("豆瓣请求使用用户自定义Cookie")
+                            print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+                        else:
+                            print("⚠️ 未提供豆瓣Cookie，使用默认方式")
                         if headers:
                             await page.set_extra_http_headers(headers)
                         
@@ -2146,7 +2150,9 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         # 如果提供了用户Cookie，添加到请求头
                         if douban_cookie:
                             headers['Cookie'] = douban_cookie
-                            print("豆瓣请求使用用户自定义Cookie")
+                            print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+                        else:
+                            print("⚠️ 未提供豆瓣Cookie，使用默认方式")
                         if headers:
                             await page.set_extra_http_headers(headers)
 
@@ -2309,6 +2315,9 @@ async def get_douban_rating_via_api(douban_id: str, douban_cookie: str = None) -
         # 如果提供了用户Cookie，添加到请求头
         if douban_cookie:
             headers['Cookie'] = douban_cookie
+            print(f"✅ 豆瓣API使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+        else:
+            print("⚠️ 豆瓣API未提供Cookie，使用默认方式")
         
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
