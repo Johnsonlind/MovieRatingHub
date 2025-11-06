@@ -1531,8 +1531,16 @@ async def get_batch_ratings(
         
         # 获取用户的豆瓣Cookie（如果已登录）
         douban_cookie = None
-        if current_user and current_user.douban_cookie:
-            douban_cookie = current_user.douban_cookie
+        if current_user:
+            # 刷新数据库会话以获取最新的Cookie值
+            db.refresh(current_user)
+            if current_user.douban_cookie:
+                douban_cookie = current_user.douban_cookie
+                print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
+            else:
+                print(f"⚠️ 用户 {current_user.id} 未设置豆瓣Cookie")
+        else:
+            print("⚠️ 未登录用户，无法使用豆瓣Cookie")
         
         # 步骤1：并行检查缓存和获取TMDB信息
         async def get_item_info(item):
@@ -1692,8 +1700,16 @@ async def get_all_platform_ratings(
         
         # 获取用户的豆瓣Cookie（如果已登录）
         douban_cookie = None
-        if current_user and current_user.douban_cookie:
-            douban_cookie = current_user.douban_cookie
+        if current_user:
+            # 刷新数据库会话以获取最新的Cookie值
+            db.refresh(current_user)
+            if current_user.douban_cookie:
+                douban_cookie = current_user.douban_cookie
+                print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
+            else:
+                print(f"⚠️ 用户 {current_user.id} 未设置豆瓣Cookie")
+        else:
+            print("⚠️ 未登录用户，无法使用豆瓣Cookie")
         
         # 生成整体缓存键
         cache_key = f"ratings:all:{type}:{id}"
@@ -1781,8 +1797,17 @@ async def get_platform_rating(
         
         # 获取用户的豆瓣Cookie（如果已登录且是豆瓣平台）
         douban_cookie = None
-        if platform == "douban" and current_user and current_user.douban_cookie:
-            douban_cookie = current_user.douban_cookie
+        if platform == "douban":
+            if current_user:
+                # 刷新数据库会话以获取最新的Cookie值
+                db.refresh(current_user)
+                if current_user.douban_cookie:
+                    douban_cookie = current_user.douban_cookie
+                    print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
+                else:
+                    print(f"⚠️ 用户 {current_user.id} 未设置豆瓣Cookie")
+            else:
+                print("⚠️ 未登录用户，无法使用豆瓣Cookie")
             
         # 生成缓存键
         cache_key = f"rating:{platform}:{type}:{id}"
