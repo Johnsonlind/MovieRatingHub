@@ -538,6 +538,13 @@ class ChartScraper:
 
     async def update_rotten_movies(self) -> int:
         """烂番茄 Popular Streaming Movies：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='烂番茄',
+            ChartEntry.chart_name=='Popular Streaming Movies'
+        ).delete()
+        logger.info(f"烂番茄电影榜单: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         url = 'https://www.rottentomatoes.com/browse/movies_at_home/sort:popular'
         
@@ -584,21 +591,17 @@ class ChartScraper:
                 logger.warning(f"烂番茄电影未匹配: {title}")
                 rank += 1
                 continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform == '烂番茄',
-                ChartEntry.chart_name == 'Popular Streaming Movies',
-                ChartEntry.media_type == 'movie',
-                ChartEntry.rank == rank,
-            ).first()
-            if existing:
-                existing.tmdb_id = match['tmdb_id']
-                existing.title = match['title']
-                existing.poster = match.get('poster', '')
-            else:
-                self.db.add(ChartEntry(
-                    platform='烂番茄', chart_name='Popular Streaming Movies', media_type='movie',
-                    rank=rank, tmdb_id=match['tmdb_id'], title=match['title'], poster=match.get('poster','')
-                ))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='烂番茄',
+                chart_name='Popular Streaming Movies',
+                media_type='movie',
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match['title'],
+                poster=match.get('poster','')
+            ))
             saved += 1
             rank += 1
         self.db.commit()
@@ -607,6 +610,13 @@ class ChartScraper:
 
     async def update_letterboxd_popular(self) -> int:
         """Letterboxd Popular films this week：进入详情解析 data-tmdb-id，匹配 TMDB 并入库"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='Letterboxd',
+            ChartEntry.chart_name=='Popular films this week'
+        ).delete()
+        logger.info(f"Letterboxd榜单: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_letterboxd_popular()
         saved = 0
@@ -661,19 +671,17 @@ class ChartScraper:
                 logger.warning(f"Letterboxd未匹配: {title}")
                 rank += 1
                 continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform == 'Letterboxd',
-                ChartEntry.chart_name == 'Popular films this week',
-                ChartEntry.media_type == 'movie',
-                ChartEntry.rank == rank,
-            ).first()
-            if existing:
-                existing.tmdb_id = match['tmdb_id']
-                existing.title = match['title']
-                existing.poster = match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='Letterboxd', chart_name='Popular films this week', media_type='movie',
-                                       rank=rank, tmdb_id=match['tmdb_id'], title=match['title'], poster=match.get('poster','')))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='Letterboxd',
+                chart_name='Popular films this week',
+                media_type='movie',
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match['title'],
+                poster=match.get('poster','')
+            ))
             saved += 1
             rank += 1
         self.db.commit()
@@ -699,6 +707,13 @@ class ChartScraper:
             return None
 
     async def update_metacritic_movies(self) -> int:
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='MTC',
+            ChartEntry.chart_name=='Trending Movies This Week'
+        ).delete()
+        logger.info(f"Metacritic电影榜单: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_metacritic_trending_movies()
         saved = 0
@@ -724,19 +739,17 @@ class ChartScraper:
                 logger.warning(f"Metacritic电影未匹配: {title}")
                 rank += 1
                 continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform == 'MTC',
-                ChartEntry.chart_name == 'Trending Movies This Week',
-                ChartEntry.media_type == 'movie',
-                ChartEntry.rank == rank,
-            ).first()
-            if existing:
-                existing.tmdb_id = match['tmdb_id']
-                existing.title = match.get('title', title)
-                existing.poster = match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='MTC', chart_name='Trending Movies This Week', media_type='movie',
-                                       rank=rank, tmdb_id=match['tmdb_id'], title=match.get('title', title), poster=match.get('poster','')))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='MTC',
+                chart_name='Trending Movies This Week',
+                media_type='movie',
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match.get('title', title),
+                poster=match.get('poster','')
+            ))
             saved += 1
             rank += 1
         self.db.commit()
@@ -744,6 +757,13 @@ class ChartScraper:
         return saved
 
     async def update_metacritic_shows(self) -> int:
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='MTC',
+            ChartEntry.chart_name=='Trending Shows This Week'
+        ).delete()
+        logger.info(f"Metacritic剧集榜单: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_metacritic_trending_shows()
         saved = 0
@@ -769,19 +789,17 @@ class ChartScraper:
                 logger.warning(f"Metacritic剧集未匹配: {title}")
                 rank += 1
                 continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform == 'MTC',
-                ChartEntry.chart_name == 'Trending Shows This Week',
-                ChartEntry.media_type == 'tv',
-                ChartEntry.rank == rank,
-            ).first()
-            if existing:
-                existing.tmdb_id = match['tmdb_id']
-                existing.title = match.get('title', title)
-                existing.poster = match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='MTC', chart_name='Trending Shows This Week', media_type='tv',
-                                       rank=rank, tmdb_id=match['tmdb_id'], title=match.get('title', title), poster=match.get('poster','')))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='MTC',
+                chart_name='Trending Shows This Week',
+                media_type='tv',
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match.get('title', title),
+                poster=match.get('poster','')
+            ))
             saved += 1
             rank += 1
         self.db.commit()
@@ -903,6 +921,13 @@ class ChartScraper:
 
     async def update_trakt_movies_weekly(self) -> int:
         """Trakt Movies most watched weekly → 'Trakt / Top Movies Last Week'"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='Trakt',
+            ChartEntry.chart_name=='Top Movies Last Week'
+        ).delete()
+        logger.info(f"Trakt电影榜单: 清空旧数据 {deleted} 条")
+        
         import urllib3, requests
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         headers = {
@@ -936,19 +961,29 @@ class ChartScraper:
                         await asyncio.sleep(2**attempt)
             if not match:
                 continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform=='Trakt', ChartEntry.chart_name=='Top Movies Last Week', ChartEntry.media_type=='movie', ChartEntry.rank==idx
-            ).first()
-            if existing:
-                existing.tmdb_id=match['tmdb_id']; existing.title=match['title']; existing.poster=match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='Trakt', chart_name='Top Movies Last Week', media_type='movie', rank=idx,
-                                       tmdb_id=match['tmdb_id'], title=match['title'], poster=match.get('poster','')))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='Trakt',
+                chart_name='Top Movies Last Week',
+                media_type='movie',
+                rank=idx,
+                tmdb_id=match['tmdb_id'],
+                title=match['title'],
+                poster=match.get('poster','')
+            ))
             saved += 1
         self.db.commit(); logger.info(f"Trakt Movies weekly 入库 {saved} 条"); return saved
 
     async def update_trakt_shows_weekly(self) -> int:
         """Trakt Shows most watched weekly → 'Trakt / Top TV Shows Last Week'"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='Trakt',
+            ChartEntry.chart_name=='Top TV Shows Last Week'
+        ).delete()
+        logger.info(f"Trakt剧集榜单: 清空旧数据 {deleted} 条")
+        
         import urllib3, requests
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         headers = {
@@ -982,19 +1017,29 @@ class ChartScraper:
                         await asyncio.sleep(2**attempt)
             if not match:
                 continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform=='Trakt', ChartEntry.chart_name=='Top TV Shows Last Week', ChartEntry.media_type=='tv', ChartEntry.rank==idx
-            ).first()
-            if existing:
-                existing.tmdb_id=match['tmdb_id']; existing.title=match['title']; existing.poster=match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='Trakt', chart_name='Top TV Shows Last Week', media_type='tv', rank=idx,
-                                       tmdb_id=match['tmdb_id'], title=match['title'], poster=match.get('poster','')))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='Trakt',
+                chart_name='Top TV Shows Last Week',
+                media_type='tv',
+                rank=idx,
+                tmdb_id=match['tmdb_id'],
+                title=match['title'],
+                poster=match.get('poster','')
+            ))
             saved += 1
         self.db.commit(); logger.info(f"Trakt Shows weekly 入库 {saved} 条"); return saved
 
     async def update_imdb_top10(self) -> int:
         """IMDb Top 10 this week → 'IMDb / Top 10 on IMDb this week'，movie/tv/both 按返回实际类型存储"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='IMDb',
+            ChartEntry.chart_name=='Top 10 on IMDb this week'
+        ).delete()
+        logger.info(f"IMDb Top 10: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_imdb_top_10()
         saved = 0
@@ -1007,19 +1052,28 @@ class ChartScraper:
             if not match:
                 continue
             media_type = match.get('media_type') or 'movie'
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform=='IMDb', ChartEntry.chart_name=='Top 10 on IMDb this week', ChartEntry.media_type==media_type, ChartEntry.rank==idx
-            ).first()
-            if existing:
-                existing.tmdb_id=match['tmdb_id']; existing.title=match.get('title', title); existing.poster=match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='IMDb', chart_name='Top 10 on IMDb this week', media_type=media_type, rank=idx,
-                                       tmdb_id=match['tmdb_id'], title=match.get('title', title), poster=match.get('poster','')))
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='IMDb',
+                chart_name='Top 10 on IMDb this week',
+                media_type=media_type,
+                rank=idx,
+                tmdb_id=match['tmdb_id'],
+                title=match.get('title', title),
+                poster=match.get('poster','')
+            ))
             saved += 1
         self.db.commit(); logger.info(f"IMDb Top 10 入库 {saved} 条"); return saved
 
     async def update_douban_weekly_movie(self) -> int:
         """豆瓣一周口碑榜（电影）：进入详情页取 IMDb ID 匹配 TMDB 并入库，失败时使用原标题匹配"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='豆瓣',
+            ChartEntry.chart_name=='一周口碑榜'
+        ).delete()
+        logger.info(f"豆瓣一周口碑榜: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_douban_weekly_movie_chart()
         saved = 0
@@ -1062,19 +1116,28 @@ class ChartScraper:
             if not match:
                 logger.warning(f"❌ 所有匹配方式都失败: {title}")
                 rank += 1; continue
-                
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform=='豆瓣', ChartEntry.chart_name=='一周口碑榜', ChartEntry.media_type=='movie', ChartEntry.rank==rank
-            ).first()
-            if existing:
-                existing.tmdb_id=match['tmdb_id']; existing.title=match.get('title', title); existing.poster=match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='豆瓣', chart_name='一周口碑榜', media_type='movie', rank=rank,
-                                       tmdb_id=match['tmdb_id'], title=match.get('title', title), poster=match.get('poster','')))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='豆瓣',
+                chart_name='一周口碑榜',
+                media_type='movie',
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match.get('title', title),
+                poster=match.get('poster','')
+            ))
             saved += 1; rank += 1
         self.db.commit(); logger.info(f"豆瓣 一周口碑榜 入库 {saved} 条"); return saved
 
     async def update_douban_weekly_chinese_tv(self) -> int:
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='豆瓣',
+            ChartEntry.chart_name=='一周华语剧集口碑榜'
+        ).delete()
+        logger.info(f"豆瓣一周华语剧集口碑榜: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_douban_weekly_chinese_tv_chart()
         saved = 0; rank = 1
@@ -1088,18 +1151,28 @@ class ChartScraper:
                     match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
             if not match:
                 rank += 1; continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform=='豆瓣', ChartEntry.chart_name=='一周华语剧集口碑榜', ChartEntry.media_type=='tv', ChartEntry.rank==rank
-            ).first()
-            if existing:
-                existing.tmdb_id=match['tmdb_id']; existing.title=match.get('title', title); existing.poster=match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='豆瓣', chart_name='一周华语剧集口碑榜', media_type='tv', rank=rank,
-                                       tmdb_id=match['tmdb_id'], title=match.get('title', title), poster=match.get('poster','')))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='豆瓣',
+                chart_name='一周华语剧集口碑榜',
+                media_type='tv',
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match.get('title', title),
+                poster=match.get('poster','')
+            ))
             saved += 1; rank += 1
         self.db.commit(); logger.info(f"豆瓣 一周华语剧集口碑榜 入库 {saved} 条"); return saved
 
     async def update_douban_weekly_global_tv(self) -> int:
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='豆瓣',
+            ChartEntry.chart_name=='一周全球剧集口碑榜'
+        ).delete()
+        logger.info(f"豆瓣一周全球剧集口碑榜: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_douban_weekly_global_tv_chart()
         saved = 0; rank = 1
@@ -1137,19 +1210,28 @@ class ChartScraper:
                         logger.info(f"    ✅ 中文名匹配成功: {title} -> {match['title']}")
             if not match:
                 rank += 1; continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform=='豆瓣', ChartEntry.chart_name=='一周全球剧集口碑榜', ChartEntry.media_type=='tv', ChartEntry.rank==rank
-            ).first()
-            if existing:
-                existing.tmdb_id=match['tmdb_id']; existing.title=match.get('title', title); existing.poster=match.get('poster','')
-            else:
-                self.db.add(ChartEntry(platform='豆瓣', chart_name='一周全球剧集口碑榜', media_type='tv', rank=rank,
-                                       tmdb_id=match['tmdb_id'], title=match.get('title', title), poster=match.get('poster','')))
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='豆瓣',
+                chart_name='一周全球剧集口碑榜',
+                media_type='tv',
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match.get('title', title),
+                poster=match.get('poster','')
+            ))
             saved += 1; rank += 1
         self.db.commit(); logger.info(f"豆瓣 一周全球剧集口碑榜 入库 {saved} 条"); return saved
     
     async def update_rotten_tv(self) -> int:
         """烂番茄 Popular TV：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform=='烂番茄',
+            ChartEntry.chart_name=='Popular TV'
+        ).delete()
+        logger.info(f"烂番茄TV榜单: 清空旧数据 {deleted} 条")
+        
         matcher = TMDBMatcher(self.db)
         url = 'https://www.rottentomatoes.com/browse/tv_series_browse/sort:popular'
         
@@ -1196,21 +1278,17 @@ class ChartScraper:
                 logger.warning(f"烂番茄TV未匹配: {title}")
                 rank += 1
                 continue
-            existing = self.db.query(ChartEntry).filter(
-                ChartEntry.platform == '烂番茄',
-                ChartEntry.chart_name == 'Popular TV',
-                ChartEntry.media_type == 'tv',
-                ChartEntry.rank == rank,
-            ).first()
-            if existing:
-                existing.tmdb_id = match['tmdb_id']
-                existing.title = match['title']
-                existing.poster = match.get('poster', '')
-            else:
-                self.db.add(ChartEntry(
-                    platform='烂番茄', chart_name='Popular TV', media_type='tv',
-                    rank=rank, tmdb_id=match['tmdb_id'], title=match['title'], poster=match.get('poster','')
-                ))
+            
+            # 直接插入新数据（已清空旧数据）
+            self.db.add(ChartEntry(
+                platform='烂番茄',
+                chart_name='Popular TV',
+                media_type='tv',
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match['title'],
+                poster=match.get('poster','')
+            ))
             saved += 1
             rank += 1
         self.db.commit()
