@@ -2194,19 +2194,17 @@ def aggregate_top(
         if conditions:
             entries = entries.filter(not_(or_(*conditions)))
     entries = entries.all()
-    # 频次统计：出现次数越多越靠前；同频次按最佳名次（rank 越小越好），再按最近出现排序
+    # 频次统计：出现次数越多越靠前；同频次按片名首字母排序
     freq: dict[int, int] = {}
-    best_rank: dict[int, int] = {}
-    latest_id: dict[int, int] = {}
+    title_map: dict[int, str] = {}
     sample: dict[int, ChartEntry] = {}
     for e in entries:
         key = int(e.tmdb_id)
         freq[key] = freq.get(key, 0) + 1
-        best_rank[key] = min(best_rank.get(key, 9999), int(e.rank) if e.rank is not None else 9999)
-        latest_id[key] = max(latest_id.get(key, 0), int(e.id))
         if key not in sample:
             sample[key] = e
-    ranked_keys = sorted(freq.keys(), key=lambda k: (-freq[k], best_rank[k], -latest_id[k], k))
+            title_map[key] = (e.title or "").lower()  # 存储小写片名用于排序
+    ranked_keys = sorted(freq.keys(), key=lambda k: (-freq[k], title_map.get(k, ""), k))
     result = []
     for tmdb_id in ranked_keys[:limit]:
         e = sample[int(tmdb_id)]
