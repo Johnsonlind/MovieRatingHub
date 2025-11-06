@@ -24,7 +24,8 @@ class User(Base):
     avatar = Column(LONGTEXT, nullable=True) 
     created_at = Column(DateTime, default=datetime.utcnow)
     is_admin = Column(Boolean, default=False)
-    
+    douban_cookie = Column(Text, nullable=True)
+
     favorites = relationship("Favorite", back_populates="user")
     favorite_lists = relationship("FavoriteList", back_populates="user")
     following = relationship("Follow", foreign_keys="Follow.follower_id", back_populates="follower")
