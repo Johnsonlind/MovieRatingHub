@@ -1030,10 +1030,15 @@ def get_client_ip(request: Request) -> str:
     
     return request.client.host
 
-async def search_platform(platform, tmdb_info, request=None):
+async def search_platform(platform, tmdb_info, request=None, douban_cookie=None):
     """
     在各平台搜索并返回搜索结果
     使用多策略搜索：依次尝试所有搜索变体直到找到匹配
+    Args:
+        platform: 平台名称
+        tmdb_info: TMDB信息
+        request: FastAPI请求对象
+        douban_cookie: 用户的豆瓣Cookie（可选）
     """
     try:
         # 检查请求是否已被取消
@@ -1127,14 +1132,22 @@ async def search_platform(platform, tmdb_info, request=None):
                 page = await context.new_page()
                 page.set_default_timeout(20000) 
 
-                # 如果是豆瓣，设置用户IP
-                if platform == "douban" and request:
-                    client_ip = get_client_ip(request)
-                    print(f"豆瓣请求使用IP: {client_ip}")
-                    await page.set_extra_http_headers({
-                        'X-Forwarded-For': client_ip,
-                        'X-Real-IP': client_ip
-                    })
+                # 如果是豆瓣，设置用户IP和Cookie
+                if platform == "douban":
+                    headers = {}
+                    if request:
+                        client_ip = get_client_ip(request)
+                        print(f"豆瓣请求使用IP: {client_ip}")
+                        headers.update({
+                            'X-Forwarded-For': client_ip,
+                            'X-Real-IP': client_ip
+                        })
+                    # 如果提供了用户Cookie，添加到请求头
+                    if douban_cookie:
+                        headers['Cookie'] = douban_cookie
+                        print("豆瓣请求使用用户自定义Cookie")
+                    if headers:
+                        await page.set_extra_http_headers(headers)
 
                 print(f"{platform} 搜索URL: {search_url}")
 
@@ -1342,14 +1355,21 @@ async def search_platform(platform, tmdb_info, request=None):
                         page = await context.new_page()
                         page.set_default_timeout(20000)
                         
-                        # 如果有请求对象，设置用户IP
+                        # 如果是豆瓣，设置用户IP和Cookie
+                        headers = {}
                         if request:
                             client_ip = get_client_ip(request)
                             print(f"豆瓣请求使用IP: {client_ip}")
-                            await page.set_extra_http_headers({
+                            headers.update({
                                 'X-Forwarded-For': client_ip,
                                 'X-Real-IP': client_ip
                             })
+                        # 如果提供了用户Cookie，添加到请求头
+                        if douban_cookie:
+                            headers['Cookie'] = douban_cookie
+                            print("豆瓣请求使用用户自定义Cookie")
+                        if headers:
+                            await page.set_extra_http_headers(headers)
                         
                         # 执行搜索
                         results = await handle_douban_search(page, imdb_search_url)
@@ -1948,8 +1968,16 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
     
-async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None):
-    """从各平台详情页中提取对应评分数据"""
+async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None):
+    """从各平台详情页中提取对应评分数据
+    Args:
+        media_type: 媒体类型
+        platform: 平台名称
+        tmdb_info: TMDB信息
+        search_results: 搜索结果
+        request: FastAPI请求对象
+        douban_cookie: 用户的豆瓣Cookie（可选）
+    """
     async def _extract_rating_with_retry():
         try:
             await random_delay()
@@ -2105,14 +2133,22 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     page = await context.new_page()
                     page.set_default_timeout(30000)
 
-                    # 如果是豆瓣，设置用户IP
-                    if platform == "douban" and request:
-                        client_ip = get_client_ip(request)
-                        print(f"豆瓣请求使用IP: {client_ip}")
-                        await page.set_extra_http_headers({
-                            'X-Forwarded-For': client_ip,
-                            'X-Real-IP': client_ip
-                        })
+                    # 如果是豆瓣，设置用户IP和Cookie
+                    if platform == "douban":
+                        headers = {}
+                        if request:
+                            client_ip = get_client_ip(request)
+                            print(f"豆瓣请求使用IP: {client_ip}")
+                            headers.update({
+                                'X-Forwarded-For': client_ip,
+                                'X-Real-IP': client_ip
+                            })
+                        # 如果提供了用户Cookie，添加到请求头
+                        if douban_cookie:
+                            headers['Cookie'] = douban_cookie
+                            print("豆瓣请求使用用户自定义Cookie")
+                        if headers:
+                            await page.set_extra_http_headers(headers)
 
                     # 检查请求状态
                     if request and await request.is_disconnected():
@@ -2168,7 +2204,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                 # 如果有豆瓣ID，优先使用API
                                 if douban_id:
                                     print(f"尝试使用豆瓣API获取评分 (ID: {douban_id})")
-                                    rating_data = await get_douban_rating_via_api(douban_id)
+                                    rating_data = await get_douban_rating_via_api(douban_id, douban_cookie)
                                 
                                 # 如果API失败，fallback到网页抓取
                                 if not rating_data or rating_data.get("status") not in [RATING_STATUS["SUCCESSFUL"], RATING_STATUS["NO_RATING"]]:
@@ -2253,8 +2289,12 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
     # 调用带重试的内部函数
     return await _extract_rating_with_retry()
 
-async def get_douban_rating_via_api(douban_id: str) -> dict:
-    """使用豆瓣移动端API获取评分（避免限流）"""
+async def get_douban_rating_via_api(douban_id: str, douban_cookie: str = None) -> dict:
+    """使用豆瓣移动端API获取评分（避免限流）
+    Args:
+        douban_id: 豆瓣ID
+        douban_cookie: 用户的豆瓣Cookie（可选）
+    """
     try:
         import aiohttp
         import urllib3
@@ -2265,6 +2305,10 @@ async def get_douban_rating_via_api(douban_id: str) -> dict:
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
             'Referer': f'https://m.douban.com/movie/subject/{douban_id}/'
         }
+        
+        # 如果提供了用户Cookie，添加到请求头
+        if douban_cookie:
+            headers['Cookie'] = douban_cookie
         
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
@@ -3793,8 +3837,14 @@ def format_rating_output(all_ratings, media_type):
     
     return formatted_data
 
-async def parallel_extract_ratings(tmdb_info, media_type, request=None):
-    """并行处理所有平台的评分获取"""
+async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_cookie=None):
+    """并行处理所有平台的评分获取
+    Args:
+        tmdb_info: TMDB信息
+        media_type: 媒体类型
+        request: FastAPI请求对象
+        douban_cookie: 用户的豆瓣Cookie（可选）
+    """
     import time
     start_time = time.time()
     
@@ -3812,13 +3862,15 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None):
                 return platform, {"status": "cancelled"}
                 
             # 搜索和提取（静默处理）
-            search_results = await search_platform(platform, tmdb_info, request)
+            # 只有豆瓣平台才传递Cookie
+            cookie = douban_cookie if platform == "douban" else None
+            search_results = await search_platform(platform, tmdb_info, request, cookie)
             if isinstance(search_results, dict) and "status" in search_results:
                 elapsed = time.time() - platform_start
                 print(log.error(f"{platform}: {search_results.get('status_reason', search_results.get('status'))} ({elapsed:.1f}s)"))
                 return platform, search_results
                 
-            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request)
+            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request, cookie)
             
             # 输出结果
             elapsed = time.time() - platform_start
