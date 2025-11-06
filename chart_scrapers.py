@@ -582,6 +582,7 @@ class ChartScraper:
                         'tmdb_id': tmdb_id,
                         'title': info.get('zh_title') or info.get('title') or title,
                         'poster': info.get('poster_url', ''),
+                        'media_type': 'movie'
                     }
                     break
                 except Exception:
@@ -596,7 +597,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='烂番茄',
                 chart_name='Popular Streaming Movies',
-                media_type='movie',
+                media_type=match.get('media_type', 'movie'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
                 title=match['title'],
@@ -640,16 +641,30 @@ class ChartScraper:
             except Exception:
                 tmdb_id = None
             match = None
+            actual_media_type = 'movie'
             if tmdb_id:
+                # 先尝试作为 movie
                 info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                 if info:
                     match = {
                         'tmdb_id': tmdb_id,
                         'title': info.get('zh_title') or info.get('title') or title,
                         'poster': info.get('poster_url', ''),
+                        'media_type': 'movie'
                     }
+                else:
+                    # 如果 movie 查询失败，尝试作为 tv
+                    info = await matcher.get_tmdb_info(tmdb_id, 'tv')
+                    if info:
+                        match = {
+                            'tmdb_id': tmdb_id,
+                            'title': info.get('zh_title') or info.get('title') or title,
+                            'poster': info.get('poster_url', ''),
+                            'media_type': 'tv'
+                        }
+                        actual_media_type = 'tv'
             if not match:
-                # fallback by title
+                # fallback by title - 先尝试 movie
                 for attempt in range(3):
                     try:
                         mid = await matcher.match_by_title_and_year(title, 'movie')
@@ -662,11 +677,33 @@ class ChartScraper:
                             'tmdb_id': mid,
                             'title': info.get('zh_title') or info.get('title') or title,
                             'poster': info.get('poster_url', ''),
+                            'media_type': 'movie'
                         }
                         break
                     except Exception:
                         if attempt < 2:
                             await asyncio.sleep(2 ** attempt)
+                # 如果 movie 匹配失败，尝试 tv
+                if not match:
+                    for attempt in range(3):
+                        try:
+                            mid = await matcher.match_by_title_and_year(title, 'tv')
+                            if not mid:
+                                raise RuntimeError('no id')
+                            info = await matcher.get_tmdb_info(mid, 'tv')
+                            if not info:
+                                raise RuntimeError('no info')
+                            match = {
+                                'tmdb_id': mid,
+                                'title': info.get('zh_title') or info.get('title') or title,
+                                'poster': info.get('poster_url', ''),
+                                'media_type': 'tv'
+                            }
+                            actual_media_type = 'tv'
+                            break
+                        except Exception:
+                            if attempt < 2:
+                                await asyncio.sleep(2 ** attempt)
             if not match:
                 logger.warning(f"Letterboxd未匹配: {title}")
                 rank += 1
@@ -676,7 +713,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='Letterboxd',
                 chart_name='Popular films this week',
-                media_type='movie',
+                media_type=match.get('media_type', 'movie'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
                 title=match['title'],
@@ -734,7 +771,7 @@ class ChartScraper:
                 if mid:
                     info = await matcher.get_tmdb_info(mid, 'movie')
                     if info:
-                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
+                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'movie'}
             if not match:
                 logger.warning(f"Metacritic电影未匹配: {title}")
                 rank += 1
@@ -744,7 +781,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='MTC',
                 chart_name='Trending Movies This Week',
-                media_type='movie',
+                media_type=match.get('media_type', 'movie'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
                 title=match.get('title', title),
@@ -784,7 +821,7 @@ class ChartScraper:
                 if mid:
                     info = await matcher.get_tmdb_info(mid, 'tv')
                     if info:
-                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
+                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
             if not match:
                 logger.warning(f"Metacritic剧集未匹配: {title}")
                 rank += 1
@@ -794,7 +831,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='MTC',
                 chart_name='Trending Shows This Week',
-                media_type='tv',
+                media_type=match.get('media_type', 'tv'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
                 title=match.get('title', title),
@@ -954,7 +991,7 @@ class ChartScraper:
                     info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                     if not info:
                         raise RuntimeError('no info')
-                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
+                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'movie'}
                     break
                 except Exception:
                     if attempt<2:
@@ -966,7 +1003,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='Trakt',
                 chart_name='Top Movies Last Week',
-                media_type='movie',
+                media_type=match.get('media_type', 'movie'),
                 rank=idx,
                 tmdb_id=match['tmdb_id'],
                 title=match['title'],
@@ -1010,7 +1047,7 @@ class ChartScraper:
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if not info:
                         raise RuntimeError('no info')
-                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
+                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
                     break
                 except Exception:
                     if attempt<2:
@@ -1022,7 +1059,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='Trakt',
                 chart_name='Top TV Shows Last Week',
-                media_type='tv',
+                media_type=match.get('media_type', 'tv'),
                 rank=idx,
                 tmdb_id=match['tmdb_id'],
                 title=match['title'],
@@ -1100,7 +1137,7 @@ class ChartScraper:
                     if tmdb_id:
                         info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                         if info:
-                            match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
+                            match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'movie'}
                             logger.info(f"✅ 原标题匹配成功: {original_title}")
             
             # 3. 最后兜底：使用中文标题匹配
@@ -1110,7 +1147,7 @@ class ChartScraper:
                 if mid:
                     info = await matcher.get_tmdb_info(mid, 'movie')
                     if info:
-                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
+                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'movie'}
                         logger.info(f"✅ 中文标题匹配成功: {title}")
             
             if not match:
@@ -1121,7 +1158,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='豆瓣',
                 chart_name='一周口碑榜',
-                media_type='movie',
+                media_type=match.get('media_type', 'movie'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
                 title=match.get('title', title),
@@ -1148,7 +1185,7 @@ class ChartScraper:
             if tmdb_id:
                 info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                 if info:
-                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
+                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
             if not match:
                 rank += 1; continue
             
@@ -1156,7 +1193,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='豆瓣',
                 chart_name='一周华语剧集口碑榜',
-                media_type='tv',
+                media_type=match.get('media_type', 'tv'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
                 title=match.get('title', title),
@@ -1196,7 +1233,7 @@ class ChartScraper:
                 if tmdb_id:
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if info:
-                        match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or original_title, 'poster': info.get('poster_url','')}
+                        match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or original_title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
                         logger.info(f"    ✅ 原名匹配成功: {original_title} -> {match['title']}")
             
             # 回退中文名匹配
@@ -1206,7 +1243,7 @@ class ChartScraper:
                 if tmdb_id:
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if info:
-                        match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url','')}
+                        match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
                         logger.info(f"    ✅ 中文名匹配成功: {title} -> {match['title']}")
             if not match:
                 rank += 1; continue
@@ -1214,7 +1251,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='豆瓣',
                 chart_name='一周全球剧集口碑榜',
-                media_type='tv',
+                media_type=match.get('media_type', 'tv'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
                 title=match.get('title', title),
@@ -1283,7 +1320,7 @@ class ChartScraper:
             self.db.add(ChartEntry(
                 platform='烂番茄',
                 chart_name='Popular TV',
-                media_type='tv',
+                media_type=match.get('media_type', 'tv'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
                 title=match['title'],
@@ -1461,14 +1498,16 @@ class TMDBMatcher:
                         return {
                             'tmdb_id': tmdb_id,
                             'title': final_title,
-                            'poster': tmdb_info.get('poster_url', '')
+                            'poster': tmdb_info.get('poster_url', ''),
+                            'media_type': actual_media_type  # 添加media_type字段
                         }
                     else:
                         logger.warning(f"获取TMDB信息失败，但TMDB ID存在: {tmdb_id}")
                         return {
                             'tmdb_id': tmdb_id,
                             'title': title,
-                            'poster': ""
+                            'poster': "",
+                            'media_type': actual_media_type  # 添加media_type字段
                         }
                 
                 # 如果IMDB ID匹配失败，尝试使用标题搜索
@@ -1483,7 +1522,8 @@ class TMDBMatcher:
                             return {
                                 'tmdb_id': tmdb_id,
                                 'title': final_title,
-                                'poster': tmdb_info.get('poster_url', '')
+                                'poster': tmdb_info.get('poster_url', ''),
+                                'media_type': media_type  # 添加media_type字段
                             }
                 
                 # 如果匹配失败，等待后重试
