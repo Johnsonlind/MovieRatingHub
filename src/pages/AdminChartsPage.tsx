@@ -884,7 +884,7 @@ export default function AdminChartsPage() {
                 value={pickerQuery} 
                 onChange={e=>setPickerQuery(e.target.value)} 
                 placeholder="搜索 TMDB..." 
-                className={`flex-1 border rounded px-3 py-2 bg-gray-800 border-gray-600 text-white placeholder-gray-400`} 
+                className={`flex-1 border rounded px-3 py-2 bg-gray-800 border-gray-600 text-black placeholder-gray-400`} 
               />
               <button 
                 onClick={()=>setPickerQuery(pickerQuery)} 
