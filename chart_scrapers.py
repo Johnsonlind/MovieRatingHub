@@ -42,6 +42,14 @@ except ImportError:
 class ChartScraper:
     def __init__(self, db: Session):
         self.db = db
+    
+    @staticmethod
+    def _safe_get_title(info: Dict, fallback_title: str = '') -> str:
+        """安全获取标题：从 TMDB info 中获取标题，去除空格，确保不为空"""
+        zh_title = (info.get('zh_title') or '').strip()
+        tmdb_title = (info.get('title') or '').strip()
+        tmdb_name = (info.get('name') or '').strip()
+        return zh_title or tmdb_title or tmdb_name or fallback_title
         
         # 豆瓣榜单抓取
             
@@ -580,7 +588,7 @@ class ChartScraper:
                         raise RuntimeError('no info')
                     match = {
                         'tmdb_id': tmdb_id,
-                        'title': info.get('zh_title') or info.get('title') or title,
+                        'title': self._safe_get_title(info, title),
                         'poster': info.get('poster_url', ''),
                         'media_type': 'movie'
                     }
@@ -649,7 +657,7 @@ class ChartScraper:
                 if info:
                     match = {
                         'tmdb_id': tmdb_id,
-                        'title': info.get('zh_title') or info.get('title') or title,
+                        'title': self._safe_get_title(info, title),
                         'poster': info.get('poster_url', ''),
                         'media_type': 'movie'
                     }
@@ -659,7 +667,7 @@ class ChartScraper:
                     if info:
                         match = {
                             'tmdb_id': tmdb_id,
-                            'title': info.get('zh_title') or info.get('title') or title,
+                            'title': self._safe_get_title(info, title),
                             'poster': info.get('poster_url', ''),
                             'media_type': 'tv'
                         }
@@ -676,7 +684,7 @@ class ChartScraper:
                             raise RuntimeError('no info')
                         match = {
                             'tmdb_id': mid,
-                            'title': info.get('zh_title') or info.get('title') or title,
+                            'title': self._safe_get_title(info, title),
                             'poster': info.get('poster_url', ''),
                             'media_type': 'movie'
                         }
@@ -696,7 +704,7 @@ class ChartScraper:
                                 raise RuntimeError('no info')
                             match = {
                                 'tmdb_id': mid,
-                                'title': info.get('zh_title') or info.get('title') or title,
+                                'title': self._safe_get_title(info, title),
                                 'poster': info.get('poster_url', ''),
                                 'media_type': 'tv'
                             }
@@ -772,7 +780,7 @@ class ChartScraper:
                 if mid:
                     info = await matcher.get_tmdb_info(mid, 'movie')
                     if info:
-                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'movie'}
+                        match = {'tmdb_id': mid, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'movie'}
             if not match:
                 logger.warning(f"Metacritic电影未匹配: {title}")
                 rank += 1
@@ -822,7 +830,7 @@ class ChartScraper:
                 if mid:
                     info = await matcher.get_tmdb_info(mid, 'tv')
                     if info:
-                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
+                        match = {'tmdb_id': mid, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'tv'}
             if not match:
                 logger.warning(f"Metacritic剧集未匹配: {title}")
                 rank += 1
@@ -938,7 +946,7 @@ class ChartScraper:
             try:
                 info = await matcher.get_tmdb_info(tmdb_id, media_type)
                 if info:
-                    title = info.get('zh_title') or info.get('title') or title
+                    title = self._safe_get_title(info, title)
                     poster = info.get('poster_url', '')
             except Exception:
                 pass
@@ -992,7 +1000,7 @@ class ChartScraper:
                     info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                     if not info:
                         raise RuntimeError('no info')
-                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'movie'}
+                    match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'movie'}
                     break
                 except Exception:
                     if attempt<2:
@@ -1049,7 +1057,7 @@ class ChartScraper:
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if not info:
                         raise RuntimeError('no info')
-                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
+                    match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'tv'}
                     break
                 except Exception:
                     if attempt<2:
@@ -1140,7 +1148,7 @@ class ChartScraper:
                     if tmdb_id:
                         info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                         if info:
-                            match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'movie'}
+                            match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'movie'}
                             logger.info(f"✅ 原标题匹配成功: {original_title}")
             
             # 3. 最后兜底：使用中文标题匹配
@@ -1150,7 +1158,7 @@ class ChartScraper:
                 if mid:
                     info = await matcher.get_tmdb_info(mid, 'movie')
                     if info:
-                        match = {'tmdb_id': mid, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'movie'}
+                        match = {'tmdb_id': mid, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'movie'}
                         logger.info(f"✅ 中文标题匹配成功: {title}")
             
             if not match:
@@ -1188,7 +1196,7 @@ class ChartScraper:
             if tmdb_id:
                 info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                 if info:
-                    match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
+                    match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'tv'}
             if not match:
                 rank += 1; continue
             
@@ -1236,7 +1244,7 @@ class ChartScraper:
                 if tmdb_id:
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if info:
-                        match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or original_title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
+                        match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, original_title), 'poster': info.get('poster_url',''), 'media_type': 'tv'}
                         logger.info(f"    ✅ 原名匹配成功: {original_title} -> {match['title']}")
             
             # 回退中文名匹配
@@ -1246,7 +1254,7 @@ class ChartScraper:
                 if tmdb_id:
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if info:
-                        match = {'tmdb_id': tmdb_id, 'title': info.get('zh_title') or info.get('title') or title, 'poster': info.get('poster_url',''), 'media_type': 'tv'}
+                        match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'tv'}
                         logger.info(f"    ✅ 中文名匹配成功: {title} -> {match['title']}")
             if not match:
                 rank += 1; continue
@@ -1307,7 +1315,7 @@ class ChartScraper:
                         raise RuntimeError('no info')
                     match = {
                         'tmdb_id': tmdb_id,
-                        'title': info.get('zh_title') or info.get('title') or info.get('name') or title,
+                        'title': self._safe_get_title(info, title),
                         'poster': info.get('poster_url', ''),
                         'media_type': 'tv'
                     }
@@ -1466,6 +1474,14 @@ class ChartScraper:
 class TMDBMatcher:
     def __init__(self, db: Session):
         self.db = db
+    
+    @staticmethod
+    def _safe_get_title(info: Dict, fallback_title: str = '') -> str:
+        """安全获取标题：从 TMDB info 中获取标题，去除空格，确保不为空"""
+        zh_title = (info.get('zh_title') or '').strip()
+        tmdb_title = (info.get('title') or '').strip()
+        tmdb_name = (info.get('name') or '').strip()
+        return zh_title or tmdb_title or tmdb_name or fallback_title
         
     async def match_imdb_with_tmdb(self, imdb_id: str, title: str, media_type: str, max_retries: int = 3) -> Optional[Dict]:
         """通过IMDB ID匹配TMDB ID，返回包含海报信息的字典，支持重试机制"""
@@ -1497,8 +1513,8 @@ class TMDBMatcher:
                     # 获取TMDB详细信息，包括海报
                     tmdb_info = await self.get_tmdb_info(tmdb_id, actual_media_type)
                     if tmdb_info:
-                        # 优先使用中文标题，如果没有则使用原始标题
-                        final_title = tmdb_info.get('zh_title') or tmdb_info.get('title') or tmdb_info.get('name', title)
+                        # 安全获取标题，去除空格
+                        final_title = self._safe_get_title(tmdb_info, title)
                         logger.info(f"成功匹配: {title} -> TMDB ID: {tmdb_id}, 中文标题: {final_title}")
                         return {
                             'tmdb_id': tmdb_id,
@@ -1522,7 +1538,7 @@ class TMDBMatcher:
                     if tmdb_id:
                         tmdb_info = await self.get_tmdb_info(tmdb_id, media_type)
                         if tmdb_info:
-                            final_title = tmdb_info.get('zh_title') or tmdb_info.get('title') or tmdb_info.get('name', title)
+                            final_title = self._safe_get_title(tmdb_info, title)
                             logger.info(f"通过标题匹配成功: {title} -> TMDB ID: {tmdb_id}, 中文标题: {final_title}")
                             return {
                                 'tmdb_id': tmdb_id,
