@@ -2194,27 +2194,51 @@ def aggregate_top(
         if conditions:
             entries = entries.filter(not_(or_(*conditions)))
     entries = entries.all()
-    # 频次统计：出现次数越多越靠前；同频次按片名首字母排序
+    # 频次统计：出现次数越多越靠前；同频次按最佳名次（rank 越小越好）
     freq: dict[int, int] = {}
-    title_map: dict[int, str] = {}
+    best_rank: dict[int, int] = {}
     sample: dict[int, ChartEntry] = {}
+    
+    logger.info(f"aggregate_top: 处理 {len(entries)} 条 {media_type} 条目")
+    
     for e in entries:
-        key = int(e.tmdb_id)
-        freq[key] = freq.get(key, 0) + 1
-        if key not in sample:
-            sample[key] = e
-            title_map[key] = (e.title or "").lower()  # 存储小写片名用于排序
-    ranked_keys = sorted(freq.keys(), key=lambda k: (-freq[k], title_map.get(k, ""), k))
+        try:
+            key = int(e.tmdb_id)
+            freq[key] = freq.get(key, 0) + 1
+            # 记录该作品在所有榜单中的最佳排名（最小的rank值）
+            best_rank[key] = min(best_rank.get(key, 9999), int(e.rank) if e.rank is not None else 9999)
+            if key not in sample:
+                sample[key] = e
+        except Exception as ex:
+            logger.error(f"处理条目时出错: tmdb_id={e.tmdb_id}, title={e.title}, error={ex}")
+            continue
+    
+    # 排序：频次降序 -> 最佳排名升序 -> tmdb_id升序
+    try:
+        ranked_keys = sorted(freq.keys(), key=lambda k: (-freq[k], best_rank[k], k))
+    except Exception as ex:
+        logger.error(f"排序失败: {ex}")
+        # 降级处理：只按频次排序
+        ranked_keys = sorted(freq.keys(), key=lambda k: -freq[k])
+    
+    logger.info(f"aggregate_top: 排序后前{min(limit, len(ranked_keys))}名")
+    
     result = []
     for tmdb_id in ranked_keys[:limit]:
-        e = sample[int(tmdb_id)]
-        poster = e.poster or ""
-        if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
-            # 兼容旧数据，自动补成 tmdb 相对路径
-            if not poster.startswith("/"):
-                poster = "/" + poster
-            poster = f"/tmdb-images{poster}"
-        result.append({"id": e.tmdb_id, "type": media_type, "title": e.title, "poster": poster})
+        try:
+            e = sample[int(tmdb_id)]
+            poster = e.poster or ""
+            if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
+                # 兼容旧数据，自动补成 tmdb 相对路径
+                if not poster.startswith("/"):
+                    poster = "/" + poster
+                poster = f"/tmdb-images{poster}"
+            result.append({"id": e.tmdb_id, "type": media_type, "title": e.title, "poster": poster})
+            logger.info(f"  {len(result)}. {e.title} - 频次={freq[tmdb_id]}, 最佳排名={best_rank[tmdb_id]}")
+        except Exception as ex:
+            logger.error(f"构建结果时出错: tmdb_id={tmdb_id}, error={ex}")
+            continue
+    
     return result
 
 def latest_chart_top_by_rank(
@@ -2323,23 +2347,29 @@ async def delete_chart_entry(
 
 @app.get("/api/charts/aggregate")
 async def get_aggregate_charts(db: Session = Depends(get_db)):
-    # 华语剧集：直接使用豆瓣《一周华语剧集口碑榜》
-    chinese_tv = latest_chart_top_by_rank(
-        db,
-        platform="豆瓣",
-        chart_name="一周华语剧集口碑榜",
-        media_type="tv",
-        limit=10,
-    )
+    try:
+        # 华语剧集：直接使用豆瓣《一周华语剧集口碑榜》
+        chinese_tv = latest_chart_top_by_rank(
+            db,
+            platform="豆瓣",
+            chart_name="一周华语剧集口碑榜",
+            media_type="tv",
+            limit=10,
+        )
 
-    # 其他两个板块：排除掉豆瓣《一周华语剧集口碑榜》，且按出现频次/名次聚合
-    exclude_pairs = [("豆瓣", "一周华语剧集口碑榜")]
-    movies = aggregate_top(db, media_type="movie", limit=10, chinese_only=False)
-    tv_candidates = aggregate_top(db, media_type="tv", limit=50, chinese_only=False, exclude_pairs=exclude_pairs)
-    # 如果某条目仅出现在被排除榜（即聚合后仍混入），上面的排除逻辑已处理。
-    # 为了更稳妥：将候选提升到50后再裁到10，保证频次排序的准确性。
-    tv = tv_candidates[:10]
-    return {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
+        # 其他两个板块：排除掉豆瓣《一周华语剧集口碑榜》，且按出现频次/名次聚合
+        exclude_pairs = [("豆瓣", "一周华语剧集口碑榜")]
+        movies = aggregate_top(db, media_type="movie", limit=10, chinese_only=False)
+        tv_candidates = aggregate_top(db, media_type="tv", limit=50, chinese_only=False, exclude_pairs=exclude_pairs)
+        # 如果某条目仅出现在被排除榜（即聚合后仍混入），上面的排除逻辑已处理。
+        # 为了更稳妥：将候选提升到50后再裁到10，保证频次排序的准确性。
+        tv = tv_candidates[:10]
+        return {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
+    except Exception as e:
+        logger.error(f"榜单聚合失败: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"榜单聚合失败: {str(e)}")
 
 
 @app.post("/api/charts/auto-update")
