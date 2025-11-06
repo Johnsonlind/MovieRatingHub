@@ -594,13 +594,14 @@ class ChartScraper:
                 continue
             
             # 直接插入新数据（已清空旧数据）
+            final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
             self.db.add(ChartEntry(
                 platform='烂番茄',
                 chart_name='Popular Streaming Movies',
                 media_type=match.get('media_type', 'movie'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
-                title=match['title'],
+                title=final_title,
                 poster=match.get('poster','')
             ))
             saved += 1
@@ -1000,13 +1001,14 @@ class ChartScraper:
                 continue
             
             # 直接插入新数据（已清空旧数据）
+            final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
             self.db.add(ChartEntry(
                 platform='Trakt',
                 chart_name='Top Movies Last Week',
                 media_type=match.get('media_type', 'movie'),
                 rank=idx,
                 tmdb_id=match['tmdb_id'],
-                title=match['title'],
+                title=final_title,
                 poster=match.get('poster','')
             ))
             saved += 1
@@ -1056,13 +1058,14 @@ class ChartScraper:
                 continue
             
             # 直接插入新数据（已清空旧数据）
+            final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
             self.db.add(ChartEntry(
                 platform='Trakt',
                 chart_name='Top TV Shows Last Week',
                 media_type=match.get('media_type', 'tv'),
                 rank=idx,
                 tmdb_id=match['tmdb_id'],
-                title=match['title'],
+                title=final_title,
                 poster=match.get('poster','')
             ))
             saved += 1
@@ -1304,8 +1307,9 @@ class ChartScraper:
                         raise RuntimeError('no info')
                     match = {
                         'tmdb_id': tmdb_id,
-                        'title': info.get('zh_title') or info.get('title') or title,
+                        'title': info.get('zh_title') or info.get('title') or info.get('name') or title,
                         'poster': info.get('poster_url', ''),
+                        'media_type': 'tv'
                     }
                     break
                 except Exception:
@@ -1317,13 +1321,14 @@ class ChartScraper:
                 continue
             
             # 直接插入新数据（已清空旧数据）
+            final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
             self.db.add(ChartEntry(
                 platform='烂番茄',
                 chart_name='Popular TV',
                 media_type=match.get('media_type', 'tv'),
                 rank=rank,
                 tmdb_id=match['tmdb_id'],
-                title=match['title'],
+                title=final_title,
                 poster=match.get('poster','')
             ))
             saved += 1
