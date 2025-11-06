@@ -121,9 +121,12 @@ export default function MoviePage() {
 
       try {
         // 创建所有后端平台的请求
+        const token = localStorage.getItem('token');
         const backendPromises = platforms.map(async platform => {
           try {
-            const response = await fetch(`/api/ratings/${platform}/movie/${id}`);
+            const response = await fetch(`/api/ratings/${platform}/movie/${id}`, {
+              ...(token && { headers: { 'Authorization': `Bearer ${token}` } })
+            });
             if (!response.ok) throw new Error('获取评分失败');
             const data = await response.json();
             
@@ -359,7 +362,10 @@ export default function MoviePage() {
       }));
       
       try {
-        const response = await fetch(`/api/ratings/${platform}/movie/${id}`);
+        const token = localStorage.getItem('token');
+        const response = await fetch(`/api/ratings/${platform}/movie/${id}`, {
+          ...(token && { headers: { 'Authorization': `Bearer ${token}` } })
+        });
         if (!response.ok) throw new Error('获取评分失败');
         const data = await response.json();
         
