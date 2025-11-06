@@ -479,6 +479,43 @@ async def get_current_user_info(
         "is_admin": current_user.is_admin
     }
 
+@app.put("/api/user/douban-cookie")
+async def update_douban_cookie(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """更新用户的豆瓣Cookie"""
+    try:
+        data = await request.json()
+        cookie = data.get("cookie", "").strip()
+        
+        if cookie:
+            current_user.douban_cookie = cookie
+        else:
+            # 如果传入空字符串，则清除Cookie
+            current_user.douban_cookie = None
+        
+        db.commit()
+        
+        return {
+            "message": "豆瓣Cookie更新成功" if cookie else "豆瓣Cookie已清除",
+            "has_cookie": bool(cookie)
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"更新豆瓣Cookie时出错: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/user/douban-cookie")
+async def get_douban_cookie(
+    current_user: User = Depends(get_current_user)
+):
+    """获取用户的豆瓣Cookie状态（不返回实际Cookie值）"""
+    return {
+        "has_cookie": bool(current_user.douban_cookie)
+    }
+
 @app.put("/api/user/profile")
 async def update_profile(
     request: Request,
@@ -1446,7 +1483,11 @@ async def root():
     return {"status": "ok", "message": "RateFuse API is running"}
 
 @app.post("/api/ratings/batch")
-async def get_batch_ratings(request: Request, db: Session = Depends(get_db)):
+async def get_batch_ratings(
+    request: Request, 
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
     """批量获取多个影视的评分信息（高性能版）
     
     请求格式：
@@ -1487,6 +1528,11 @@ async def get_batch_ratings(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="单次最多支持50个影视")
         
         logger.info(f"\n{'='*60}\n  批量获取评分 | 数量: {len(items)} | 并发: {max_concurrent}\n{'='*60}")
+        
+        # 获取用户的豆瓣Cookie（如果已登录）
+        douban_cookie = None
+        if current_user and current_user.douban_cookie:
+            douban_cookie = current_user.douban_cookie
         
         # 步骤1：并行检查缓存和获取TMDB信息
         async def get_item_info(item):
@@ -1545,7 +1591,7 @@ async def get_batch_ratings(request: Request, db: Session = Depends(get_db)):
                     
                     # 单个影视超时控制（20秒）
                     ratings = await asyncio.wait_for(
-                        parallel_extract_ratings(tmdb_info, media_type, request),
+                        parallel_extract_ratings(tmdb_info, media_type, request, douban_cookie),
                         timeout=20.0
                     )
                     
@@ -1629,7 +1675,13 @@ async def get_batch_ratings(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"批量获取失败: {str(e)}")
 
 @app.get("/api/ratings/all/{type}/{id}")
-async def get_all_platform_ratings(type: str, id: str, request: Request):
+async def get_all_platform_ratings(
+    type: str, 
+    id: str, 
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
     """并行获取所有平台的评分信息（性能优化版）"""
     start_time = time.time()
     try:
@@ -1637,6 +1689,11 @@ async def get_all_platform_ratings(type: str, id: str, request: Request):
         if await request.is_disconnected():
             print("请求已在开始时被取消")
             return None
+        
+        # 获取用户的豆瓣Cookie（如果已登录）
+        douban_cookie = None
+        if current_user and current_user.douban_cookie:
+            douban_cookie = current_user.douban_cookie
         
         # 生成整体缓存键
         cache_key = f"ratings:all:{type}:{id}"
@@ -1666,7 +1723,7 @@ async def get_all_platform_ratings(type: str, id: str, request: Request):
         try:
             # 单个影视的超时控制（最多20秒）
             all_ratings = await asyncio.wait_for(
-                parallel_extract_ratings(tmdb_info, tmdb_info["type"], request),
+                parallel_extract_ratings(tmdb_info, tmdb_info["type"], request, douban_cookie),
                 timeout=20.0
             )
         except asyncio.TimeoutError:
@@ -1706,7 +1763,14 @@ async def get_all_platform_ratings(type: str, id: str, request: Request):
         raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
 
 @app.get("/api/ratings/{platform}/{type}/{id}")
-async def get_platform_rating(platform: str, type: str, id: str, request: Request):
+async def get_platform_rating(
+    platform: str, 
+    type: str, 
+    id: str, 
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
     """获取指定平台的评分信息，优化缓存和错误处理"""
     start_time = time.time()
     try:
@@ -1714,6 +1778,11 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
         if await request.is_disconnected():
             print(f"{platform} 请求已在开始时被取消")
             return None
+        
+        # 获取用户的豆瓣Cookie（如果已登录且是豆瓣平台）
+        douban_cookie = None
+        if platform == "douban" and current_user and current_user.douban_cookie:
+            douban_cookie = current_user.douban_cookie
             
         # 生成缓存键
         cache_key = f"rating:{platform}:{type}:{id}"
@@ -1739,7 +1808,7 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
 
         # 搜索平台
         search_start_time = time.time()
-        search_results = await search_platform(platform, tmdb_info, request)
+        search_results = await search_platform(platform, tmdb_info, request, douban_cookie)
 
         # 检查请求是否已被取消
         if await request.is_disconnected():
@@ -1753,7 +1822,7 @@ async def get_platform_rating(platform: str, type: str, id: str, request: Reques
 
         # 提取评分信息
         extract_start_time = time.time()
-        rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request)
+        rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request, douban_cookie)
 
         # 检查请求是否已被取消
         if await request.is_disconnected():
