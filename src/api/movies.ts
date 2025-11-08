@@ -4,16 +4,16 @@
 import { tmdbClient, parseSearchQuery } from './client';
 import { transformTMDBMovie } from './transformers';
 import type { Movie } from '../types/media';
+import { fetchTMDBWithLanguageFallback, getPrimaryLanguage } from './tmdbLanguageHelper';
 
 export async function getMovie(id: string): Promise<Movie> {
-  const response = await tmdbClient.get(`/movie/${id}`, {
-    params: {
-      append_to_response: 'credits,release_dates',
-      language: 'zh-CN',
-    },
-  });
+  const data = await fetchTMDBWithLanguageFallback(
+    `/api/tmdb-proxy/movie/${id}`,
+    {},
+    'credits,release_dates'
+  );
   
-  return transformTMDBMovie(response.data);
+  return transformTMDBMovie(data);
 }
 
 export async function searchMovies(query: string, page = 1) {
@@ -24,7 +24,7 @@ export async function searchMovies(query: string, page = 1) {
       query: searchTerm,
       page,
       include_adult: false,
-      language: language || 'zh-CN',
+      language: language || getPrimaryLanguage(),
       year,
     },
   });
