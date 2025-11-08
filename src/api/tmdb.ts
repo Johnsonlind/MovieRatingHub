@@ -5,11 +5,12 @@ import axios from 'axios';
 import { TMDB } from './api';
 import type { Movie, TVShow } from '../types/media';
 import { getImageUrl } from './image';
+import { fetchTMDBWithLanguageFallback, getPrimaryLanguage } from './tmdbLanguageHelper';
 
 const api = axios.create({
   baseURL: TMDB.baseUrl,
   params: {
-    language: TMDB.language,
+    language: getPrimaryLanguage(),
   },
 });
 
@@ -73,15 +74,11 @@ export async function searchMedia(query: string): Promise<{ movies: Movie[], tvS
 }
 
 export async function fetchTMDBRating(type: 'movie' | 'tv', id: number) {
-  const response = await fetch(
-    `${TMDB.baseUrl}/${type}/${id}?language=zh-CN&append_to_response=reviews`
+  const data = await fetchTMDBWithLanguageFallback(
+    `${TMDB.baseUrl}/${type}/${id}`,
+    {},
+    'reviews'
   );
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch TMDB rating');
-  }
-
-  const data = await response.json();
 
   return {
     rating: data.vote_average,
@@ -97,15 +94,9 @@ export async function fetchTMDBRating(type: 'movie' | 'tv', id: number) {
 }
 
 export async function getTVShowCredits(id: number) {
-  const response = await fetch(
-    `${TMDB.baseUrl}/tv/${id}/credits?language=zh-CN`
+  const data = await fetchTMDBWithLanguageFallback(
+    `${TMDB.baseUrl}/tv/${id}/credits`
   );
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch TV show credits');
-  }
-
-  const data = await response.json();
   
   return {
     cast: data.cast.map((member: any) => ({
@@ -124,18 +115,15 @@ export async function getTVShowCredits(id: number) {
 
 export async function getTVShow(id: number): Promise<TVShow> {
   try {
-    const [details, credits] = await Promise.all([
-      fetch(
-        `${TMDB.baseUrl}/tv/${id}?language=zh-CN&append_to_response=credits`
+    const [detailsData, credits] = await Promise.all([
+      fetchTMDBWithLanguageFallback(
+        `${TMDB.baseUrl}/tv/${id}`,
+        {},
+        'credits'
       ),
       getTVShowCredits(id)
     ]);
 
-    if (!details.ok) {
-      throw new Error('Failed to fetch TV show details');
-    }
-
-    const detailsData = await details.json();
     return transformTMDBTVShow({
       ...detailsData,
       credits
@@ -151,15 +139,10 @@ export async function searchByImdbId(imdbId: string): Promise<{ movies: Movie[],
     // 确保IMDB ID格式正确
     const formattedId = imdbId.startsWith('tt') ? imdbId : `tt${imdbId}`;
     
-    const response = await fetch(
-      `${TMDB.baseUrl}/find/${formattedId}?external_source=imdb_id&language=zh-CN`
+    const data = await fetchTMDBWithLanguageFallback(
+      `${TMDB.baseUrl}/find/${formattedId}`,
+      { external_source: 'imdb_id' }
     );
-
-    if (!response.ok) {
-      throw new Error('查找IMDB ID失败');
-    }
-
-    const data = await response.json();
     
     // 打印返回数据以便调试
     console.log('TMDB find response:', data);
@@ -175,15 +158,9 @@ export async function searchByImdbId(imdbId: string): Promise<{ movies: Movie[],
 }
 
 export async function getMediaDetails(mediaType: string, mediaId: string) {
-  const response = await fetch(
-    `/api/tmdb-proxy/${mediaType}/${mediaId}?language=zh-CN`
+  const data = await fetchTMDBWithLanguageFallback(
+    `/api/tmdb-proxy/${mediaType}/${mediaId}`
   );
-  
-  if (!response.ok) {
-    throw new Error('获取影视详情失败');
-  }
-  
-  const data = await response.json();
   
   let posterPath = '';
   if (data.poster_path) {
