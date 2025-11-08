@@ -2,15 +2,15 @@
 // 评分API - 获取TMDB和Trakt评分数据
 // ==========================================
 import { TMDB } from './api';
+import { fetchTMDBWithLanguageFallback } from './tmdbLanguageHelper';
 
 // 获取 TMDB 评分
 export async function fetchTMDBRating(mediaType: 'movie' | 'tv', id: string) {
   try {
     // 获取整体评分
-    const response = await fetch(
-      `${TMDB.baseUrl}/${mediaType}/${id}?language=zh-CN`
+    const data = await fetchTMDBWithLanguageFallback(
+      `${TMDB.baseUrl}/${mediaType}/${id}`
     );
-    const data = await response.json();
     
     if (mediaType === 'movie') {
       return {
@@ -23,10 +23,9 @@ export async function fetchTMDBRating(mediaType: 'movie' | 'tv', id: string) {
     const seasons = [];
     if (data.seasons?.length > 0) {
       for (const season of data.seasons) {
-        const seasonResponse = await fetch(
-          `${TMDB.baseUrl}/${mediaType}/${id}/season/${season.season_number}?language=zh-CN`
+        const seasonData = await fetchTMDBWithLanguageFallback(
+          `${TMDB.baseUrl}/${mediaType}/${id}/season/${season.season_number}`
         );
-        const seasonData = await seasonResponse.json();
         
         // 使用季度自己的评分数据
         seasons.push({
