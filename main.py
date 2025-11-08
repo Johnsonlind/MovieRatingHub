@@ -2135,18 +2135,31 @@ def require_admin(user: User):
         raise HTTPException(status_code=403, detail="需要管理员权限")
 
 async def tmdb_enrich(tmdb_id: int, media_type: str):
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-        url = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}"
-        params = {"api_key": "4f681fa7b5ab7346a4e184bbf2d41715", "language":"zh-CN"}
-        async with session.get(url, params=params) as resp:
-            if resp.status != 200:
-                raise HTTPException(status_code=400, detail="TMDB 信息获取失败")
-            data = await resp.json()
-            title = data.get("title") if media_type=="movie" else data.get("name")
-            poster_path = data.get("poster_path")
-            poster = f"/tmdb-images/w500{poster_path}" if poster_path else ""
-            original_language = data.get("original_language")
-            return {"title": title or "", "poster": poster or "", "original_language": original_language or ""}
+    """使用多语言回退获取TMDB信息（包括poster）"""
+    from ratings import _fetch_tmdb_with_language_fallback, get_tmdb_http_client
+    
+    try:
+        client = get_tmdb_http_client()
+        endpoint = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}"
+        
+        # 使用多语言回退获取数据
+        data = await _fetch_tmdb_with_language_fallback(client, endpoint)
+        
+        if not data:
+            raise HTTPException(status_code=400, detail="TMDB 信息获取失败")
+        
+        title = data.get("title") if media_type == "movie" else data.get("name")
+        poster_path = data.get("poster_path")
+        poster = f"/tmdb-images/w500{poster_path}" if poster_path else ""
+        original_language = data.get("original_language", "")
+        
+        return {
+            "title": title or "", 
+            "poster": poster or "", 
+            "original_language": original_language or ""
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"TMDB 信息获取失败: {str(e)}")
 
 @app.post("/api/charts/entries")
 async def add_chart_entry(
