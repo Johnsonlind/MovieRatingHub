@@ -4,16 +4,16 @@
 import { tmdbClient, parseSearchQuery } from './client';
 import { transformTMDBTVShow } from './transformers';
 import type { TVShow } from '../types/media';
+import { fetchTMDBWithLanguageFallback, getPrimaryLanguage } from './tmdbLanguageHelper';
 
 export async function getTVShow(id: string): Promise<TVShow> {
-  const response = await tmdbClient.get(`/tv/${id}`, {
-    params: {
-      append_to_response: 'credits,external_ids',
-      language: 'zh-CN',
-    },
-  });
+  const data = await fetchTMDBWithLanguageFallback(
+    `/api/tmdb-proxy/tv/${id}`,
+    {},
+    'credits,external_ids'
+  );
   
-  return transformTMDBTVShow(response.data);
+  return transformTMDBTVShow(data);
 }
 
 export async function searchTVShows(query: string, page = 1) {
@@ -24,7 +24,7 @@ export async function searchTVShows(query: string, page = 1) {
       query: searchTerm,
       page,
       include_adult: false,
-      language: language || 'zh-CN',
+      language: language || getPrimaryLanguage(),
       first_air_date_year: year,
     },
   });
