@@ -330,8 +330,138 @@ def construct_search_url(title, media_type, platform, tmdb_info):
     }
     return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
         
+def _is_empty(value):
+    """检查值是否为空"""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, list):
+        return len(value) == 0
+    return False
+
+def _get_field_value(data_list, field_path, check_empty=_is_empty):
+    """从多语言数据列表中按优先级获取字段值"""
+    for data, lang in data_list:
+        value = data
+        for key in field_path.split('.'):
+            if isinstance(value, dict):
+                value = value.get(key)
+            else:
+                value = None
+                break
+        
+        if not check_empty(value):
+            return value
+    return None
+
+def _merge_multi_language_data(data_list):
+    """合并多语言数据，优先使用高优先级语言的字段"""
+    if not data_list:
+        return None
+    
+    # 使用第一个（最高优先级）的数据作为基础
+    base_data, _ = data_list[0]
+    merged = copy.deepcopy(base_data)
+    
+    # 需要检查的关键字段
+    key_fields = [
+        'title',           # 电影标题
+        'name',            # 电视剧名称
+        'original_title',  # 电影原始标题
+        'original_name',   # 电视剧原始名称
+        'overview',        # 简介
+        'tagline',         # 标语
+    ]
+    
+    # 对于每个字段，如果基础数据中的字段为空，则从后续语言中获取
+    for field in key_fields:
+        if _is_empty(merged.get(field)):
+            value = _get_field_value(data_list, field)
+            if value is not None:
+                merged[field] = value
+    
+    # 处理 genres（类型）
+    if _is_empty(merged.get('genres')):
+        genres = _get_field_value(data_list, 'genres', lambda x: not isinstance(x, list) or len(x) == 0)
+        if genres:
+            merged['genres'] = genres
+    
+    # 处理 seasons（电视剧季度）
+    if 'seasons' in merged and isinstance(merged['seasons'], list):
+        for i, season in enumerate(merged['seasons']):
+            # 检查季度名称
+            if _is_empty(season.get('name')):
+                for data, _ in data_list:
+                    if data.get('seasons') and i < len(data['seasons']):
+                        season_name = data['seasons'][i].get('name')
+                        if not _is_empty(season_name):
+                            merged['seasons'][i]['name'] = season_name
+                            break
+            
+            # 检查季度概述
+            if _is_empty(season.get('overview')):
+                for data, _ in data_list:
+                    if data.get('seasons') and i < len(data['seasons']):
+                        season_overview = data['seasons'][i].get('overview')
+                        if not _is_empty(season_overview):
+                            merged['seasons'][i]['overview'] = season_overview
+                            break
+    
+    return merged
+
+async def _fetch_tmdb_with_language_fallback(client, endpoint, append_to_response=None):
+    """按优先级顺序获取TMDB数据，如果某个语言的关键字段为空，会自动使用下一个语言的对应字段填充"""
+    # 语言优先级列表
+    language_priority = ['zh-CN', 'zh-SG', 'zh-TW', 'zh-HK', 'en-US']
+    
+    # 并行请求所有语言版本
+    async def fetch_language(lang):
+        try:
+            params = {"language": lang}
+            if append_to_response:
+                params["append_to_response"] = append_to_response
+            
+            response = await client.get(endpoint, params=params)
+            
+            if response.status_code != 200:
+                return (lang, None, f"HTTP {response.status_code}")
+            
+            data = response.json()
+            
+            # 检查是否有错误
+            if data.get("status_code") and data.get("status_code") != 1:
+                return (lang, None, data.get("status_message", "Unknown error"))
+            
+            return (lang, data, None)
+        except Exception as e:
+            return (lang, None, str(e))
+    
+    # 并行获取所有语言版本
+    results = await asyncio.gather(*[fetch_language(lang) for lang in language_priority], return_exceptions=True)
+    
+    # 按优先级顺序整理数据
+    data_list = []
+    errors = []
+    
+    for result in results:
+        if isinstance(result, Exception):
+            continue
+        
+        lang, data, error = result
+        if data:
+            data_list.append((data, lang))
+        else:
+            errors.append((lang, error))
+    
+    if not data_list:
+        raise Exception(f"所有语言版本获取失败: {', '.join([f'{lang}: {error}' for lang, error in errors])}")
+    
+    # 合并数据
+    return _merge_multi_language_data(data_list)
+
 async def get_tmdb_info(tmdb_id, media_type, request=None):
-    """通过TMDB API获取影视基本信息"""
+    """通过TMDB API获取影视基本信息，支持多语言优先级回退"""
     try:
         if request and await request.is_disconnected():
             return None
@@ -339,42 +469,16 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
         # 使用全局 httpx 客户端（连接池）
         client = get_tmdb_http_client()
         
-        # 构建请求URL和参数（使用 Bearer Token，不需要 api_key）
-        endpoint_en = f"{TMDB_API_BASE_URL}{media_type}/{tmdb_id}"
-        params_en = {
-            "language": "en-US",
-            "append_to_response": "credits,external_ids"
-        }
+        # 构建请求URL
+        endpoint = f"{TMDB_API_BASE_URL}{media_type}/{tmdb_id}"
         
-        # 并行获取英文和中文数据（性能优化）
+        # 使用多语言回退获取数据
         try:
-            en_response, zh_response = await asyncio.gather(
-                client.get(endpoint_en, params=params_en),
-                client.get(endpoint_en, params={"language": "zh-CN", "append_to_response": "credits,external_ids"}),
-                return_exceptions=True
+            merged_data = await _fetch_tmdb_with_language_fallback(
+                client, 
+                endpoint, 
+                append_to_response="credits,external_ids"
             )
-            
-            # 处理英文数据
-            if isinstance(en_response, Exception):
-                print(f"获取{media_type}英文信息失败: {en_response}")
-                return None
-            
-            if en_response.status_code != 200:
-                if not request or not (await request.is_disconnected()):
-                    print(f"获取{media_type}信息失败，状态码: {en_response.status_code}")
-                return None
-            
-            en_data = en_response.json()
-            
-            if not request or not (await request.is_disconnected()):
-                print(f"影视类型为{media_type}")
-            
-            # 处理中文数据
-            if isinstance(zh_response, Exception) or zh_response.status_code != 200:
-                zh_data = en_data
-            else:
-                zh_data = zh_response.json()
-                
         except httpx.TimeoutException:
             print("TMDB API 请求超时")
             return None
@@ -382,7 +486,7 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
             print(f"TMDB API 请求失败: {e}")
             return None
 
-        if not en_data:
+        if not merged_data:
             if not request or not (await request.is_disconnected()):
                 print("API返回的数据为空")
             return None
@@ -393,20 +497,20 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
         
         # 提取基本信息
         if media_type == "movie":
-            title = en_data.get("title", "")
-            original_title = en_data.get("original_title", "")
-            zh_title = zh_data.get("title", "")
-            year = en_data.get("release_date", "")[:4] if en_data.get("release_date") else ""
+            title = merged_data.get("title", "")
+            original_title = merged_data.get("original_title", "")
+            zh_title = merged_data.get("title", "")  # 使用合并后的标题作为中文标题
+            year = merged_data.get("release_date", "")[:4] if merged_data.get("release_date") else ""
         else:
-            title = en_data.get("name", "")
-            original_title = en_data.get("original_name", "")
-            zh_title = zh_data.get("name", "")
-            year = en_data.get("first_air_date", "")[:4] if en_data.get("first_air_date") else ""
+            title = merged_data.get("name", "")
+            original_title = merged_data.get("original_name", "")
+            zh_title = merged_data.get("name", "")  # 使用合并后的名称作为中文标题
+            year = merged_data.get("first_air_date", "")[:4] if merged_data.get("first_air_date") else ""
         
         # 获取导演信息
         director = ""
-        if "credits" in en_data and en_data["credits"]:
-            crew = en_data["credits"].get("crew", [])
+        if "credits" in merged_data and merged_data["credits"]:
+            crew = merged_data["credits"].get("crew", [])
             directors = [c["name"] for c in crew if c.get("job") == "Director"]
             director = ", ".join(directors)
         
@@ -418,21 +522,21 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
             "year": year,
             "director": director,
             "tmdb_id": str(tmdb_id),
-            "imdb_id": en_data.get("imdb_id") or en_data.get("external_ids", {}).get("imdb_id", "")
+            "imdb_id": merged_data.get("imdb_id") or merged_data.get("external_ids", {}).get("imdb_id", "")
         }
         
         # 如果是剧集，添加额外信息
         if media_type == "tv":
             result.update({
-                "first_air_date": en_data.get("first_air_date", ""),
-                "number_of_seasons": en_data.get("number_of_seasons", 0),
-                "last_air_date": en_data.get("last_air_date", ""),
+                "first_air_date": merged_data.get("first_air_date", ""),
+                "number_of_seasons": merged_data.get("number_of_seasons", 0),
+                "last_air_date": merged_data.get("last_air_date", ""),
                 "seasons": [{
                     "season_number": s.get("season_number"),
-                    "name": f"Season {s.get('season_number')}",
+                    "name": s.get("name", f"Season {s.get('season_number')}"),  # 使用合并后的季度名称
                     "air_date": s.get("air_date", "")[:4] if s.get("air_date") else "",
                     "episode_count": s.get("episode_count", 0)
-                } for s in en_data.get("seasons", [])]
+                } for s in merged_data.get("seasons", [])]
             })
             
             # === 选集剧处理 ===
