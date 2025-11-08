@@ -1,6 +1,8 @@
 // ==========================================
 // API配置 - TMDB和Trakt的API配置常量
 // ==========================================
+import { getPrimaryLanguage } from './tmdbLanguageHelper';
+
 export const TMDB = {
   baseUrl: '/api/tmdb-proxy',
   imageBaseUrl: '/tmdb-images',
@@ -10,7 +12,9 @@ export const TMDB = {
     大: 'w500',
     原始: 'original'
   } as const,
-  language: 'zh-CN',
+  get language() {
+    return getPrimaryLanguage();
+  },
   findEndpoint: '/find'
 } as const;
 
