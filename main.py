@@ -2689,20 +2689,49 @@ async def stop_scheduler_endpoint(
         logger.error(f"停止调度器失败: {e}")
         raise HTTPException(status_code=500, detail=f"停止调度器失败: {str(e)}")
 
+def calculate_next_update():
+    """计算下次更新时间（每天北京时间21:30）"""
+    from datetime import timezone, timedelta
+    beijing_tz = timezone(timedelta(hours=8))
+    now_beijing = datetime.now(beijing_tz)
+    today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
+    
+    if now_beijing >= today_2130:
+        # 如果已经过了今天的21:30，下次更新是明天21:30
+        next_update = today_2130 + timedelta(days=1)
+    else:
+        # 如果还没到今天的21:30，下次更新是今天21:30
+        next_update = today_2130
+    
+    return next_update
+
 @app.get("/api/scheduler/status")
 async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
     """获取调度器状态"""
     try:
-        # 首先尝试从数据库获取状态
+        # 优先使用内存中的调度器实例状态（如果存在且运行中）
+        from chart_scrapers import scheduler_instance
+        if scheduler_instance and scheduler_instance.running:
+            status = scheduler_instance.get_status()
+            logger.info(f"从内存调度器实例获取状态: {status}")
+            return {
+                "status": "success",
+                "data": status,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # 其次尝试从数据库获取状态
         db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
         
         if db_status:
             logger.info(f"从数据库获取调度器状态: running={db_status.running}")
+            # 动态计算next_update，而不是使用数据库中的旧值
+            next_update = calculate_next_update()
             return {
                 "status": "success",
                 "data": {
                     "running": db_status.running,
-                    "next_update": db_status.next_update.isoformat() if db_status.next_update else None,
+                    "next_update": next_update.isoformat(),
                     "last_update": db_status.last_update.isoformat() if db_status.last_update else None
                 },
                 "timestamp": datetime.utcnow().isoformat()
