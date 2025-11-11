@@ -2198,6 +2198,17 @@ class AutoUpdateScheduler:
             self.last_update = datetime.now(timezone.utc)
             duration = time.time() - start_time
             
+            # 更新数据库中的last_update
+            try:
+                from models import SchedulerStatus
+                db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
+                if db_status:
+                    db_status.last_update = self.last_update
+                    db.commit()
+                    logger.info("数据库中的last_update已更新")
+            except Exception as db_error:
+                logger.error(f"更新数据库last_update失败: {db_error}")
+            
             if error_occurred:
                 logger.warning("定时更新任务完成，但部分平台更新失败")
                 await telegram_notifier.send_message(f"⚠️ *定时更新任务完成*\\n\\n⏱️ 耗时: {duration:.1f}秒\\n\\n部分平台更新失败，请查看详细日志")
