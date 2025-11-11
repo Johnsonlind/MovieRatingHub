@@ -296,11 +296,12 @@ def smart_retry(retry_config: RetryConfig):
 def construct_search_url(title, media_type, platform, tmdb_info):
     """根据影视类型构造各平台搜索URL"""
     encoded_title = quote(title)
-    # 为 Metacritic 特别处理标题
-    if platform == "metacritic":
-        # 移除重音符号并简化标题
-        simplified_title = ''.join(c for c in unicodedata.normalize('NFD', title)
-                                  if unicodedata.category(c) != 'Mn')
+    # 为 Metacritic/RottenTomatoes 特别处理标题：去重音/标准化
+    if platform in ("metacritic", "rottentomatoes"):
+        simplified_title = ''.join(
+            c for c in unicodedata.normalize('NFD', title)
+            if unicodedata.category(c) != 'Mn'
+        )
         encoded_title = quote(simplified_title)
 
     tmdb_id = tmdb_info.get("tmdb_id")
@@ -1174,8 +1175,12 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
         if not search_variants:
             if platform == "douban":
                 search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
+            elif platform in ("imdb", "rottentomatoes", "metacritic"):
+                # IMDb/烂番茄/Metacritic 优先使用 original_title
+                search_title = tmdb_info["original_title"] or tmdb_info.get("title") or tmdb_info.get("name") or ""
             else:
-                search_title = tmdb_info["title"] or tmdb_info["original_title"]
+                # 其他平台沿用本地化标题优先
+                search_title = tmdb_info["title"] or tmdb_info.get("name") or tmdb_info["original_title"]
             
             search_variants = [{
                 "title": search_title,
