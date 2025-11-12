@@ -158,8 +158,12 @@ export default function ProfilePage() {
   useScreenSize();
 
   useEffect(() => {
+    if (user) {
     document.title = `${user?.username} 的个人中心- RateFuse`;
-  }, []);
+  } else {
+    document.title = '个人中心 - RateFuse';
+  }
+}, [user]);
 
   useEffect(() => {
     if (!isLoading && !user) {
