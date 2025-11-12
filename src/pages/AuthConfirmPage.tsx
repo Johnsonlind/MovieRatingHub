@@ -11,6 +11,10 @@ export default function AuthConfirmPage() {
   useAuth();
 
   useEffect(() => {
+    document.title = '验证中 - RateFuse';
+  }, []);
+
+  useEffect(() => {
     const handleConfirm = async () => {
       try {
         console.log('开始处理确认页面');
