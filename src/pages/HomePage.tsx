@@ -45,6 +45,10 @@ export default function HomePage() {
   });
 
   useEffect(() => {
+    document.title = 'RateFuse - 搜索并对比多平台影视评分';
+  }, []);
+
+  useEffect(() => {
     if (searchFromState) {
       setSearchQuery(searchFromState);
       setSearchInput(searchFromState);
