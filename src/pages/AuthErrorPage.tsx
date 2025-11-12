@@ -3,8 +3,14 @@
 // ==========================================
 import { useNavigate } from 'react-router-dom';
 
+import { useEffect } from 'react';
+
 export default function AuthErrorPage() {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    document.title = '验证失败 - RateFuse';
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 flex items-center justify-center p-4">
