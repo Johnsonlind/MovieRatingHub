@@ -2483,7 +2483,8 @@ async def auto_update_charts(
         
         # 更新调度器的last_update（手动更新也应该记录更新时间）
         from datetime import timezone
-        update_time = datetime.now(timezone.utc)
+        beijing_tz = timezone(timedelta(hours=8))
+        update_time = datetime.now(beijing_tz)
         
         # 更新内存中的调度器实例
         from chart_scrapers import scheduler_instance
