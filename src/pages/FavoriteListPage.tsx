@@ -86,6 +86,14 @@ export default function FavoriteListPage() {
   const [editingFavorite, setEditingFavorite] = useState<Favorite | null>(null);
 
   useEffect(() => {
+    if (list) {
+      document.title = `${list.name} - RateFuse`;
+    } else {
+      document.title = '收藏列表 - RateFuse';
+    }
+  }, [list]);
+
+  useEffect(() => {
     const fetchListDetails = async () => {
       try {
         setIsLoading(true); // 确保加载状态正确设置
