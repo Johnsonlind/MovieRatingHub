@@ -94,6 +94,17 @@ export default function MoviePage() {
     staleTime: Infinity
   });
 
+  // 设置页面标题
+  useEffect(() => {
+    if (movie) {
+      const title = movie.title || '电影详情';
+      const year = movie.releaseDate ? ` (${movie.releaseDate.slice(0, 4)})` : '';
+      document.title = `${title}${year} - RateFuse`;
+    } else {
+      document.title = '电影详情 - RateFuse';
+    }
+  }, [movie]);
+
   const [posterBase64, setPosterBase64] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState<Record<string, number>>({});
 
