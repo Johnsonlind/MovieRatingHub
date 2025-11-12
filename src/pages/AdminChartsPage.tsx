@@ -67,6 +67,10 @@ async function searchTMDB(q: string): Promise<SearchResult> {
 export default function AdminChartsPage() {
   const { user, isLoading } = useAuth();
   const [selected] = useState<{ tmdb_id: number; type: 'movie' | 'tv'; title: string; poster: string } | null>(null);
+
+  useEffect(() => {
+    document.title = '榜单录入（管理员） - RateFuse';
+  }, []);
   const [currentList, setCurrentList] = useState<Array<{ tmdb_id:number; rank:number; title:string; poster:string; locked?: boolean }>>([]);
   const [currentListsByType, setCurrentListsByType] = useState<{ movie: Array<{ tmdb_id:number; rank:number; title:string; poster:string; locked?: boolean }>; tv: Array<{ tmdb_id:number; rank:number; title:string; poster:string; locked?: boolean }>}>({ movie: [], tv: [] });
   const [submitting, setSubmitting] = useState(false);
