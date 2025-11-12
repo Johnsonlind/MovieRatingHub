@@ -2632,7 +2632,8 @@ async def start_scheduler_endpoint(
         from chart_scrapers import start_auto_scheduler
         logger.info(f"用户 {current_user.email} 尝试启动调度器")
         
-        scheduler = await start_auto_scheduler()
+        # 启动调度器，传入数据库会话以恢复last_update
+        scheduler = await start_auto_scheduler(db_session=db)
         scheduler_status = scheduler.get_status()
         logger.info(f"调度器启动成功，状态: {scheduler_status}")
         
