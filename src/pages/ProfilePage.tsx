@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../components/auth/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { Upload } from 'lucide-react';
+import { Upload, Users } from 'lucide-react';
 import { getBase64Image } from '../api/image';
 import { ThemeToggle } from '../utils/ThemeToggle';
 import { NavBar } from '../utils/NavBar';
@@ -158,7 +158,7 @@ export default function ProfilePage() {
   useScreenSize();
 
   useEffect(() => {
-    document.title = '个人中心 - RateFuse';
+    document.title = `${user?.username} 的个人中心 - RateFuse`;
   }, []);
 
   useEffect(() => {
