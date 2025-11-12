@@ -2130,12 +2130,13 @@ class AutoUpdateScheduler:
         # 检查是否已经过了今天的21:30
         today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
         
-        # 如果当前时间已经过了今天的21:30，且上次更新不是今天
+        # 如果当前时间已经过了今天的21:30
         if now_beijing >= today_2130:
             if not self.last_update:
+                logger.info(f"应该更新：没有上次更新记录，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}")
                 return True
             
-            # 检查上次更新是否是今天 - 需要正确转换时区
+            # 检查上次更新是否是今天21:30之前 - 需要正确转换时区
             # 如果last_update已经是aware datetime，直接转换；否则认为是naive UTC
             if self.last_update.tzinfo:
                 last_update_beijing = self.last_update.astimezone(beijing_tz)
@@ -2144,8 +2145,13 @@ class AutoUpdateScheduler:
                 last_update_utc = self.last_update.replace(tzinfo=timezone.utc)
                 last_update_beijing = last_update_utc.astimezone(beijing_tz)
             
-            if last_update_beijing.date() < now_beijing.date():
+            # 检查上次更新是否在今天的21:30之前
+            # 如果上次更新是今天21:30之前，或者不是今天，都应该更新
+            if last_update_beijing < today_2130:
+                logger.info(f"应该更新：上次更新({last_update_beijing.strftime('%Y-%m-%d %H:%M:%S')})在今天的21:30之前，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}")
                 return True
+            else:
+                logger.debug(f"不需要更新：上次更新({last_update_beijing.strftime('%Y-%m-%d %H:%M:%S')})在今天的21:30之后，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}")
         
         return False
     
@@ -2225,23 +2231,35 @@ class AutoUpdateScheduler:
 
     async def _update_loop(self):
         """更新循环 - 每分钟检查一次是否到了21:30"""
+        logger.info("更新循环已启动，每分钟检查一次是否到了21:30")
         while self.running:
             try:
+                from datetime import datetime, timezone, timedelta
+                beijing_tz = timezone(timedelta(hours=8))
+                now_beijing = datetime.now(beijing_tz)
+                logger.debug(f"更新循环检查中，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
+                
                 if self.should_update():
+                    logger.info("检测到需要更新，开始执行更新任务...")
                     await self.update_all_charts()
+                else:
+                    logger.debug("当前不需要更新")
                 
                 # 每分钟检查一次
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
+                logger.info("更新循环被取消")
                 break
             except Exception as e:
                 logger.error(f"更新循环出错: {e}")
+                import traceback
+                logger.error(f"详细错误: {traceback.format_exc()}")
                 await asyncio.sleep(60)
 
 # 全局调度器实例
 scheduler_instance: Optional[AutoUpdateScheduler] = None
 
-async def start_auto_scheduler():
+async def start_auto_scheduler(db_session=None):
     """启动全局调度器"""
     global scheduler_instance
     
@@ -2250,6 +2268,17 @@ async def start_auto_scheduler():
     if not scheduler_instance:
         scheduler_instance = AutoUpdateScheduler()
         logger.info("创建新的调度器实例")
+        
+        # 如果提供了数据库会话，尝试从数据库恢复last_update
+        if db_session:
+            try:
+                from models import SchedulerStatus
+                existing_status = db_session.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
+                if existing_status and existing_status.last_update:
+                    scheduler_instance.last_update = existing_status.last_update
+                    logger.info(f"从数据库恢复last_update: {existing_status.last_update}")
+            except Exception as e:
+                logger.warning(f"从数据库恢复last_update失败: {e}")
     
     if not scheduler_instance.running:
         await scheduler_instance.start()
