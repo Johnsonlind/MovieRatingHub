@@ -64,6 +64,14 @@ export default function UserProfilePage() {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   useEffect(() => {
+    if (userInfo) {
+      document.title = `${userInfo.username} - RateFuse`;
+    } else {
+      document.title = '用户主页 - RateFuse';
+    }
+  }, [userInfo]);
+
+  useEffect(() => {
     // 创建一个状态标志，防止组件卸载后设置状态
     let isMounted = true;
     
