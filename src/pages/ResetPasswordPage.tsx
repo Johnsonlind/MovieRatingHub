@@ -16,6 +16,10 @@ export default function ResetPasswordPage() {
   const { resetPassword } = useAuth();
 
   useEffect(() => {
+    document.title = '重置密码 - RateFuse';
+  }, []);
+
+  useEffect(() => {
     if (!token) {
       navigate('/');
     }
