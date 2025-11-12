@@ -2481,6 +2481,26 @@ async def auto_update_charts(
         results['豆瓣华语剧集'] = await scraper.update_douban_weekly_chinese_tv()
         results['豆瓣全球剧集'] = await scraper.update_douban_weekly_global_tv()
         
+        # 更新调度器的last_update（手动更新也应该记录更新时间）
+        from datetime import timezone
+        update_time = datetime.now(timezone.utc)
+        
+        # 更新内存中的调度器实例
+        from chart_scrapers import scheduler_instance
+        if scheduler_instance:
+            scheduler_instance.last_update = update_time
+            logger.info(f"手动更新后，更新调度器实例的last_update: {update_time}")
+        
+        # 更新数据库中的last_update
+        try:
+            db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
+            if db_status:
+                db_status.last_update = update_time
+                db.commit()
+                logger.info("手动更新后，数据库中的last_update已更新")
+        except Exception as db_error:
+            logger.error(f"更新数据库last_update失败: {db_error}")
+        
         return {
             "status": "success",
             "message": "所有榜单数据已成功更新",
