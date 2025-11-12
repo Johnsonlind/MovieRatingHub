@@ -2506,7 +2506,7 @@ async def auto_update_charts(
             "status": "success",
             "message": "所有榜单数据已成功更新",
             "results": results,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": update_time.isoformat()
         }
         
     except Exception as e:
