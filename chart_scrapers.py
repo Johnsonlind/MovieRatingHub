@@ -11,7 +11,7 @@ import logging
 import os
 import httpx
 from typing import List, Dict, Optional, Tuple
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from playwright.async_api import Page
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, not_, func
@@ -2060,6 +2060,7 @@ class AutoUpdateScheduler:
         self.running = False
         self.update_interval = 3600  # 默认1小时
         self.last_update = None
+        self.last_scheduled_run_date = None  # 仅自动定时调度用，记录最近自动调度天数
         self.task = None
         
     async def start(self):
@@ -2231,21 +2232,27 @@ class AutoUpdateScheduler:
 
     async def _update_loop(self):
         """更新循环 - 每分钟检查一次是否到了21:30"""
+        from datetime import datetime, timezone, timedelta, date
         logger.info("更新循环已启动，每分钟检查一次是否到了21:30")
         while self.running:
             try:
-                from datetime import datetime, timezone, timedelta
                 beijing_tz = timezone(timedelta(hours=8))
                 now_beijing = datetime.now(beijing_tz)
+                today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
                 logger.debug(f"更新循环检查中，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
                 
-                if self.should_update():
-                    logger.info("检测到需要更新，开始执行更新任务...")
-                    await self.update_all_charts()
+                if now_beijing >= today_2130:
+                    need_update = (
+                        self.last_scheduled_run_date is None or self.last_scheduled_run_date < now_beijing.date()
+                    )
+                    if need_update:
+                        logger.info(f"满足每日定时条件，将触发自动更新 | 当前日期: {now_beijing.date()}  | 上次定时日期: {self.last_scheduled_run_date}")
+                        await self.update_all_charts()
+                        self.last_scheduled_run_date = now_beijing.date()
+                    else:
+                        logger.debug("已经更新过今日，不再重复自动更新")
                 else:
-                    logger.debug("当前不需要更新")
-                
-                # 每分钟检查一次
+                    logger.debug("当前未到每天21:30，等待到点...")
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 logger.info("更新循环被取消")
