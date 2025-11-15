@@ -2122,24 +2122,24 @@ class AutoUpdateScheduler:
     def should_update(self) -> bool:
         """检查是否应该执行更新 - 每天北京21:30执行（无论之前是否更新过）"""
         from datetime import datetime, timezone, timedelta
-        
+    
         # 获取当前北京时间
         beijing_tz = timezone(timedelta(hours=8))
         now_beijing = datetime.now(beijing_tz)
-        
+    
         # 计算今天的21:30时间范围（21:30:00 到 21:30:59）
         today_2130_start = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
         today_2130_end = now_beijing.replace(hour=21, minute=30, second=59, microsecond=999999)
-        
-        # 检查当前时间是否在21:30这一分钟内（21:30:00 到 21:30:59）
-        is_in_2130_window = today_2130_start <= now_beijing <= today_2130_end
-        
-        if is_in_2130_window:
-            # 如果当前时间在21:30这一分钟内
+    
+        # 检查当前时间是否已经过了今天的21:30
+        is_after_2130 = now_beijing >= today_2130_start
+    
+        if is_after_2130:
+            # 如果当前时间已经过了今天的21:30
             if not self.last_update:
                 logger.info(f"应该更新：没有上次更新记录，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}")
                 return True
-            
+        
             # 检查上次更新是否不在今天的21:30这一分钟内
             # 如果last_update已经是aware datetime，直接转换；否则认为是naive UTC
             if self.last_update.tzinfo:
@@ -2148,12 +2148,11 @@ class AutoUpdateScheduler:
                 # naive datetime认为是UTC时间，先添加UTC时区再转换
                 last_update_utc = self.last_update.replace(tzinfo=timezone.utc)
                 last_update_beijing = last_update_utc.astimezone(beijing_tz)
-            
+        
             # 检查上次更新是否不在今天的21:30这一分钟内
-            # 如果上次更新不在今天21:30:00到21:30:59之间，就应该更新
             last_update_date = last_update_beijing.date()
             today_date = now_beijing.date()
-            
+        
             # 如果上次更新不是今天，或者不在今天的21:30这一分钟内，就应该更新
             if last_update_date != today_date:
                 logger.info(f"应该更新：上次更新({last_update_beijing.strftime('%Y-%m-%d %H:%M:%S')})不是今天，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -2163,7 +2162,7 @@ class AutoUpdateScheduler:
                 return True
             else:
                 logger.debug(f"不需要更新：上次更新({last_update_beijing.strftime('%Y-%m-%d %H:%M:%S')})已在今天的21:30这一分钟内，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}")
-        
+    
         return False
     
     async def update_all_charts(self):
