@@ -2210,8 +2210,15 @@ class AutoUpdateScheduler:
                     # 发送单个平台失败通知
                     await telegram_notifier.send_update_error(str(e), platform_name)
             
-            # 使用UTC时间保存last_update
-            self.last_update = datetime.now(timezone.utc)
+            # 将last_update设置为今天的21:30（北京时间），而不是实际更新时间
+            # 这样无论何时更新，都表示"今天已经在21:30更新过了"，避免重复更新
+            beijing_tz = timezone(timedelta(hours=8))
+            now_beijing = datetime.now(beijing_tz)
+            today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
+            # 转换为UTC时间保存
+            self.last_update = today_2130.astimezone(timezone.utc)
+            logger.info(f"更新完成，将last_update设置为今天的21:30: {today_2130.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
+            
             duration = time.time() - start_time
             
             # 更新数据库中的last_update
