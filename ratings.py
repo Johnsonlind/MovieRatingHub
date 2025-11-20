@@ -496,6 +496,22 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
         if request and await request.is_disconnected():
             return None
         
+        # 额外获取英文版本数据，用于获取英文标题
+        en_title = ""
+        try:
+            en_params = {"language": "en-US"}
+            if "credits" in merged_data or "external_ids" in merged_data:
+                en_params["append_to_response"] = "credits,external_ids"
+            en_response = await client.get(endpoint, params=en_params)
+            if en_response.status_code == 200:
+                en_data = en_response.json()
+                if media_type == "movie":
+                    en_title = en_data.get("title", "")
+                else:
+                    en_title = en_data.get("name", "")
+        except Exception as e:
+            print(f"获取英文标题失败: {e}")
+        
         # 提取基本信息
         if media_type == "movie":
             title = merged_data.get("title", "")
@@ -519,6 +535,7 @@ async def get_tmdb_info(tmdb_id, media_type, request=None):
             "type": media_type,
             "title": title,
             "original_title": original_title,
+            "en_title": en_title,  # 添加英文标题
             "zh_title": zh_title,
             "year": year,
             "director": director,
@@ -1176,8 +1193,31 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
             if platform == "douban":
                 search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
             elif platform in ("imdb", "rottentomatoes", "metacritic"):
-                # IMDb/烂番茄/Metacritic 优先使用 original_title
-                search_title = tmdb_info["original_title"] or tmdb_info.get("title") or tmdb_info.get("name") or ""
+                # IMDb/烂番茄/Metacritic/Trakt 优先使用英文标题
+                # 如果original_title不是英文（包含非ASCII字符），则使用英文标题
+                original_title = tmdb_info.get("original_title", "")
+                en_title = tmdb_info.get("en_title", "")
+                
+                # 判断original_title是否是英文（只包含ASCII字符和基本标点）
+                def is_english_text(text):
+                    if not text:
+                        return False
+                    try:
+                        # 检查是否主要是ASCII字符
+                        ascii_count = sum(1 for c in text if ord(c) < 128)
+                        return ascii_count / len(text) > 0.8  # 80%以上是ASCII字符
+                    except:
+                        return False
+                
+                if original_title and is_english_text(original_title):
+                    # original_title是英文，使用它
+                    search_title = original_title
+                elif en_title:
+                    # original_title不是英文，使用英文标题
+                    search_title = en_title
+                else:
+                    # 没有英文标题，回退到original_title或title
+                    search_title = original_title or tmdb_info.get("title") or tmdb_info.get("name") or ""
             else:
                 # 其他平台沿用本地化标题优先
                 search_title = tmdb_info["title"] or tmdb_info.get("name") or tmdb_info["original_title"]
