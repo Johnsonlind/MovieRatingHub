@@ -954,12 +954,15 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
                     score += 10   
         else:
             # 其他平台或非剧集的匹配逻辑
-            # 获取所有可能的标题
+            # 获取所有可能的标题（包括英文标题）
             tmdb_titles = [
                 tmdb_info.get("title", "").lower(),
                 tmdb_info.get("original_title", "").lower(),
+                tmdb_info.get("en_title", "").lower(),  # 添加英文标题
                 tmdb_info.get("zh_title", "").lower() if platform == "douban" else ""
             ]
+            # 去重
+            tmdb_titles = [t for t in tmdb_titles if t]
             result_title = result.get("title", "").lower()
             
             # 清理标题中的年份信息
@@ -1904,8 +1907,29 @@ async def handle_rt_search(page, search_url, tmdb_info):
                             if not url_type_match:
                                 continue
 
-                            # 修改匹配逻辑
-                            title_match = title.lower() == tmdb_info['title'].lower()
+                            # 修改匹配逻辑：优先使用英文标题匹配
+                            # 获取用于匹配的标题（优先英文标题）
+                            original_title = tmdb_info.get("original_title", "")
+                            en_title = tmdb_info.get("en_title", "")
+                            
+                            def is_english_text(text):
+                                if not text:
+                                    return False
+                                try:
+                                    ascii_count = sum(1 for c in text if ord(c) < 128)
+                                    return ascii_count / len(text) > 0.8
+                                except:
+                                    return False
+                            
+                            # 选择用于匹配的标题
+                            if original_title and is_english_text(original_title):
+                                match_title = original_title
+                            elif en_title:
+                                match_title = en_title
+                            else:
+                                match_title = tmdb_info.get("title", "")
+                            
+                            title_match = title.lower() == match_title.lower()
                             year_match = False
                             
                             if year:
