@@ -83,6 +83,20 @@ export function getTmdbUrl(media: MediaInfo): string | null {
 }
 
 /**
+ * 判断文本是否是英文（主要是ASCII字符）
+ */
+function isEnglishText(text: string): boolean {
+  if (!text) return false;
+  try {
+    // 检查是否主要是ASCII字符（80%以上）
+    const asciiCount = Array.from(text).filter(c => c.charCodeAt(0) < 128).length;
+    return asciiCount / text.length > 0.8;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 生成Trakt评分页面URL
  */
 export function getTraktUrl(media: MediaInfo): string | null {
@@ -90,8 +104,19 @@ export function getTraktUrl(media: MediaInfo): string | null {
   
   // 构建Trakt详情页URL，使用slug格式
   const mediaType = media.type === 'tv' ? 'shows' : 'movies';
-  // 优先使用英文原标题，因为中文标题会被正则移除
-  const title = media.originalTitle || media.title || '';
+  
+  // 优先使用英文标题生成slug
+  // 1. 如果originalTitle是英文，使用它
+  // 2. 如果originalTitle不是英文，但title是英文，使用title
+  // 3. 否则使用originalTitle（作为fallback）
+  let title = '';
+  if (media.originalTitle && isEnglishText(media.originalTitle)) {
+    title = media.originalTitle;
+  } else if (media.title && isEnglishText(media.title)) {
+    title = media.title;
+  } else {
+    title = media.originalTitle || media.title || '';
+  }
   
   let slug = title.toLowerCase()
     .replace(/[^\w\s-]/g, '') // 移除特殊字符
