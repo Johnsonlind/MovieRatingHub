@@ -7,6 +7,7 @@ interface MediaInfo {
   imdbId?: string;
   title?: string;
   originalTitle?: string;
+  enTitle?: string;  // 英文标题
   year?: number;
   type?: 'movie' | 'tv';
 }
@@ -106,11 +107,14 @@ export function getTraktUrl(media: MediaInfo): string | null {
   const mediaType = media.type === 'tv' ? 'shows' : 'movies';
   
   // 优先使用英文标题生成slug
-  // 1. 如果originalTitle是英文，使用它
-  // 2. 如果originalTitle不是英文，但title是英文，使用title
-  // 3. 否则使用originalTitle（作为fallback）
+  // 1. 优先使用enTitle（如果提供）
+  // 2. 如果originalTitle是英文，使用它
+  // 3. 如果originalTitle不是英文，但title是英文，使用title
+  // 4. 否则使用originalTitle（作为fallback）
   let title = '';
-  if (media.originalTitle && isEnglishText(media.originalTitle)) {
+  if (media.enTitle) {
+    title = media.enTitle;
+  } else if (media.originalTitle && isEnglishText(media.originalTitle)) {
     title = media.originalTitle;
   } else if (media.title && isEnglishText(media.title)) {
     title = media.title;
@@ -131,4 +135,3 @@ export function getTraktUrl(media: MediaInfo): string | null {
   
   return `https://trakt.tv/${mediaType}/${slug}`;
 }
-
