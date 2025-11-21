@@ -51,7 +51,6 @@ export function TVShowRatingGrid({
     imdbId: tvShow.imdbId,
     title: tvShow.title,
     originalTitle: tvShow.originalTitle,
-    enTitle: tvShow.enTitle,
     year: tvShow.year,
     type: 'tv' as const
   } : undefined;
