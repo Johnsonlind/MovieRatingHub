@@ -52,7 +52,6 @@ export function MovieRatingGrid({
     imdbId: movie.imdbId,
     title: movie.title,
     originalTitle: movie.originalTitle,
-    enTitle: movie.enTitle,
     year: movie.year,
     type: 'movie' as const
   } : undefined;
