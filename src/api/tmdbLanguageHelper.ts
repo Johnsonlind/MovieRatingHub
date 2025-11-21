@@ -68,7 +68,9 @@ export function mergeMultiLanguageData(dataList: Array<{ data: any; lang: Langua
     'title',           // 电影标题
     'name',            // 电视剧名称
     'original_title',  // 电影原始标题
+    'en_title',        // 电影英文标题
     'original_name',   // 电视剧原始名称
+    'en_name',         // 电视剧英文标题
     'overview',        // 简介
     'tagline',         // 标语
   ];
