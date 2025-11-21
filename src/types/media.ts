@@ -6,7 +6,6 @@ export interface MediaBase {
   type: 'movie' | 'tv';
   title: string;
   originalTitle: string;
-  enTitle?: string;
   year: number;
   overview: string;
   poster: string;
@@ -107,7 +106,6 @@ interface BaseMedia {
   id: number;
   title: string;
   originalTitle: string;
-  enTitle?: string;
   overview: string;
   type: 'movie' | 'tv';
   poster: string;
