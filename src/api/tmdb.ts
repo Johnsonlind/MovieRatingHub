@@ -5,12 +5,11 @@ import axios from 'axios';
 import { TMDB } from './api';
 import type { Movie, TVShow } from '../types/media';
 import { getImageUrl } from './image';
-import { fetchTMDBWithLanguageFallback, getPrimaryLanguage } from './tmdbLanguageHelper';
 
 const api = axios.create({
   baseURL: TMDB.baseUrl,
   params: {
-    language: getPrimaryLanguage(),
+    language: TMDB.language,
   },
 });
 
@@ -20,7 +19,6 @@ function transformTMDBMovie(data: any): Movie {
     id: data.id,
     title: data.title,
     originalTitle: data.original_title,
-    enTitle: data.en_title,
     year: new Date(data.release_date).getFullYear(),
     poster: getImageUrl(data.poster_path, '大', 'poster'),
     backdrop: getImageUrl(data.backdrop_path, '大', 'poster'),
@@ -38,7 +36,6 @@ function transformTMDBTVShow(data: any): TVShow {
     id: data.id,
     title: data.name,
     originalTitle: data.original_name,
-    enTitle: data.en_name,
     year: new Date(data.first_air_date).getFullYear(),
     poster: getImageUrl(data.poster_path, '大', 'poster'),
     backdrop: getImageUrl(data.backdrop_path, '大', 'poster'),
@@ -76,11 +73,15 @@ export async function searchMedia(query: string): Promise<{ movies: Movie[], tvS
 }
 
 export async function fetchTMDBRating(type: 'movie' | 'tv', id: number) {
-  const data = await fetchTMDBWithLanguageFallback(
-    `${TMDB.baseUrl}/${type}/${id}`,
-    {},
-    'reviews'
+  const response = await fetch(
+    `${TMDB.baseUrl}/${type}/${id}?language=zh-CN&append_to_response=reviews`
   );
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch TMDB rating');
+  }
+
+  const data = await response.json();
 
   return {
     rating: data.vote_average,
@@ -96,9 +97,15 @@ export async function fetchTMDBRating(type: 'movie' | 'tv', id: number) {
 }
 
 export async function getTVShowCredits(id: number) {
-  const data = await fetchTMDBWithLanguageFallback(
-    `${TMDB.baseUrl}/tv/${id}/credits`
+  const response = await fetch(
+    `${TMDB.baseUrl}/tv/${id}/credits?language=zh-CN`
   );
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch TV show credits');
+  }
+
+  const data = await response.json();
   
   return {
     cast: data.cast.map((member: any) => ({
@@ -117,15 +124,18 @@ export async function getTVShowCredits(id: number) {
 
 export async function getTVShow(id: number): Promise<TVShow> {
   try {
-    const [detailsData, credits] = await Promise.all([
-      fetchTMDBWithLanguageFallback(
-        `${TMDB.baseUrl}/tv/${id}`,
-        {},
-        'credits'
+    const [details, credits] = await Promise.all([
+      fetch(
+        `${TMDB.baseUrl}/tv/${id}?language=zh-CN&append_to_response=credits`
       ),
       getTVShowCredits(id)
     ]);
 
+    if (!details.ok) {
+      throw new Error('Failed to fetch TV show details');
+    }
+
+    const detailsData = await details.json();
     return transformTMDBTVShow({
       ...detailsData,
       credits
@@ -141,10 +151,15 @@ export async function searchByImdbId(imdbId: string): Promise<{ movies: Movie[],
     // 确保IMDB ID格式正确
     const formattedId = imdbId.startsWith('tt') ? imdbId : `tt${imdbId}`;
     
-    const data = await fetchTMDBWithLanguageFallback(
-      `${TMDB.baseUrl}/find/${formattedId}`,
-      { external_source: 'imdb_id' }
+    const response = await fetch(
+      `${TMDB.baseUrl}/find/${formattedId}?external_source=imdb_id&language=zh-CN`
     );
+
+    if (!response.ok) {
+      throw new Error('查找IMDB ID失败');
+    }
+
+    const data = await response.json();
     
     // 打印返回数据以便调试
     console.log('TMDB find response:', data);
@@ -160,20 +175,21 @@ export async function searchByImdbId(imdbId: string): Promise<{ movies: Movie[],
 }
 
 export async function getMediaDetails(mediaType: string, mediaId: string) {
-  const data = await fetchTMDBWithLanguageFallback(
-    `/api/tmdb-proxy/${mediaType}/${mediaId}`
+  const apiKey = process.env.REACT_APP_TMDB_API_KEY;
+  const response = await fetch(
+    `https://api.themoviedb.org/3/${mediaType}/${mediaId}?api_key=${apiKey}&language=zh-CN`
   );
   
-  let posterPath = '';
-  if (data.poster_path) {
-    posterPath = `/tmdb-images${data.poster_path}`;
+  if (!response.ok) {
+    throw new Error('获取影视详情失败');
   }
   
+  const data = await response.json();
   return {
     media_id: mediaId,
     media_type: mediaType,
-    title: mediaType === 'movie' ? data.title : data.name || data.en_title || data.en_name,
-    poster: posterPath,
+    title: mediaType === 'movie' ? data.title : data.name,
+    poster: `https://image.tmdb.org/t/p/w500${data.poster_path}`,
     year: mediaType === 'movie' ? 
       data.release_date?.split('-')[0] : 
       data.first_air_date?.split('-')[0],
