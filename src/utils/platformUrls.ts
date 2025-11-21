@@ -101,25 +101,22 @@ function isEnglishText(text: string): boolean {
  * 生成Trakt评分页面URL
  */
 export function getTraktUrl(media: MediaInfo): string | null {
-  if (!media.title && !media.originalTitle) return null;
+  if (!media.title && !media.enTitle) return null;
   
   // 构建Trakt详情页URL，使用slug格式
   const mediaType = media.type === 'tv' ? 'shows' : 'movies';
   
   // 优先使用英文标题生成slug
-  // 1. 优先使用enTitle（如果提供）
-  // 2. 如果originalTitle是英文，使用它
-  // 3. 如果originalTitle不是英文，但title是英文，使用title
-  // 4. 否则使用originalTitle（作为fallback）
+  // 1. 如果originalTitle是英文，使用它
+  // 2. 如果originalTitle不是英文，但title是英文，使用title
+  // 3. 否则使用originalTitle（作为fallback）
   let title = '';
-  if (media.enTitle) {
+  if (media.enTitle && isEnglishText(media.enTitle)) {
     title = media.enTitle;
-  } else if (media.originalTitle && isEnglishText(media.originalTitle)) {
-    title = media.originalTitle;
   } else if (media.title && isEnglishText(media.title)) {
     title = media.title;
   } else {
-    title = media.originalTitle || media.title || '';
+    title = media.enTitle || media.title || '';
   }
   
   let slug = title.toLowerCase()
