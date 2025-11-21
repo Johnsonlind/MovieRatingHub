@@ -101,34 +101,37 @@ function isEnglishText(text: string): boolean {
  * 生成Trakt评分页面URL
  */
 export function getTraktUrl(media: MediaInfo): string | null {
-  if (!media.title && !media.enTitle) return null;
-  
+  if (!media.title && !media.originalTitle && !media.enTitle) return null;
+
   // 构建Trakt详情页URL，使用slug格式
   const mediaType = media.type === 'tv' ? 'shows' : 'movies';
-  
+
   // 优先使用英文标题生成slug
   // 1. 如果originalTitle是英文，使用它
   // 2. 如果originalTitle不是英文，但title是英文，使用title
-  // 3. 否则使用originalTitle（作为fallback）
+  // 3. 如果originalTitle和title都不是英文，使用enTitle
+  // 4. 否则使用originalTitle（作为fallback）
   let title = '';
-  if (media.enTitle && isEnglishText(media.enTitle)) {
-    title = media.enTitle;
+  if (media.originalTitle && isEnglishText(media.originalTitle)) {
+    title = media.originalTitle;
   } else if (media.title && isEnglishText(media.title)) {
     title = media.title;
+  } else if (media.enTitle) {
+    title = media.enTitle;
   } else {
-    title = media.enTitle || media.title || '';
+    title = media.originalTitle || media.title || '';
   }
-  
+
   let slug = title.toLowerCase()
     .replace(/[^\w\s-]/g, '') // 移除特殊字符
     .replace(/\s+/g, '-')     // 空格替换为-
     .replace(/--+/g, '-')     // 多个-替换为单个-
     .trim();
-  
+
   // 对于电影，在slug后面添加年份
   if (media.type === 'movie' && media.year) {
     slug = `${slug}-${media.year}`;
   }
-  
+
   return `https://trakt.tv/${mediaType}/${slug}`;
 }
