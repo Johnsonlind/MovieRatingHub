@@ -20,6 +20,7 @@ function transformTMDBMovie(data: any): Movie {
     id: data.id,
     title: data.title,
     originalTitle: data.original_title,
+    enTitle: data.en_title,
     year: new Date(data.release_date).getFullYear(),
     poster: getImageUrl(data.poster_path, '大', 'poster'),
     backdrop: getImageUrl(data.backdrop_path, '大', 'poster'),
@@ -37,6 +38,7 @@ function transformTMDBTVShow(data: any): TVShow {
     id: data.id,
     title: data.name,
     originalTitle: data.original_name,
+    enTitle: data.en_name,
     year: new Date(data.first_air_date).getFullYear(),
     poster: getImageUrl(data.poster_path, '大', 'poster'),
     backdrop: getImageUrl(data.backdrop_path, '大', 'poster'),
@@ -170,7 +172,7 @@ export async function getMediaDetails(mediaType: string, mediaId: string) {
   return {
     media_id: mediaId,
     media_type: mediaType,
-    title: mediaType === 'movie' ? data.title : data.name,
+    title: mediaType === 'movie' ? data.title : data.name || data.en_title || data.en_name,
     poster: posterPath,
     year: mediaType === 'movie' ? 
       data.release_date?.split('-')[0] : 
