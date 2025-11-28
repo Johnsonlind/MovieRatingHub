@@ -306,7 +306,6 @@ def construct_search_url(title, media_type, platform, tmdb_info):
 
     tmdb_id = tmdb_info.get("tmdb_id")
     year = tmdb_info.get("year")
-    en_title = tmdb_info.get("en_title")
 
     search_urls = {
         "douban": {
@@ -318,15 +317,15 @@ def construct_search_url(title, media_type, platform, tmdb_info):
             "tv": f"https://www.imdb.com/find/?q={encoded_title}&s=tt&ttype=tv&ref_=fn_tv"
         },
         "letterboxd": {
-            "movie": f"https://letterboxd.com/search/tmdb:{tmdb_id}/",
+            "movie": f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/",
             "tv": f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/"
         },
         "rottentomatoes": {
-            "movie": f"https://www.rottentomatoes.com/search?search={en_title}",
+            "movie": f"https://www.rottentomatoes.com/search?search={encoded_title}",
             "tv": f"https://www.rottentomatoes.com/search?search={encoded_title}"
         },
         "metacritic": {
-            "movie": f"https://www.metacritic.com/search/{en_title}/?page=1&category=2",
+            "movie": f"https://www.metacritic.com/search/{encoded_title}/?page=1&category=2",
             "tv": f"https://www.metacritic.com/search/{encoded_title}/?page=1&category=1"
         }
     }
@@ -2032,7 +2031,7 @@ async def handle_metacritic_search(page, search_url):
                 try:
                     title_elem = await item.query_selector('.g-text-medium-fluid')
                     year_elem = await item.query_selector('.u-text-uppercase')
-                    url = await item.get_attribute('href')
+                    url = f"/movie/yes-2025/"
                 
                     if title_elem and year_elem and url:
                         title = await title_elem.inner_text()
@@ -2041,7 +2040,7 @@ async def handle_metacritic_search(page, search_url):
                         results.append({
                             "title": title.strip(),
                             "year": year.strip(),
-                            "url": f"https://www.metacritic.com/movie/yes-2025/"
+                            "url": f"https://www.metacritic.com{url}"
                         })
                 except Exception as e:
                     print(f"处理Metacritic单个搜索结果时出错: {e}")
