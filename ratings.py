@@ -1006,7 +1006,7 @@ async def calculate_match_degree(tmdb_info, result, platform=""):
             "imdb": 70,
             "letterboxd": 70,
             "rottentomatoes": 70,
-            "metacritic": 70
+            "metacritic": 0
         }.get(platform, 70)
         
         # 返回匹配结果
@@ -1370,7 +1370,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                             "imdb": 70,
                             "letterboxd": 70,
                             "rottentomatoes": 70,
-                            "metacritic": 30
+                            "metacritic": 0
                         }.get(platform, 70)
 
                     matched_results = []
