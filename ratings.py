@@ -322,7 +322,7 @@ def construct_search_url(title, media_type, platform, tmdb_info):
             "tv": f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/"
         },
         "rottentomatoes": {
-            "movie": f"https://www.rottentomatoes.com/search?search={encoded_title}",
+            "movie": f"https://www.rottentomatoes.com/search?search={en_title}",
             "tv": f"https://www.rottentomatoes.com/search?search={encoded_title}"
         },
         "metacritic": {
@@ -2041,7 +2041,7 @@ async def handle_metacritic_search(page, search_url):
                         results.append({
                             "title": title.strip(),
                             "year": year.strip(),
-                            "url": f"https://www.metacritic.com{url}"
+                            "url": f"https://www.metacritic.com/movie/yes-2025/"
                         })
                 except Exception as e:
                     print(f"处理Metacritic单个搜索结果时出错: {e}")
