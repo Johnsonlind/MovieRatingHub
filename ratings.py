@@ -1326,7 +1326,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                     elif platform == "rottentomatoes":
                         results = await handle_rt_search(page, search_url, tmdb_info)
                     elif platform == "metacritic":
-                        results = "https://www.metacritic.com/movie/yes-2025/"
+                        results = await handle_metacritic_search(page, search_url)
                     else:
                         # 不支持的平台
                         print(f"平台 {platform} 不支持通过搜索页面")
