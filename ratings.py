@@ -306,6 +306,7 @@ def construct_search_url(title, media_type, platform, tmdb_info):
 
     tmdb_id = tmdb_info.get("tmdb_id")
     year = tmdb_info.get("year")
+    en_title = tmdb_info.get("en_title")
 
     search_urls = {
         "douban": {
@@ -325,7 +326,7 @@ def construct_search_url(title, media_type, platform, tmdb_info):
             "tv": f"https://www.rottentomatoes.com/search?search={encoded_title}"
         },
         "metacritic": {
-            "movie": f"https://www.metacritic.com/search/{encoded_title}/?page=1&category=2",
+            "movie": f"https://www.metacritic.com/search/{en_title}/?page=1&category=2",
             "tv": f"https://www.metacritic.com/search/{encoded_title}/?page=1&category=1"
         }
     }
@@ -1156,15 +1157,7 @@ def get_client_ip(request: Request) -> str:
     return request.client.host
 
 async def search_platform(platform, tmdb_info, request=None, douban_cookie=None):
-    """
-    在各平台搜索并返回搜索结果
-    使用多策略搜索：依次尝试所有搜索变体直到找到匹配
-    Args:
-        platform: 平台名称
-        tmdb_info: TMDB信息
-        request: FastAPI请求对象
-        douban_cookie: 用户的豆瓣Cookie（可选）
-    """
+    """在各平台搜索并返回搜索结果"""
     try:
         # 检查请求是否已被取消
         if request and await request.is_disconnected():
@@ -1377,7 +1370,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                             "imdb": 70,
                             "letterboxd": 70,
                             "rottentomatoes": 70,
-                            "metacritic": 70
+                            "metacritic": 30
                         }.get(platform, 70)
 
                     matched_results = []
@@ -2031,7 +2024,7 @@ async def handle_metacritic_search(page, search_url):
                 try:
                     title_elem = await item.query_selector('.g-text-medium-fluid')
                     year_elem = await item.query_selector('.u-text-uppercase')
-                    url = f"/movie/yes-2025/"
+                    url = await item.get_attribute('href')
                 
                     if title_elem and year_elem and url:
                         title = await title_elem.inner_text()
