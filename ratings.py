@@ -306,7 +306,6 @@ def construct_search_url(title, media_type, platform, tmdb_info):
 
     tmdb_id = tmdb_info.get("tmdb_id")
     year = tmdb_info.get("year")
-    en_title = tmdb_info.get("en_title")
 
     search_urls = {
         "douban": {
@@ -326,7 +325,7 @@ def construct_search_url(title, media_type, platform, tmdb_info):
             "tv": f"https://www.rottentomatoes.com/search?search={encoded_title}"
         },
         "metacritic": {
-            "movie": f"https://www.metacritic.com/search/{en_title}/?page=1&category=2",
+            "movie": f"https://www.metacritic.com/search/{encoded_title}/?page=1&category=2",
             "tv": f"https://www.metacritic.com/search/{encoded_title}/?page=1&category=1"
         }
     }
@@ -1327,7 +1326,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                     elif platform == "rottentomatoes":
                         results = await handle_rt_search(page, search_url, tmdb_info)
                     elif platform == "metacritic":
-                        results = await handle_metacritic_search(page, search_url)
+                        results = "https://www.metacritic.com/movie/yes-2025/"
                     else:
                         # 不支持的平台
                         print(f"平台 {platform} 不支持通过搜索页面")
@@ -1370,7 +1369,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                             "imdb": 70,
                             "letterboxd": 70,
                             "rottentomatoes": 70,
-                            "metacritic": 30
+                            "metacritic": 70
                         }.get(platform, 70)
 
                     matched_results = []
@@ -1997,56 +1996,56 @@ async def handle_metacritic_search(page, search_url):
                 await route.abort()
             else:
                 await route.continue_()
-
+        
         await page.route("**/*", block_resources)
-
+        
         await random_delay()
         print(f"访问 Metacritic 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
         await asyncio.sleep(0.2)
-
-        # 检查访问频率限制
+    
+        # 立即检查是否出现访问频率限制
         rate_limit = await check_rate_limit(page, "metacritic")
         if rate_limit:
             print("检测到Metacritic访问限制")
-            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"}
-
+            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
+        
         try:
-            # 查询搜索结果
+            # 检查搜索结果
             items = await page.query_selector_all('[data-testid="search-result-item"]')
-
+            results = []
+            
+            # 如果没有搜索结果
             if not items:
                 return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
-
-            # 只处理第一个结果
-            item = items[0]
-            try:
-                title_elem = await item.query_selector('.g-text-medium-fluid')
-                year_elem = await item.query_selector('.u-text-uppercase')
-                url = await item.get_attribute('href')
-
-                if not (title_elem and year_elem and url):
-                    return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "结构变化或未找到字段"}
-
-                title = (await title_elem.inner_text()).strip()
-                year = (await year_elem.inner_text()).strip()
-
-                return {
-                    "title": title,
-                    "year": year,
-                    "url": f"https://www.metacritic.com{url}",
-                }
-
-            except Exception as e:
-                print(f"处理Metacritic第一个搜索结果时出错: {e}")
-                return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "解析失败"}
-
+            
+            for item in items:
+                try:
+                    title_elem = await item.query_selector('.g-text-medium-fluid')
+                    year_elem = await item.query_selector('.u-text-uppercase')
+                    url = await item.get_attribute('href')
+                
+                    if title_elem and year_elem and url:
+                        title = await title_elem.inner_text()
+                        year = await year_elem.inner_text()
+                    
+                        results.append({
+                            "title": title.strip(),
+                            "year": year.strip(),
+                            "url": f"https://www.metacritic.com{url}"
+                        })
+                except Exception as e:
+                    print(f"处理Metacritic单个搜索结果时出错: {e}")
+                    continue
+        
+            return results if results else {"status": RATING_STATUS["NO_FOUND"]}
+        
         except Exception as e:
             print(f"等待Metacritic搜索结果超时: {e}")
             if "Timeout" in str(e):
                 return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
             return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
-
+            
     except Exception as e:
         print(f"访问Metacritic搜索页面失败: {e}")
         if "Timeout" in str(e):
