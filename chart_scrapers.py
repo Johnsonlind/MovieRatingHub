@@ -337,7 +337,7 @@ class ChartScraper:
             params = {
                 "operationName": "BatchPage_HomeMain",
                 "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
-                "extensions": '{"persistedQuery":{"sha256Hash":"c67332f9e9d91317c63c60dfd1ded1e9cd68c59ead2de57568451b13493812f6","version":1}}'
+                "extensions": '{"persistedQuery":{"sha256Hash":"03e004c2a40a23d81397d93eb497f2728ab23a5e02edfb4d7b89ac8b23b6dd1f","version":1}}'
             }
             
             # 设置请求头
@@ -2350,4 +2350,3 @@ def get_scheduler_status() -> dict:
         }
         logger.info(f"返回默认状态: {status}")
         return status
-
