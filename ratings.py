@@ -1156,7 +1156,15 @@ def get_client_ip(request: Request) -> str:
     return request.client.host
 
 async def search_platform(platform, tmdb_info, request=None, douban_cookie=None):
-    """在各平台搜索并返回搜索结果"""
+    """
+    在各平台搜索并返回搜索结果
+    使用多策略搜索：依次尝试所有搜索变体直到找到匹配
+    Args:
+        platform: 平台名称
+        tmdb_info: TMDB信息
+        request: FastAPI请求对象
+        douban_cookie: 用户的豆瓣Cookie（可选）
+    """
     try:
         # 检查请求是否已被取消
         if request and await request.is_disconnected():
