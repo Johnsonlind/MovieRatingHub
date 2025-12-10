@@ -1770,7 +1770,7 @@ async def handle_rt_search(page, search_url, tmdb_info):
         
         await random_delay()
         print(f"访问 Rotten Tomatoes 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=100000)
         await asyncio.sleep(0.2)
     
         # 立即检查是否出现访问频率限制
