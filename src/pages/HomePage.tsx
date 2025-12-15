@@ -91,7 +91,7 @@ export default function HomePage() {
                           crossOrigin="anonymous"
                         />
                       </Link>
-                      <div className="absolute top-1 right-1">
+                      <div className="absolute top-1 right-1 z-20">
                         <MiniFavoriteButton
                           mediaId={item.id.toString()}
                           mediaType={item.type}
@@ -128,7 +128,7 @@ export default function HomePage() {
                           crossOrigin="anonymous"
                         />
                       </Link>
-                      <div className="absolute top-1 right-1">
+                      <div className="absolute top-1 right-1 z-20">
                         <MiniFavoriteButton
                           mediaId={item.id.toString()}
                           mediaType={item.type}
