@@ -7,6 +7,7 @@ interface MediaInfo {
   imdbId?: string;
   title?: string;
   originalTitle?: string;
+  enTitle?: string;  // 英文标题
   year?: number;
   type?: 'movie' | 'tv';
 }
@@ -86,12 +87,13 @@ export function getTmdbUrl(media: MediaInfo): string | null {
  * 生成Trakt评分页面URL
  */
 export function getTraktUrl(media: MediaInfo): string | null {
-  if (!media.title && !media.originalTitle) return null;
+  if (!media.title && !media.originalTitle && !media.enTitle) return null;
   
   // 构建Trakt详情页URL，使用slug格式
   const mediaType = media.type === 'tv' ? 'shows' : 'movies';
-  // 优先使用英文原标题，因为中文标题会被正则移除
-  const title = media.originalTitle || media.title || '';
+  // 优先使用英文标题(enTitle)，其次是英文原标题(originalTitle)，最后是标题(title)
+  // 因为中文标题会被正则移除，而Trakt主要使用英文标题
+  const title = media.enTitle || media.originalTitle || media.title || '';
   
   let slug = title.toLowerCase()
     .replace(/[^\w\s-]/g, '') // 移除特殊字符
