@@ -296,16 +296,19 @@ def smart_retry(retry_config: RetryConfig):
 def construct_search_url(title, media_type, platform, tmdb_info):
     """根据影视类型构造各平台搜索URL"""
     encoded_title = quote(title)
-    # 为 Metacritic/RottenTomatoes 特别处理标题：去重音/标准化
+    # 为 Metacritic/RottenTomatoes 特别处理标题：使用英文标题，去重音/标准化
     if platform in ("metacritic", "rottentomatoes"):
+        # 优先使用英文标题
+        search_title = tmdb_info.get("en_title") or title
         simplified_title = ''.join(
-            c for c in unicodedata.normalize('NFD', title)
+            c for c in unicodedata.normalize('NFD', search_title)
             if unicodedata.category(c) != 'Mn'
         )
         encoded_title = quote(simplified_title)
 
     tmdb_id = tmdb_info.get("tmdb_id")
     year = tmdb_info.get("year")
+    imdb_id = tmdb_info.get("imdb_id")
 
     search_urls = {
         "douban": {
@@ -317,8 +320,8 @@ def construct_search_url(title, media_type, platform, tmdb_info):
             "tv": f"https://www.imdb.com/find/?q={encoded_title}&s=tt&ttype=tv&ref_=fn_tv"
         },
         "letterboxd": {
-            "movie": f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/",
-            "tv": f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/"
+            "movie": _get_letterboxd_search_urls(tmdb_id, year, imdb_id),
+            "tv": _get_letterboxd_search_urls(tmdb_id, year, imdb_id)
         },
         "rottentomatoes": {
             "movie": f"https://www.rottentomatoes.com/search?search={encoded_title}",
@@ -329,7 +332,22 @@ def construct_search_url(title, media_type, platform, tmdb_info):
             "tv": f"https://www.metacritic.com/search/{encoded_title}/?page=1&category=1"
         }
     }
-    return search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
+    result = search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
+    return result
+
+def _get_letterboxd_search_urls(tmdb_id, year, imdb_id):
+    """为Letterboxd生成多种搜索URL：tmdb+year、imdbid、tmdb"""
+    urls = []
+    # 方式1: tmdb+year
+    if tmdb_id and year:
+        urls.append(f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/")
+    # 方式2: imdbid（如果存在）
+    if imdb_id:
+        urls.append(f"https://letterboxd.com/search/imdb:{imdb_id}/")
+    # 方式3: 仅tmdb
+    if tmdb_id:
+        urls.append(f"https://letterboxd.com/search/tmdb:{tmdb_id}/")
+    return urls if urls else [""]
         
 def _is_empty(value):
     """检查值是否为空"""
@@ -1239,7 +1257,14 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
         async def execute_single_search(search_title, variant_info, browser):
             """执行单个搜索变体的搜索"""
             context = None
-            search_url = construct_search_url(search_title, media_type, platform, tmdb_info)
+            search_url_or_urls = construct_search_url(search_title, media_type, platform, tmdb_info)
+            
+            # 对于letterboxd，可能返回多个URL，需要转换为列表
+            if platform == "letterboxd" and isinstance(search_url_or_urls, list):
+                search_urls = search_url_or_urls
+            else:
+                # 其他平台返回单个URL，转换为列表以便统一处理
+                search_urls = [search_url_or_urls] if search_url_or_urls else []
             
             try:
                 # 先选择 User-Agent
@@ -1303,8 +1328,6 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                     if headers:
                         await page.set_extra_http_headers(headers)
 
-                print(f"{platform} 搜索URL: {search_url}")
-
                 # 添加请求监控
                 async def log_request(req):
                     if req.resource_type == "document":
@@ -1323,22 +1346,49 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                             print("请求已被取消,停止执行")
                             raise RequestCancelledException()
 
-                    # 获取搜索结果
-                    await check_request()
-                    if platform == "douban":
-                        results = await handle_douban_search(page, search_url)
-                    elif platform == "imdb":
-                        results = await handle_imdb_search(page, search_url)
-                    elif platform == "letterboxd":
-                        results = await handle_letterboxd_search(page, search_url, tmdb_info)
-                    elif platform == "rottentomatoes":
-                        results = await handle_rt_search(page, search_url, tmdb_info)
-                    elif platform == "metacritic":
-                        results = await handle_metacritic_search(page, search_url)
+                    # 对于letterboxd，需要尝试多个搜索URL
+                    if platform == "letterboxd" and len(search_urls) > 1:
+                        # 尝试每个搜索URL，直到找到结果或全部失败
+                        for idx, search_url in enumerate(search_urls):
+                            if not search_url:
+                                continue
+                            print(f"{platform} 搜索URL [{idx+1}/{len(search_urls)}]: {search_url}")
+                            await check_request()
+                            results = await handle_letterboxd_search(page, search_url, tmdb_info)
+                            
+                            # 如果找到结果或遇到非"未找到"的错误，停止尝试
+                            if results and not (isinstance(results, dict) and results.get("status") == RATING_STATUS["NO_FOUND"]):
+                                break
+                        
+                        # 如果所有方式都返回未找到，则确认未收录
+                        if results and isinstance(results, dict) and results.get("status") == RATING_STATUS["NO_FOUND"]:
+                            print(f"Letterboxd所有搜索方式都未找到结果，确认未收录")
                     else:
-                        # 不支持的平台
-                        print(f"平台 {platform} 不支持通过搜索页面")
-                        return None
+                        # 其他平台或只有一个URL的情况
+                        if not search_urls:
+                            print(f"{platform} 无法构造搜索URL")
+                            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "无法构造搜索URL"}
+                        search_url = search_urls[0]
+                        if search_url:
+                            print(f"{platform} 搜索URL: {search_url}")
+                            await check_request()
+                            if platform == "douban":
+                                results = await handle_douban_search(page, search_url)
+                            elif platform == "imdb":
+                                results = await handle_imdb_search(page, search_url)
+                            elif platform == "letterboxd":
+                                results = await handle_letterboxd_search(page, search_url, tmdb_info)
+                            elif platform == "rottentomatoes":
+                                results = await handle_rt_search(page, search_url, tmdb_info)
+                            elif platform == "metacritic":
+                                results = await handle_metacritic_search(page, search_url)
+                            else:
+                                # 不支持的平台
+                                print(f"平台 {platform} 不支持通过搜索页面")
+                                return None
+                        else:
+                            print(f"{platform} 搜索URL为空")
+                            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "搜索URL为空"}
 
                     # 检查访问限制
                     await check_request()
