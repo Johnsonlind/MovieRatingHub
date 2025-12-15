@@ -39,7 +39,7 @@ export function MediaCard({ item }: MediaCardProps) {
         </Link>
         
         {/* 收藏按钮 */}
-        <div className="absolute bottom-2 right-2">
+        <div className="absolute bottom-2 right-2 z-20">
           <MiniFavoriteButton
             mediaId={item.id.toString()}
             mediaType={item.type}
