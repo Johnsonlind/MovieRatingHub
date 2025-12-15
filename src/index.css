@@ -182,9 +182,16 @@ body::before {
     linear-gradient(135deg, rgba(59, 130, 246, 0.04) 0%, transparent 50%);
 }
 
-.glass-card > * {
+.glass-card > *:not([class*="absolute"]) {
   position: relative;
   z-index: 1;
+}
+
+/* 确保绝对定位的按钮不被裁剪且层级正确 */
+.glass-card > [class*="absolute"],
+.glass-card > div[class*="absolute"] {
+  z-index: 20 !important;
+  position: absolute !important;
 }
 
 .glass-card:hover {
