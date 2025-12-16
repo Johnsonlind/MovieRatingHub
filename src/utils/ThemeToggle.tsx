@@ -34,13 +34,13 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="fixed bottom-2 left-2 z-30 p-2 rounded-full bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20 backdrop-blur-sm transition-colors"
+      className="fixed bottom-2 left-2 z-30 p-2 rounded-full glass-button"
       aria-label="切换主题"
     >
       {theme === 'light' ? (
-        <Moon className="w-4 h-4" />
+        <Moon className="w-4 h-4 text-gray-800 dark:text-white" />
       ) : (
-        <Sun className="w-4 h-4" />
+        <Sun className="w-4 h-4 text-gray-800 dark:text-white" />
       )}
     </button>
   );
