@@ -71,6 +71,15 @@ const TOP_250_CHARTS = [
   'TMDB 高分剧集 Top 250',
 ];
 
+// 已改为手动录入的榜单（不显示"更新 Top 250"按钮）
+const MANUAL_ONLY_CHARTS = [
+  'IMDb 电影 Top 250',
+  'IMDb 剧集 Top 250',
+  '豆瓣 电影 Top 250',
+  'Metacritic 史上最佳电影 Top 250',
+  'Metacritic 史上最佳剧集 Top 250',
+];
+
 // 平台名称反向映射（前端显示名称 → 后端存储名称）
 const PLATFORM_NAME_REVERSE_MAP: Record<string, string> = {
   'Rotten Tomatoes': '烂番茄',
@@ -975,17 +984,24 @@ export default function AdminChartsPage() {
                       <div className="flex gap-2">
                         {TOP_250_CHARTS.includes(sec.name) && (
                           <>
-                            <button
-                              onClick={() => handleUpdateTop250Chart(platform, sec.name)}
-                              disabled={platformOperations[`${platform}_${sec.name}_update`]}
-                              className={`text-sm px-3 py-1 rounded transition-colors ${
-                                platformOperations[`${platform}_${sec.name}_update`]
-                                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                  : 'bg-orange-500 text-white hover:bg-orange-600'
-                              }`}
-                            >
-                              {platformOperations[`${platform}_${sec.name}_update`] ? '更新中...' : '更新 Top 250'}
-                            </button>
+                            {!MANUAL_ONLY_CHARTS.includes(sec.name) && (
+                              <button
+                                onClick={() => handleUpdateTop250Chart(platform, sec.name)}
+                                disabled={platformOperations[`${platform}_${sec.name}_update`]}
+                                className={`text-sm px-3 py-1 rounded transition-colors ${
+                                  platformOperations[`${platform}_${sec.name}_update`]
+                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                    : 'bg-orange-500 text-white hover:bg-orange-600'
+                                }`}
+                              >
+                                {platformOperations[`${platform}_${sec.name}_update`] ? '更新中...' : '更新 Top 250'}
+                              </button>
+                            )}
+                            {MANUAL_ONLY_CHARTS.includes(sec.name) && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1">
+                                手动录入
+                              </span>
+                            )}
                             <button
                               onClick={() => handleClearTop250Chart(platform, sec.name)}
                               disabled={platformOperations[`${platform}_${sec.name}_clear`]}
