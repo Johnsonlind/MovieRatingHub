@@ -2447,9 +2447,20 @@ async def get_aggregate_charts(db: Session = Depends(get_db)):
         limit=10,
     )
 
-    # 其他两个板块：排除掉豆瓣《一周华语剧集口碑榜》，且按出现频次/名次聚合
-    exclude_pairs = [("豆瓣", "一周华语剧集口碑榜")]
-    movies = aggregate_top(db, media_type="movie", limit=10, chinese_only=False)
+    # 其他两个板块：排除掉豆瓣《一周华语剧集口碑榜》和所有 Top 250 榜单，且按出现频次/名次聚合
+    exclude_pairs = [
+        ("豆瓣", "一周华语剧集口碑榜"),
+        # 排除所有 Top 250 榜单（这些榜单已改为手动录入，不用于首页聚合）
+        ("豆瓣", "豆瓣 Top 250"),
+        ("IMDb", "IMDb Top 250 Movies"),
+        ("IMDb", "IMDb Top 250 TV Shows"),
+        ("MTC", "Metacritic Best Movies of All Time"),
+        ("MTC", "Metacritic Best TV Shows of All Time"),
+        ("Letterboxd", "Letterboxd Official Top 250"),
+        ("TMDB", "TMDB Top 250 Movies"),
+        ("TMDB", "TMDB Top 250 TV Shows"),
+    ]
+    movies = aggregate_top(db, media_type="movie", limit=10, chinese_only=False, exclude_pairs=exclude_pairs)
     tv_candidates = aggregate_top(db, media_type="tv", limit=50, chinese_only=False, exclude_pairs=exclude_pairs)
     # 如果某条目仅出现在被排除榜（即聚合后仍混入），上面的排除逻辑已处理。
     # 为了更稳妥：将候选提升到50后再裁到10，保证频次排序的准确性。
