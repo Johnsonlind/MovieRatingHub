@@ -125,10 +125,10 @@ export function FavoriteButton({ mediaId, mediaType, title, poster, year, overvi
       <button
         onClick={() => setShowDialog(true)}
         disabled={isLoading}
-        className={`fixed bottom-20 left-2 z-30 p-2 rounded-full backdrop-blur-sm transition-colors
+        className={`fixed bottom-20 left-2 z-30 p-2 rounded-full glass-button transition-all
           ${isFavorited 
-            ? 'bg-yellow-500 hover:bg-yellow-600' 
-            : 'bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20'
+            ? '!bg-yellow-500/80 hover:!bg-yellow-500' 
+            : ''
           }`}
         aria-label={isFavorited ? '修改收藏' : '收藏'}
       >
@@ -136,7 +136,7 @@ export function FavoriteButton({ mediaId, mediaType, title, poster, year, overvi
           className={`w-4 h-4 ${
             isFavorited 
               ? 'text-white' 
-              : 'text-gray-700 dark:text-gray-200'
+              : 'text-gray-800 dark:text-white'
           }`} 
           fill={isFavorited ? 'currentColor' : 'none'}
         />
@@ -183,9 +183,7 @@ export function FavoriteButton({ mediaId, mediaType, title, poster, year, overvi
               <select
                 value={selectedList || ''}
                 onChange={(e) => setSelectedList(Number(e.target.value))}
-                className="w-full rounded-md border-2 border-gray-300 dark:border-gray-600 
-                  bg-white dark:bg-gray-700 
-                  text-gray-900 dark:text-gray-100"
+                className="w-full rounded-md glass-dropdown text-gray-900 dark:text-gray-100 px-3 py-2"
               >
                 {lists.map(list => (
                   <option key={list.id} value={list.id}>{list.name}</option>
