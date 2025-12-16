@@ -1163,116 +1163,241 @@ class ChartScraper:
         return saved
 
     async def scrape_imdb_top250(self, chart_url: str, media_type: str) -> List[Dict]:
-        """抓取 IMDb Top 250 榜单（电影或剧集），使用 Playwright 拦截 GraphQL 请求"""
+        """抓取 IMDb Top 250 榜单（电影或剧集），直接从页面 DOM 提取数据"""
         async def scrape_with_browser(browser):
-            page = await browser.new_page()
+            context = None
+            page = None
             try:
-                logger.info(f"访问 IMDb Top 250 页面: {chart_url}")
-                await page.goto(chart_url, wait_until="domcontentloaded", timeout=60000)
-                await asyncio.sleep(2)
+                # 创建浏览器上下文，设置真实的 User-Agent 和 headers（避免被识别为自动化工具）
+                context_options = {
+                    'viewport': {'width': 1920, 'height': 1080},
+                    'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                    'bypass_csp': True,
+                    'ignore_https_errors': True,
+                    'java_script_enabled': True,
+                    'has_touch': False,
+                    'is_mobile': False,
+                    'locale': 'en-US',
+                    'timezone_id': 'America/Los_Angeles',
+                    'extra_http_headers': {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1',
+                        'Cache-Control': 'max-age=0'
+                    }
+                }
                 
-                # 尝试快速等待列表项出现（最多等待5秒）
+                context = await browser.new_context(**context_options)
+                page = await context.new_page()
+                page.set_default_timeout(60000)
+                
+                # 先访问 IMDb 首页，建立会话（降低被识别为爬虫的概率）
+                logger.info("访问 IMDb 首页建立会话...")
                 try:
-                    await page.wait_for_selector('li[data-testid="title-list-item"], li.ipc-metadata-list-summary-item', timeout=5000)
-                except Exception:
-                    pass
+                    await page.goto("https://www.imdb.com/", wait_until="domcontentloaded", timeout=30000)
+                    await asyncio.sleep(2)
+                    # 模拟人类行为：随机滚动
+                    await page.evaluate("window.scrollTo(0, Math.random() * 500)")
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.warning(f"访问 IMDb 首页失败: {e}")
                 
-                # 拦截 GraphQL 请求并获取数据
-                chart_data = None
+                logger.info(f"访问 IMDb Top 250 页面: {chart_url}")
+                await page.goto(chart_url, wait_until="networkidle", timeout=60000)
+                await asyncio.sleep(5)  # 增加等待时间，让 JavaScript 完全加载
                 
-                async def handle_response(response):
-                    nonlocal chart_data
-                    try:
-                        url = response.url
-                        # 检查是否是 GraphQL API 请求
-                        if "api.graphql.imdb.com" in url or "caching.graphql.imdb.com" in url:
-                            try:
-                                data = await response.json()
-                                # 查找包含 Top 250 数据的响应
-                                if isinstance(data, dict):
-                                    # 尝试从不同路径获取数据
-                                    edges = None
-                                    if "data" in data:
-                                        data_obj = data["data"]
-                                        # 检查各种可能的数据路径
-                                        if "chartTitles" in data_obj:
-                                            edges = data_obj["chartTitles"].get("edges", [])
-                                        elif "topMeterTitles" in data_obj:
-                                            edges = data_obj["topMeterTitles"].get("edges", [])
-                                        elif "chart" in data_obj:
-                                            edges = data_obj["chart"].get("edges", [])
-                                    
-                                    if edges and len(edges) > 0:
-                                        chart_data = edges
-                                        logger.info(f"从 GraphQL 响应中获取到 {len(edges)} 条数据")
-                            except Exception as e:
-                                logger.debug(f"解析 GraphQL 响应失败: {e}")
-                    except Exception as e:
-                        logger.debug(f"处理响应失败: {e}")
+                # 滚动页面以触发懒加载，确保所有内容都加载
+                logger.info("滚动页面以加载所有内容...")
+                import re
+                last_json_count = 0
+                scroll_attempts = 0
+                max_scroll_attempts = 15  # 最多滚动15次，确保加载所有250个项目
                 
-                # 监听响应
-                page.on("response", handle_response)
+                while scroll_attempts < max_scroll_attempts:
+                    # 滚动到底部
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    await asyncio.sleep(2)  # 等待懒加载
+                    
+                    # 检查页面源代码中的 JSON 数据数量
+                    page_content = await page.content()
+                    # 统计 currentRank 的数量
+                    rank_count = len(re.findall(r'"currentRank":\d+', page_content))
+                    
+                    logger.debug(f"滚动尝试 {scroll_attempts + 1}: 找到 {rank_count} 个排名数据")
+                    
+                    # 如果找到250个或更多，说明加载完成
+                    if rank_count >= 250:
+                        logger.info(f"已加载所有内容，找到 {rank_count} 个排名数据")
+                        break
+                    
+                    # 如果数量不再增长，可能已经加载完成
+                    if rank_count == last_json_count and rank_count > 0:
+                        logger.debug(f"排名数据数量未增加，可能已加载完成（{rank_count} 个）")
+                        # 再等待一下，确保没有更多内容加载
+                        await asyncio.sleep(2)
+                        page_content = await page.content()
+                        new_count = len(re.findall(r'"currentRank":\d+', page_content))
+                        if new_count == rank_count:
+                            break
+                        rank_count = new_count
+                    
+                    last_json_count = rank_count
+                    scroll_attempts += 1
                 
-                # 等待一段时间让 GraphQL 请求完成
-                await asyncio.sleep(5)
+                # 滚动回顶部
+                await page.evaluate("window.scrollTo(0, 0)")
+                await asyncio.sleep(1)
                 
-                # 如果通过 GraphQL 没有获取到数据，尝试从页面 HTML 中提取
-                if not chart_data:
-                    logger.info("GraphQL 拦截失败，尝试从页面 HTML 提取数据")
-                    try:
-                        # 获取页面内容
-                        content = await page.content()
+                # 从页面源代码中提取 JSON 数据
+                chart_data = []
+                logger.info("从页面源代码提取 JSON 数据")
+                try:
+                    # 获取页面源代码
+                    page_content = await page.content()
+                    import re
+                    import json
+                    
+                    # 匹配模式：查找包含 currentRank 和 id 的 JSON 对象
+                    # Movies 格式: {"currentRank":250,"node":{"id":"tt8108198","titleText":{"text":"Andhadhun"
+                    # TV Shows 格式: {"currentRank":250,"node":{"episodes":...},"id":"tt3895150","titleText":{"text":"Shigatsu wa kimi no uso"
+                    # 使用分段匹配：先找到 currentRank，然后在后续内容中查找 id 和 titleText
+                    # 这样可以处理 node 对象中可能包含的任意字段（如 episodes）
+                    
+                    # 查找所有 currentRank 的位置
+                    rank_matches = list(re.finditer(r'"currentRank":(\d+)', page_content))
+                    logger.info(f"在页面源代码中找到 {len(rank_matches)} 个 currentRank")
+                    
+                    for rank_match in rank_matches:
+                        rank = int(rank_match.group(1))
+                        start_pos = rank_match.start()
+                        # 在 currentRank 后面的合理范围内查找 id 和 titleText（最多5000字符）
+                        segment = page_content[start_pos:start_pos + 5000]
                         
-                        # 尝试从 __NEXT_DATA__ 中提取
-                        import json
-                        import re
-                        json_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', content, re.DOTALL)
-                        if json_match:
-                            try:
-                                next_data = json.loads(json_match.group(1))
-                                # 查找 Top 250 数据
-                                props = next_data.get("props", {})
-                                page_props = props.get("pageProps", {})
-                                # 尝试不同的路径
-                                chart_data = (
-                                    page_props.get("contentData", {}).get("chartTitles", {}).get("edges", []) or
-                                    page_props.get("chartTitles", {}).get("edges", []) or
-                                    []
-                                )
-                                if chart_data:
-                                    logger.info(f"从 __NEXT_DATA__ 中获取到 {len(chart_data)} 条数据")
-                            except Exception as e:
-                                logger.warning(f"解析 __NEXT_DATA__ 失败: {e}")
-                    except Exception as e:
-                        logger.warning(f"从页面 HTML 提取数据失败: {e}")
-                
-                # 如果还是没有数据，尝试直接解析页面上的列表项
-                if not chart_data:
-                    logger.info("尝试从页面 DOM 提取数据")
-                    try:
-                        # 查找包含排名和标题的元素
-                        items = await page.query_selector_all('li[data-testid="title-list-item"]')
-                        if not items:
-                            items = await page.query_selector_all('li.ipc-metadata-list-summary-item')
+                        # 查找 id（必须在 node 对象内，格式："id":"tt1234567"）
+                        id_match = re.search(r'"id":"(tt\d+)"', segment)
+                        if not id_match:
+                            continue
                         
-                        chart_data = []
-                        for idx, item in enumerate(items[:250], 1):
+                        # 查找 titleText（必须在 node 对象内，且在 id 之后）
+                        # titleText 格式: "titleText":{"text":"Title Name"
+                        title_match = re.search(r'"titleText":\s*\{[^}]*"text":\s*"([^"]+)"', segment)
+                        if not title_match:
+                            continue
+                        
+                        imdb_id = id_match.group(1)
+                        title = title_match.group(1)
+                        
+                        # 检查是否已经添加过（避免重复）
+                        if not any(m.get("currentRank") == rank and m.get("node", {}).get("id") == imdb_id for m in chart_data):
+                            # 解码转义字符
+                            title = title.replace('\\"', '"').replace('\\n', ' ').replace('\\/', '/').replace('\\\\', '\\')
+                            chart_data.append({
+                                "currentRank": rank,
+                                "node": {
+                                    "id": imdb_id,
+                                    "titleText": {"text": title}
+                                }
+                            })
+                    
+                    if chart_data:
+                        # 按排名排序
+                        chart_data.sort(key=lambda x: x.get("currentRank", 0))
+                        logger.info(f"从页面源代码提取到 {len(chart_data)} 条数据")
+                        matches = []  # 清空 matches，避免重复处理
+                    else:
+                        matches = []
+                    
+                    # 如果还是没找到，尝试从 DOM 提取（作为后备方案）
+                    if not chart_data:
+                        logger.warning("JSON 提取失败，尝试从 DOM 提取数据（后备方案）...")
+                        items = await page.query_selector_all('a[href*="/title/tt"]')
+                        logger.debug(f"选择器 'a[href*=\"/title/tt\"]' 找到 {len(items)} 个元素")
+                        
+                        for item in items[:250]:
                             try:
-                                # 获取标题链接
-                                link = await item.query_selector('a[href*="/title/tt"]')
+                                # 获取链接元素
+                                if item.tag_name == 'a':
+                                    link = item
+                                else:
+                                    link = await item.query_selector('a[href*="/title/tt"]')
+                                
                                 if link:
                                     href = await link.get_attribute('href')
+                                    if not href:
+                                        continue
+                                    
                                     # 提取 IMDb ID
                                     imdb_match = re.search(r'/title/(tt\d+)/', href)
-                                    if imdb_match:
-                                        imdb_id = imdb_match.group(1)
-                                        # 获取标题
-                                        title_elem = await link.query_selector('h3, .ipc-title__text')
-                                        title = await title_elem.inner_text() if title_elem else ""
-                                        title = title.strip()
-                                        
+                                    if not imdb_match:
+                                        continue
+                                    
+                                    imdb_id = imdb_match.group(1)
+                                    
+                                    # 从 ref 参数中提取排名
+                                    # Movies: chttp_t_1 或 chttp_t_1
+                                    # TV Shows: chttvtp_t_1
+                                    rank = None
+                                    # 尝试 TV Shows 格式：chttvtp_t_1
+                                    rank_match = re.search(r'chttvtp_t_(\d+)', href)
+                                    if rank_match:
+                                        rank = int(rank_match.group(1))
+                                    else:
+                                        # 尝试 Movies 格式：chttp_t_1
+                                        rank_match = re.search(r'chttp_t[^_]*_(\d+)', href)
+                                        if rank_match:
+                                            rank = int(rank_match.group(1))
+                                        else:
+                                            # 尝试其他格式：chttp_tv_1
+                                            rank_match = re.search(r'chttp_tv?_(\d+)', href)
+                                            if rank_match:
+                                                rank = int(rank_match.group(1))
+                                    
+                                    # 如果还没有找到排名，尝试从父元素查找排名元素
+                                    if not rank:
+                                        try:
+                                            # 查找排名元素（可能在父容器中）
+                                            if item.tag_name != 'a':
+                                                rank_elem = await item.query_selector('.ipc-title-link-number, [class*="rank"], [class*="position"], span[class*="rank"]')
+                                            else:
+                                                # 如果是 a 标签，查找父元素
+                                                parent = await link.evaluate_handle('el => el.closest("li, div, tr")')
+                                                if parent:
+                                                    rank_elem = await parent.query_selector('.ipc-title-link-number, [class*="rank"], [class*="position"], span[class*="rank"]')
+                                                else:
+                                                    rank_elem = None
+                                            
+                                            if rank_elem:
+                                                rank_text = await rank_elem.inner_text()
+                                                rank_match = re.search(r'(\d+)', rank_text)
+                                                if rank_match:
+                                                    rank = int(rank_match.group(1))
+                                        except Exception as e:
+                                            logger.debug(f"查找排名元素失败: {e}")
+                                    
+                                    # 如果没有找到排名，使用索引（作为后备方案）
+                                    if not rank:
+                                        rank = len(chart_data) + 1
+                                    
+                                    # 获取标题
+                                    title_elem = await link.query_selector('h3.ipc-title__text, .ipc-title__text, h3')
+                                    title = ""
+                                    if title_elem:
+                                        title = await title_elem.inner_text()
+                                    else:
+                                        # 如果找不到标题元素，尝试从链接文本获取
+                                        title = await link.inner_text()
+                                    title = title.strip()
+                                    
+                                    if title and imdb_id:
                                         chart_data.append({
-                                            "currentRank": idx,
+                                            "currentRank": rank,
                                             "node": {
                                                 "id": imdb_id,
                                                 "titleText": {"text": title}
@@ -1281,13 +1406,77 @@ class ChartScraper:
                             except Exception as e:
                                 logger.debug(f"提取列表项失败: {e}")
                                 continue
-                        
-                        if chart_data:
-                            logger.info(f"从页面 DOM 中获取到 {len(chart_data)} 条数据")
-                    except Exception as e:
-                        logger.warning(f"从页面 DOM 提取数据失败: {e}")
+                    
+                    if chart_data:
+                        logger.info(f"从页面 DOM 中获取到 {len(chart_data)} 条数据")
+                    else:
+                        logger.warning("未能从页面提取到任何数据")
+                except Exception as e:
+                    logger.error(f"从页面 DOM 提取数据失败: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                 
                 if not chart_data:
+                    # 保存页面截图用于调试
+                    import os
+                    from datetime import datetime
+                    screenshot_dir = "screenshots"
+                    os.makedirs(screenshot_dir, exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    screenshot_path = os.path.join(screenshot_dir, f"imdb_top250_{media_type}_{timestamp}.png")
+                    try:
+                        await page.screenshot(path=screenshot_path, full_page=True)
+                        logger.info(f"已保存页面截图到: {screenshot_path}")
+                    except Exception as screenshot_error:
+                        logger.warning(f"保存截图失败: {screenshot_error}")
+                    
+                    # 检查是否是 403 错误
+                    try:
+                        page_title = await page.title()
+                        page_content = await page.content()
+                        logger.error(f"页面标题: {page_title}")
+                        
+                        # 检查是否是 403 或反爬虫页面（只在页面标题或内容明确包含时才报错）
+                        # 注意：如果页面标题正常（如 "IMDb Top 250 movies"），说明页面加载成功，不应该报 403
+                        if ("403" in page_title or "Forbidden" in page_title) and "Top 250" not in page_title:
+                            raise Exception("遇到反爬虫机制（403 Forbidden），请稍后重试或检查网络连接")
+                        # 检查页面内容中是否有明确的 403 错误信息
+                        if "403" in page_content[:1000] and "Forbidden" in page_content[:1000] and "Top 250" not in page_title:
+                            raise Exception("遇到反爬虫机制（403 Forbidden），请稍后重试或检查网络连接")
+                        elif "error" in page_title.lower() or "not found" in page_title.lower():
+                            raise Exception(f"页面错误: {page_title}")
+                        
+                        # 如果页面标题正常，说明页面加载了，但选择器可能不对
+                        # 尝试打印页面内容的一部分用于调试
+                        if "Top 250" in page_title:
+                            logger.warning("页面加载成功，但未能提取数据。可能是选择器不匹配。")
+                            # 尝试查找任何包含 IMDb ID 的元素
+                            all_elements = await page.query_selector_all('*')
+                            logger.warning(f"页面共有 {len(all_elements)} 个元素")
+                            # 查找所有包含 /title/ 的链接
+                            all_title_links = await page.query_selector_all('a[href*="/title/"]')
+                            logger.warning(f"找到 {len(all_title_links)} 个包含 /title/ 的链接")
+                            if all_title_links:
+                                # 打印前几个链接的 href
+                                for i, link in enumerate(all_title_links[:5]):
+                                    try:
+                                        href = await link.get_attribute('href')
+                                        logger.warning(f"链接示例 {i+1}: {href}")
+                                    except:
+                                        pass
+                            
+                            # 保存页面 HTML 用于调试
+                            html_path = os.path.join(screenshot_dir, f"imdb_top250_{media_type}_{timestamp}.html")
+                            try:
+                                with open(html_path, 'w', encoding='utf-8') as f:
+                                    f.write(page_content)
+                                logger.info(f"已保存页面 HTML 到: {html_path}")
+                            except Exception as html_error:
+                                logger.warning(f"保存 HTML 失败: {html_error}")
+                    except Exception as check_error:
+                        if "反爬虫机制" in str(check_error) or "页面错误" in str(check_error):
+                            raise check_error
+                        pass
                     raise Exception("未能获取到 IMDb Top 250 数据")
                 
                 # 解析数据
@@ -1329,7 +1518,10 @@ class ChartScraper:
                 logger.error(traceback.format_exc())
                 return []
             finally:
-                await page.close()
+                if page:
+                    await page.close()
+                if context:
+                    await context.close()
         
         # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
         try:
@@ -1339,11 +1531,7 @@ class ChartScraper:
             return []
 
     async def update_imdb_top250_movies(self) -> int:
-        """IMDb Top 250 Movies → 'IMDb / IMDb Top 250 Movies'
-        
-        注意：此方法已改为手动录入，不再支持自动更新。
-        请在管理界面手动填写排名。
-        """
+        """IMDb Top 250 Movies → 'IMDb / IMDb Top 250 Movies'"""
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'IMDb',
@@ -1431,11 +1619,7 @@ class ChartScraper:
         return saved
 
     async def update_imdb_top250_tv(self) -> int:
-        """IMDb Top 250 TV Shows → 'IMDb / IMDb Top 250 TV Shows'
-        
-        注意：此方法已改为手动录入，不再支持自动更新。
-        请在管理界面手动填写排名。
-        """
+        """IMDb Top 250 TV Shows → 'IMDb / IMDb Top 250 TV Shows'"""
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'IMDb',
@@ -1619,14 +1803,16 @@ class ChartScraper:
                     
                     # 检查是否返回"禁止访问"页面
                     if '禁止访问' in page_title or '禁止' in page_title:
-                        logger.error(f"第 {page_num + 1} 页返回禁止访问页面，停止抓取")
-                        break
+                        logger.error(f"第 {page_num + 1} 页返回禁止访问页面，需要验证")
+                        # 抛出特殊异常，通知前端需要验证
+                        raise Exception("ANTI_SCRAPING_DETECTED")
                     
                     # 检查页面内容是否包含"禁止访问"
                     page_content = await page.content()
                     if '禁止访问' in page_content or '<title>禁止访问</title>' in page_content:
-                        logger.error(f"第 {page_num + 1} 页检测到禁止访问，停止抓取")
-                        break
+                        logger.error(f"第 {page_num + 1} 页检测到禁止访问，需要验证")
+                        # 抛出特殊异常，通知前端需要验证
+                        raise Exception("ANTI_SCRAPING_DETECTED")
                     
                     # 等待关键元素出现（优化等待策略）
                     try:
@@ -1896,11 +2082,7 @@ class ChartScraper:
             return None
 
     async def update_douban_top250(self, douban_cookie: Optional[str] = None, request: Optional['Request'] = None) -> int:
-        """豆瓣 Top 250 → '豆瓣 / 豆瓣 Top 250'
-        
-        注意：此方法已改为手动录入，不再支持自动更新。
-        请在管理界面手动填写排名。
-        """
+        """豆瓣 Top 250 → '豆瓣 / 豆瓣 Top 250'"""
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == '豆瓣',
@@ -2293,6 +2475,17 @@ class ChartScraper:
                 page = await context.new_page()
                 page.set_default_timeout(60000)
                 
+                # 先访问 Metacritic 首页，建立会话（降低被识别为爬虫的概率）
+                logger.info("访问 Metacritic 首页建立会话...")
+                try:
+                    await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded", timeout=30000)
+                    await asyncio.sleep(2)
+                    # 模拟人类行为：随机滚动
+                    await page.evaluate("window.scrollTo(0, Math.random() * 500)")
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.warning(f"访问 Metacritic 首页失败: {e}")
+                
                 all_items = []
                 base_url = f"https://www.metacritic.com/browse/{media_type}/"
                 
@@ -2318,114 +2511,121 @@ class ChartScraper:
                     page_title = await page.title()
                     logger.debug(f"第 {page_num} 页页面标题: {page_title}")
                     
-                    # 等待列表容器出现（增加等待时间）
-                    try:
-                        await page.wait_for_selector('div.c-productListings_grid', timeout=10000)
-                    except Exception as e:
-                        logger.warning(f"第 {page_num} 页等待列表容器超时: {e}")
-                        # 如果等待超时，检查页面内容
+                    # 逐步滚动页面以确保所有内容都加载（Metacritic 页面是懒加载）
+                    logger.info(f"第 {page_num} 页开始滚动加载内容...")
+                    last_count = 0
+                    scroll_attempts = 0
+                    max_scroll_attempts = 10  # 最多滚动10次
+                    
+                    while scroll_attempts < max_scroll_attempts:
+                        # 获取页面源代码，统计卡片数量
                         page_content = await page.content()
-                        content_preview = page_content[:500] if len(page_content) > 500 else page_content
-                        logger.warning(f"第 {page_num} 页内容预览: {content_preview}")
-                    
-                    # 滚动页面以确保所有内容都加载（Metacritic 页面可能是懒加载）
-                    try:
-                        # 先滚动到底部
+                        # 统计 c-finderProductCard_titleHeading 的数量（每个卡片有一个）
+                        card_count = len(re.findall(r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"', page_content))
+                        logger.debug(f"第 {page_num} 页滚动尝试 {scroll_attempts + 1}: 找到 {card_count} 个卡片")
+                        
+                        # 如果已经找到24个或更多，说明加载完成
+                        if card_count >= 24:
+                            logger.info(f"第 {page_num} 页已加载完成，共 {card_count} 个卡片")
+                            break
+                        
+                        # 如果数量没有增加，说明可能已经加载完所有内容
+                        if card_count == last_count and card_count > 0:
+                            logger.debug(f"第 {page_num} 页卡片数量未增加，可能已加载完成")
+                            # 再等待一下，确保没有更多内容加载
+                            await asyncio.sleep(2)
+                            page_content = await page.content()
+                            new_count = len(re.findall(r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"', page_content))
+                            if new_count == card_count:
+                                break
+                            card_count = new_count
+                        
+                        last_count = card_count
+                        
+                        # 滚动到页面底部
                         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        await asyncio.sleep(1)
-                        # 再滚动回顶部
-                        await page.evaluate("window.scrollTo(0, 0)")
-                        await asyncio.sleep(1)
-                        # 再次滚动到底部，确保所有内容加载
-                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        await asyncio.sleep(2)
-                    except Exception as e:
-                        logger.debug(f"滚动页面时出错: {e}")
+                        await asyncio.sleep(2)  # 等待懒加载内容出现
+                        
+                        scroll_attempts += 1
                     
-                    # 查找包含列表的容器
-                    grid_container = await page.query_selector('div.c-productListings_grid')
-                    if not grid_container:
-                        logger.warning(f"Metacritic Top 250 ({media_type}) 第 {page_num} 页: 未找到列表容器")
-                        # 尝试备用选择器
-                        grid_container = await page.query_selector('div[class*="productListings"]')
-                        if not grid_container:
-                            logger.warning(f"Metacritic Top 250 ({media_type}) 第 {page_num} 页: 备用选择器也未找到列表容器")
-                            continue
+                    # 从页面源代码提取数据
+                    page_content = await page.content()
+                    logger.info(f"第 {page_num} 页从页面源代码提取数据...")
                     
-                    # 解析页面，获取项目列表
-                    items = await grid_container.query_selector_all('div.c-finderProductCard')
-                    logger.info(f"第 {page_num} 页找到 {len(items)} 个卡片元素")
+                    # 匹配模式：从 HTML 源代码中提取
+                    # 排名：<span>2.</span> 中的 2
+                    # 片名：<span>片名</span> 或 data-title="片名"
+                    # 年份：从日期字符串中提取（如 "Oct 22, 1970" -> 1970）
                     
-                    # 如果只找到 12 个，可能是页面需要更多时间加载，再等待并重新获取
-                    if len(items) == 12:
-                        logger.debug(f"第 {page_num} 页只找到 12 个元素，等待更长时间后重试...")
-                        await asyncio.sleep(3)
-                        # 再次滚动到底部
-                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        await asyncio.sleep(2)
-                        # 重新获取元素
-                        items = await grid_container.query_selector_all('div.c-finderProductCard')
-                        logger.info(f"第 {page_num} 页重新获取后找到 {len(items)} 个卡片元素")
-                    
-                    # 如果找到 0 个元素，尝试备用选择器
-                    if len(items) == 0:
-                        items = await grid_container.query_selector_all('div[class*="finderProductCard"]')
-                        logger.info(f"第 {page_num} 页使用备用选择器找到 {len(items)} 个卡片元素")
-                    
-                    # 如果还是 0 个，记录调试信息
-                    if len(items) == 0:
-                        page_content = await page.content()
-                        content_preview = page_content[:500] if len(page_content) > 500 else page_content
-                        logger.warning(f"第 {page_num} 页未找到卡片元素，页面内容预览: {content_preview}")
+                    # 方法1：查找所有包含 c-finderProductCard_titleHeading 的块
+                    # 每个标题块包含排名和片名
+                    heading_pattern = r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"[^>]*>(.*?)</h3>'
+                    headings = re.findall(heading_pattern, page_content, re.DOTALL)
+                    logger.debug(f"第 {page_num} 页找到 {len(headings)} 个标题元素")
                     
                     page_items_count = 0
-                    for item in items:
+                    for heading_html in headings:
                         try:
-                            # 获取标题元素
-                            title_heading = await item.query_selector('h3.c-finderProductCard_titleHeading')
-                            if not title_heading:
-                                # 尝试备用选择器
-                                title_heading = await item.query_selector('h3[class*="titleHeading"]')
-                                if not title_heading:
-                                    continue
+                            # 提取排名：<span>2.</span> 中的 2
+                            rank_match = re.search(r'<span>(\d+)\.</span>', heading_html)
+                            if not rank_match:
+                                continue
+                            rank = int(rank_match.group(1))
                             
-                            # 获取所有 span 元素
-                            spans = await title_heading.query_selector_all('span')
+                            # 提取片名：<span>片名</span>（在排名之后）
+                            title_match = re.search(r'<span>\d+\.</span>\s*<span>([^<]+)</span>', heading_html)
+                            title = None
+                            if title_match:
+                                title = title_match.group(1).strip()
                             
-                            rank = None
-                            title = ""
+                            # 如果从标题 HTML 中没找到，尝试从页面中查找对应的 data-title
+                            if not title:
+                                # 在页面中查找包含这个排名的完整卡片块
+                                rank_escaped = rank_match.group(0)
+                                card_block_pattern = rf'{re.escape(rank_escaped)}.*?data-title="([^"]+)"'
+                                data_title_match = re.search(card_block_pattern, page_content, re.DOTALL)
+                                if data_title_match:
+                                    title = data_title_match.group(1).strip()
+                            
+                            if not title:
+                                continue
+                            
+                            # 提取年份：查找对应的日期信息
+                            # 在页面中查找包含这个标题的卡片块，然后提取日期
                             year = None
+                            # 先尝试从标题块在页面中的位置附近查找日期
+                            heading_start = page_content.find(heading_html)
+                            if heading_start != -1:
+                                # 在标题块后面1000字符内查找日期（包含 meta 区域）
+                                date_segment = page_content[heading_start:heading_start + 1000]
+                                date_match = re.search(r'<span[^>]*class="[^"]*u-text-uppercase[^"]*"[^>]*>([^<]+)</span>', date_segment)
+                                if date_match:
+                                    date_text = date_match.group(1).strip()
+                                    year_match = re.search(r'(\d{4})', date_text)
+                                    if year_match:
+                                        year = int(year_match.group(1))
                             
-                            for span in spans:
-                                text = await span.inner_text()
-                                text = text.strip()
-                                
-                                # 检查是否是排名（如 "1."）
-                                if text.endswith('.') and text[:-1].isdigit():
-                                    rank = int(text[:-1])
-                                # 检查是否包含年份（如 "Dekalog (1988)"）
-                                elif '(' in text and ')' in text:
-                                    # 提取标题和年份
-                                    match = re.search(r'^(.+?)\s*\((\d{4})\)$', text)
-                                    if match:
-                                        title = match.group(1).strip()
-                                        year = int(match.group(2))
-                                    else:
-                                        title = text
-                                # 如果没有年份，可能是纯标题
-                                elif not title and text:
-                                    title = text
+                            # 如果还没找到，尝试在整个页面中查找包含这个标题的卡片块
+                            if not year:
+                                title_escaped = re.escape(title)
+                                rank_escaped = rank_match.group(0)
+                                # 查找包含排名和标题的卡片块，然后提取日期
+                                card_block_pattern = rf'(?:data-title="{title_escaped}"|{re.escape(rank_escaped)}.*?<span>{re.escape(title)}</span>).*?<span[^>]*class="[^"]*u-text-uppercase[^"]*"[^>]*>([^<]+)</span>'
+                                date_match = re.search(card_block_pattern, page_content, re.DOTALL)
+                                if date_match:
+                                    date_text = date_match.group(1).strip()
+                                    year_match = re.search(r'(\d{4})', date_text)
+                                    if year_match:
+                                        year = int(year_match.group(1))
                             
-                            # 如果排名和标题都获取到了
-                            if rank and title:
-                                all_items.append({
-                                    'rank': rank,
-                                    'title': title,
-                                    'year': year
-                                })
-                                page_items_count += 1
+                            all_items.append({
+                                'rank': rank,
+                                'title': title,
+                                'year': year
+                            })
+                            page_items_count += 1
                         except Exception as e:
-                            logger.warning(f"解析项目失败: {e}")
+                            logger.warning(f"解析 Metacritic 项目失败: {e}")
                             continue
                     
                     logger.info(f"第 {page_num} 页成功解析 {page_items_count} 个项目")
@@ -2458,11 +2658,7 @@ class ChartScraper:
             return []
 
     async def update_metacritic_best_movies(self) -> int:
-        """Metacritic Best Movies of All Time → 'MTC / Metacritic Best Movies of All Time'
-        
-        注意：此方法已改为手动录入，不再支持自动更新。
-        请在管理界面手动填写排名。
-        """
+        """Metacritic Best Movies of All Time → 'MTC / Metacritic Best Movies of All Time'"""
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'MTC',
@@ -2552,11 +2748,7 @@ class ChartScraper:
         return saved
 
     async def update_metacritic_best_tv(self) -> int:
-        """Metacritic Best TV Shows of All Time → 'MTC / Metacritic Best TV Shows of All Time'
-        
-        注意：此方法已改为手动录入，不再支持自动更新。
-        请在管理界面手动填写排名。
-        """
+        """Metacritic Best TV Shows of All Time → 'MTC / Metacritic Best TV Shows of All Time'"""
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'MTC',
