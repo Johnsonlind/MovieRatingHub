@@ -72,7 +72,10 @@ const TOP_250_CHARTS = [
 ];
 
 // 已改为手动录入的榜单（不显示"更新 Top 250"按钮）
-const MANUAL_ONLY_CHARTS = [
+const MANUAL_ONLY_CHARTS: string[] = [];
+
+// 支持手动录入的榜单（即使也支持自动抓取，仍可手动录入）
+const MANUAL_ENTRY_CHARTS = [
   'IMDb 电影 Top 250',
   'IMDb 剧集 Top 250',
   '豆瓣 电影 Top 250',
@@ -156,6 +159,14 @@ export default function AdminChartsPage() {
   
   // Telegram通知测试状态
   const [testingNotification, setTestingNotification] = useState(false);
+  
+  // 反爬虫验证状态
+  const [antiScrapingState, setAntiScrapingState] = useState<{
+    show: boolean;
+    platform: string;
+    chartName: string;
+    verificationStarted: boolean;
+  } | null>(null);
 
   // 固定深色模式（移除主题切换）
 
@@ -429,6 +440,8 @@ export default function AdminChartsPage() {
       
       if (response.ok) {
         setUpdateStatus(`${chartName} 更新成功！`);
+        // 清除验证状态
+        setAntiScrapingState(null);
         // 刷新当前列表
         if (activeKey) {
           const [currentPlatform, currentChartName, media_type] = activeKey.split(':');
@@ -436,15 +449,48 @@ export default function AdminChartsPage() {
             loadCurrentList(currentPlatform, currentChartName, media_type as SectionType);
           }
         }
+      } else if (response.status === 428 && result.detail?.error === 'ANTI_SCRAPING_DETECTED') {
+        // 遇到反爬虫机制，显示验证提示
+        setAntiScrapingState({
+          show: true,
+          platform: platform,
+          chartName: chartName,
+          verificationStarted: false,
+        });
+        setUpdateStatus('遇到反爬虫机制，请验证');
       } else {
-        setUpdateStatus(`更新失败: ${result.detail || '未知错误'}`);
+        setUpdateStatus(`更新失败: ${result.detail?.message || result.detail || '未知错误'}`);
       }
     } catch (error) {
       setUpdateStatus(`更新失败: ${error}`);
     } finally {
-      setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
-      // 3秒后清除状态消息
-      setTimeout(() => setUpdateStatus(''), 3000);
+      if (!antiScrapingState || !antiScrapingState.show) {
+        setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
+        // 3秒后清除状态消息（除非是验证状态）
+        setTimeout(() => {
+          if (!antiScrapingState || !antiScrapingState.show) {
+            setUpdateStatus('');
+          }
+        }, 3000);
+      }
+    }
+  }
+  
+  function handleStartVerification() {
+    if (antiScrapingState) {
+      // 打开新标签页
+      window.open('https://movie.douban.com/', '_blank');
+      // 更新状态
+      setAntiScrapingState(prev => prev ? { ...prev, verificationStarted: true } : null);
+    }
+  }
+  
+  async function handleCompleteVerification() {
+    if (antiScrapingState) {
+      // 继续抓取
+      await handleUpdateTop250Chart(antiScrapingState.platform, antiScrapingState.chartName);
+      // 清除验证状态
+      setAntiScrapingState(null);
     }
   }
 
@@ -819,6 +865,50 @@ export default function AdminChartsPage() {
 
   return (
     <div className={`min-h-screen bg-[var(--page-bg)]`}>
+      {/* 反爬虫验证提示 */}
+      {antiScrapingState && antiScrapingState.show && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className={`w-full max-w-md rounded-lg p-6 glass-card`}>
+            <div className="flex items-center justify-between mb-4">
+              <div className={`text-lg font-semibold text-gray-800 dark:text-white`}>
+                遇到反爬虫机制，请验证
+              </div>
+            </div>
+            <div className={`mb-4 text-gray-700 dark:text-gray-300`}>
+              <p>抓取 {antiScrapingState.chartName} 时遇到反爬虫机制。</p>
+              <p className="mt-2">请点击"验证"按钮，在新标签页中完成验证后，点击"验证完成"继续抓取。</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setAntiScrapingState(null);
+                  const operationKey = `${antiScrapingState.platform}_${antiScrapingState.chartName}_update`;
+                  setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
+                  setUpdateStatus('');
+                }}
+                className={`px-4 py-2 rounded transition-colors bg-gray-700 text-gray-200 hover:bg-gray-600`}
+              >
+                取消
+              </button>
+              {!antiScrapingState.verificationStarted ? (
+                <button
+                  onClick={handleStartVerification}
+                  className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                >
+                  验证
+                </button>
+              ) : (
+                <button
+                  onClick={handleCompleteVerification}
+                  className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 transition-colors"
+                >
+                  验证完成
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <ThemeToggle />
       <div className={`container mx-auto px-4 py-6 transition-colors`}>
         <div className="flex justify-between items-center mb-4">
@@ -997,6 +1087,19 @@ export default function AdminChartsPage() {
                                 {platformOperations[`${platform}_${sec.name}_update`] ? '更新中...' : '更新 Top 250'}
                               </button>
                             )}
+                            {MANUAL_ENTRY_CHARTS.includes(sec.name) && (
+                              <button
+                                onClick={() => {
+                                  // 展开榜单以便手动录入
+                                  if (activeKey !== key) {
+                                    setActiveKey(key);
+                                  }
+                                }}
+                                className={`text-sm px-3 py-1 rounded transition-colors bg-blue-500 text-white hover:bg-blue-600`}
+                              >
+                                手动录入
+                              </button>
+                            )}
                             <button
                               onClick={() => handleClearTop250Chart(platform, sec.name)}
                               disabled={platformOperations[`${platform}_${sec.name}_clear`]}
@@ -1032,16 +1135,16 @@ export default function AdminChartsPage() {
                     </div>
                     {activeKey === key && (
                       <div className="space-y-3">
-                        {MANUAL_ONLY_CHARTS.includes(sec.name) ? (
+                        {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name)) ? (
                           // 手动录入的 Top 250 榜单：表格形式
                           <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
                             <table className="w-full border-collapse">
-                              <thead className={`sticky top-0 bg-gray-900 z-10`}>
-                                <tr className={`border-b border-gray-600`}>
-                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-800 dark:text-white w-16`}>排名</th>
-                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-800 dark:text-white w-20`}>海报</th>
-                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-800 dark:text-white`}>标题</th>
-                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-800 dark:text-white w-32`}>操作</th>
+                              <thead className={`sticky top-0 bg-gray-100 dark:bg-gray-900 z-10`}>
+                                <tr className={`border-b border-gray-300 dark:border-gray-600`}>
+                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-900 dark:text-white w-16`}>排名</th>
+                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-900 dark:text-white w-20`}>海报</th>
+                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-900 dark:text-white`}>标题</th>
+                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-900 dark:text-white w-32`}>操作</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -1049,8 +1152,8 @@ export default function AdminChartsPage() {
                                   const current = currentList.find(i => i.rank === r);
                                   const locked = (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
                                   return (
-                                    <tr key={r} className={`border-b border-gray-700 hover:bg-gray-800/30 ${current ? '' : 'opacity-60'}`}>
-                                      <td className={`py-2 px-3 text-sm text-gray-800 dark:text-white font-medium text-center`}>{r}</td>
+                                    <tr key={r} className={`border-b border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800/30 ${current ? '' : 'opacity-60'}`}>
+                                      <td className={`py-2 px-3 text-sm text-gray-900 dark:text-white font-medium text-center`}>{r}</td>
                                       <td className={`py-2 px-3`}>
                                         <div className={`w-12 h-18 overflow-hidden rounded bg-gray-700`}>
                                           {current?.poster ? (
@@ -1062,8 +1165,8 @@ export default function AdminChartsPage() {
                                           )}
                                         </div>
                                       </td>
-                                      <td className={`py-2 px-3 text-sm text-gray-800 dark:text-white`}>
-                                        {current?.title || <span className="text-gray-500">-</span>}
+                                      <td className={`py-2 px-3 text-sm text-gray-900 dark:text-white`}>
+                                        {current?.title || <span className="text-gray-500 dark:text-gray-400">-</span>}
                                       </td>
                                       <td className={`py-2 px-3`}>
                                         <div className="flex gap-1 items-center whitespace-nowrap">
@@ -1180,7 +1283,7 @@ export default function AdminChartsPage() {
                       </div>
                     )}
                     <div className={`text-xs mt-2 text-gray-600 dark:text-gray-400`}>
-                      {MANUAL_ONLY_CHARTS.includes(sec.name) 
+                      {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name))
                         ? '提示：点击"选择"按钮后搜索选择影视作品，排名由表格行号决定。' 
                         : '提示：点击排名按钮后进行搜索选择并完成。'}
                     </div>
