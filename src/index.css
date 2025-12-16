@@ -93,6 +93,11 @@ body::before {
   overflow: hidden;
 }
 
+/* NavBar 容器需要 overflow-visible 以显示下拉菜单 */
+.glass.overflow-visible {
+  overflow: visible;
+}
+
 /* 添加精致磨砂纹理效果 */
 .glass::before {
   content: '';
@@ -130,6 +135,74 @@ body::before {
 .glass > * {
   position: relative;
   z-index: 1;
+}
+
+/* 玻璃拟态按钮样式 */
+.glass-button {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 
+    0 4px 16px 0 var(--glass-shadow),
+    0 1px 4px 0 rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-button:hover {
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 
+    0 6px 20px 0 var(--glass-shadow),
+    0 2px 6px 0 rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+:root[data-theme='dark'] .glass-button {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 
+    0 4px 16px 0 var(--glass-shadow),
+    0 1px 4px 0 rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.02);
+}
+
+:root[data-theme='dark'] .glass-button:hover {
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 
+    0 6px 20px 0 var(--glass-shadow),
+    0 2px 6px 0 rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.03);
+}
+
+/* 玻璃拟态下拉菜单样式 */
+.glass-dropdown {
+  background: var(--glass-bg);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 
+    0 8px 32px 0 var(--glass-shadow),
+    0 2px 8px 0 rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme='dark'] .glass-dropdown {
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 
+    0 8px 32px 0 var(--glass-shadow),
+    0 2px 8px 0 rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.02);
 }
 
 .glass-card {
