@@ -86,6 +86,23 @@ class ChartEntry(Base):
         UniqueConstraint('platform', 'chart_name', 'media_type', 'tmdb_id', 'rank', name='uq_chart_item'),
     )
 
+class PublicChartEntry(Base):
+    __tablename__ = "public_chart_entries"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    platform = Column(String(50), index=True)
+    chart_name = Column(String(100), index=True)
+    media_type = Column(String(10), index=True)  # movie | tv
+    tmdb_id = Column(Integer, index=True)
+    title = Column(String(255))
+    poster = Column(Text)
+    rank = Column(Integer, index=True)
+    synced_at = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    __table_args__ = (
+        UniqueConstraint('platform', 'chart_name', 'media_type', 'rank', name='uq_public_chart_item'),
+    )
+
 class PasswordReset(Base):
     __tablename__ = "password_resets"
     
