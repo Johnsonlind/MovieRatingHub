@@ -1567,15 +1567,37 @@ class ChartScraper:
                         await context.add_cookies(cookies)
                         logger.info(f"已设置豆瓣 Cookie")
                 
+                # 先访问豆瓣首页，建立会话（降低被识别为爬虫的概率）
+                logger.info("访问豆瓣首页建立会话...")
+                try:
+                    await page.goto("https://www.douban.com/", wait_until="domcontentloaded", timeout=30000)
+                    await asyncio.sleep(2)
+                    # 模拟人类行为：随机滚动
+                    await page.evaluate("window.scrollTo(0, Math.random() * 500)")
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    logger.warning(f"访问豆瓣首页失败: {e}")
+                
                 # 访问豆瓣 Top 250 页面（共 10 页，每页 25 条）
                 all_movies = []
+                import random
+                
                 for page_num in range(10):
                     start = page_num * 25
                     url = f"https://movie.douban.com/top250?start={start}"
                     logger.info(f"访问豆瓣 Top 250 第 {page_num + 1} 页: {url}")
                     
+                    # 随机延迟，模拟人类行为（3-8秒）
+                    if page_num > 0:
+                        delay = random.uniform(3, 8)
+                        logger.debug(f"随机延迟 {delay:.2f} 秒")
+                        await asyncio.sleep(delay)
+                    
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    await asyncio.sleep(2)
+                    
+                    # 模拟人类行为：随机滚动
+                    await page.evaluate("window.scrollTo(0, Math.random() * 300)")
+                    await asyncio.sleep(random.uniform(1, 3))
                     
                     # 等待页面加载完成
                     try:
@@ -1587,19 +1609,30 @@ class ChartScraper:
                     page_title = await page.title()
                     logger.debug(f"第 {page_num + 1} 页页面标题: {page_title}")
                     
+                    # 检查是否返回"禁止访问"页面
+                    if '禁止访问' in page_title or '禁止' in page_title:
+                        logger.error(f"第 {page_num + 1} 页返回禁止访问页面，停止抓取")
+                        break
+                    
+                    # 检查页面内容是否包含"禁止访问"
+                    page_content = await page.content()
+                    if '禁止访问' in page_content or '<title>禁止访问</title>' in page_content:
+                        logger.error(f"第 {page_num + 1} 页检测到禁止访问，停止抓取")
+                        break
+                    
                     # 等待关键元素出现（优化等待策略）
                     try:
                         await page.wait_for_selector('div.item', timeout=10000)
                     except Exception as e:
                         logger.warning(f"第 {page_num + 1} 页等待 div.item 超时: {e}")
                         # 如果等待超时，检查页面内容
-                        page_content = await page.content()
                         content_preview = page_content[:500] if len(page_content) > 500 else page_content
                         logger.warning(f"第 {page_num + 1} 页内容预览: {content_preview}")
                         
                         # 检查是否包含验证码或反爬虫相关文本
-                        if any(keyword in page_content.lower() for keyword in ['验证', 'captcha', 'robot', '机器人', '访问异常', 'unusual traffic']):
-                            logger.error(f"第 {page_num + 1} 页可能触发了反爬虫检测")
+                        if any(keyword in page_content.lower() for keyword in ['验证', 'captcha', 'robot', '机器人', '访问异常', 'unusual traffic', '禁止访问']):
+                            logger.error(f"第 {page_num + 1} 页可能触发了反爬虫检测，停止抓取")
+                            break
                         
                         # 继续尝试解析，即使等待超时
                     
@@ -1609,13 +1642,13 @@ class ChartScraper:
                     
                     # 如果找到 0 个元素，记录调试信息
                     if len(items) == 0:
-                        page_content = await page.content()
                         content_preview = page_content[:500] if len(page_content) > 500 else page_content
                         logger.warning(f"第 {page_num + 1} 页未找到电影项，页面内容预览: {content_preview}")
                         
                         # 检查是否包含验证码或反爬虫相关文本
-                        if any(keyword in page_content.lower() for keyword in ['验证', 'captcha', 'robot', '机器人', '访问异常', 'unusual traffic']):
-                            logger.error(f"第 {page_num + 1} 页可能触发了反爬虫检测")
+                        if any(keyword in page_content.lower() for keyword in ['验证', 'captcha', 'robot', '机器人', '访问异常', 'unusual traffic', '禁止访问']):
+                            logger.error(f"第 {page_num + 1} 页可能触发了反爬虫检测，停止抓取")
+                            break
                     
                     for item in items:
                         try:
@@ -1654,9 +1687,6 @@ class ChartScraper:
                         except Exception as e:
                             logger.warning(f"解析电影项失败: {e}")
                             continue
-                    
-                    # 避免请求过快
-                    await asyncio.sleep(1)
                 
                 # 按排名排序
                 all_movies.sort(key=lambda x: x['rank'])
