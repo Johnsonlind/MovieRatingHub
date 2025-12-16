@@ -2,6 +2,7 @@
 // 用户按钮组件 - 用户登录/个人中心入口
 // ==========================================
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../components/auth/AuthContext';
 import { AuthModal } from '../components/auth/AuthModal';
 import { useNavigate } from 'react-router-dom';
@@ -18,21 +19,29 @@ export function UserButton() {
   const [hasCookie, setHasCookie] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // 点击外部关闭下拉菜单
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current && 
+        !dropdownRef.current.contains(event.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target as Node)
+      ) {
         setShowDropdown(false);
       }
     }
     
-    document.addEventListener('mousedown', handleClickOutside);
+    if (showDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, []);
+  }, [showDropdown]);
 
   const handleClick = () => {
     if (user) {
@@ -124,24 +133,43 @@ export function UserButton() {
     }
   };
 
-  return (
-    <div className="relative">
-      <button
-        onClick={handleClick}
-        className="w-7 h-7 flex items-center justify-center rounded-full overflow-hidden bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20 transition-all duration-200 hover:scale-110"
-        aria-label={user ? '个人中心' : '登录'}
-      >
-        <img 
-          src={user?.avatar || '/Profile.png'} 
-          alt="用户头像"
-          className="w-5 h-5 rounded-full"
-        />
-      </button>
+  // 计算下拉菜单位置
+  const getDropdownPosition = () => {
+    if (!buttonRef.current) return { top: 0, right: 0 };
+    const rect = buttonRef.current.getBoundingClientRect();
+    return {
+      top: rect.bottom + 8,
+      right: window.innerWidth - rect.right,
+    };
+  };
 
-      {user && showDropdown && (
+  return (
+    <>
+      <div className="relative z-[100]">
+        <button
+          ref={buttonRef}
+          onClick={handleClick}
+          className="w-7 h-7 flex items-center justify-center rounded-full glass-button transition-all duration-200 hover:scale-110"
+          aria-label={user ? '个人中心' : '登录'}
+        >
+          <img 
+            src={user?.avatar || '/Profile.png'} 
+            alt="用户头像"
+            className="w-5 h-5 rounded-full"
+          />
+        </button>
+      </div>
+
+      {user && showDropdown && createPortal(
         <div 
           ref={dropdownRef}
-          className="absolute right-0 mt-2 w-40 rounded-lg shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 z-50"
+          style={{
+            position: 'fixed',
+            top: `${getDropdownPosition().top}px`,
+            right: `${getDropdownPosition().right}px`,
+            zIndex: 1000,
+          }}
+          className="w-40 rounded-lg glass-dropdown"
         >
           <div className="py-1">
             <button
@@ -149,24 +177,25 @@ export function UserButton() {
                 navigate('/profile');
                 setShowDropdown(false);
               }}
-              className="block w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+              className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
             >
               个人中心
             </button>
             <button
               onClick={handleOpenCookieDialog}
-              className="block w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+              className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
             >
               {hasCookie ? '✓ 豆瓣Cookie' : '设置豆瓣Cookie'}
             </button>
             <button
               onClick={handleLogout}
-              className="block w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+              className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
             >
               退出登录
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <Dialog
@@ -240,6 +269,6 @@ export function UserButton() {
         isOpen={showAuthModal} 
         onClose={() => setShowAuthModal(false)} 
       />
-    </div>
+    </>
   );
 }
