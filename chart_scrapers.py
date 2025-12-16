@@ -1517,12 +1517,40 @@ class ChartScraper:
     async def scrape_douban_top250(self, douban_cookie: Optional[str] = None) -> List[Dict]:
         """抓取豆瓣 Top 250 榜单，获取电影链接"""
         async def scrape_with_browser(browser):
-            page = await browser.new_page()
+            context = None
+            page = None
             try:
-                # 如果提供了 cookie，设置 cookie
+                # 创建浏览器上下文，设置真实的 User-Agent 和 headers（避免被识别为自动化工具）
+                context_options = {
+                    'viewport': {'width': 1280, 'height': 720},
+                    'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                    'bypass_csp': True,
+                    'ignore_https_errors': True,
+                    'java_script_enabled': True,
+                    'has_touch': False,
+                    'is_mobile': False,
+                    'locale': 'zh-CN',
+                    'timezone_id': 'Asia/Shanghai',
+                    'extra_http_headers': {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1'
+                    }
+                }
+                
+                context = await browser.new_context(**context_options)
+                page = await context.new_page()
+                page.set_default_timeout(60000)
+                
+                # 如果提供了 cookie，设置 cookie（在创建上下文后设置）
                 if douban_cookie:
-                    # 解析 cookie 字符串并设置到浏览器上下文
-                    context = page.context
                     # 将 cookie 字符串转换为字典列表
                     cookies = []
                     for cookie_pair in douban_cookie.split(';'):
@@ -1555,8 +1583,39 @@ class ChartScraper:
                     except Exception:
                         await asyncio.sleep(3)
                     
+                    # 获取页面标题用于调试
+                    page_title = await page.title()
+                    logger.debug(f"第 {page_num + 1} 页页面标题: {page_title}")
+                    
+                    # 等待关键元素出现（优化等待策略）
+                    try:
+                        await page.wait_for_selector('div.item', timeout=10000)
+                    except Exception as e:
+                        logger.warning(f"第 {page_num + 1} 页等待 div.item 超时: {e}")
+                        # 如果等待超时，检查页面内容
+                        page_content = await page.content()
+                        content_preview = page_content[:500] if len(page_content) > 500 else page_content
+                        logger.warning(f"第 {page_num + 1} 页内容预览: {content_preview}")
+                        
+                        # 检查是否包含验证码或反爬虫相关文本
+                        if any(keyword in page_content.lower() for keyword in ['验证', 'captcha', 'robot', '机器人', '访问异常', 'unusual traffic']):
+                            logger.error(f"第 {page_num + 1} 页可能触发了反爬虫检测")
+                        
+                        # 继续尝试解析，即使等待超时
+                    
                     # 解析页面，获取电影列表
                     items = await page.query_selector_all('div.item')
+                    logger.info(f"第 {page_num + 1} 页找到 {len(items)} 个电影项")
+                    
+                    # 如果找到 0 个元素，记录调试信息
+                    if len(items) == 0:
+                        page_content = await page.content()
+                        content_preview = page_content[:500] if len(page_content) > 500 else page_content
+                        logger.warning(f"第 {page_num + 1} 页未找到电影项，页面内容预览: {content_preview}")
+                        
+                        # 检查是否包含验证码或反爬虫相关文本
+                        if any(keyword in page_content.lower() for keyword in ['验证', 'captcha', 'robot', '机器人', '访问异常', 'unusual traffic']):
+                            logger.error(f"第 {page_num + 1} 页可能触发了反爬虫检测")
                     
                     for item in items:
                         try:
@@ -1611,7 +1670,10 @@ class ChartScraper:
                 logger.error(traceback.format_exc())
                 return []
             finally:
-                await page.close()
+                if page:
+                    await page.close()
+                if context:
+                    await context.close()
         
         # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
         try:
