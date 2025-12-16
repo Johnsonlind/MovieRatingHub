@@ -1,0 +1,438 @@
+// ==========================================
+// 榜单页面 - 显示各平台榜单（公开）
+// ==========================================
+import { useEffect, useState, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ThemeToggle } from '../utils/ThemeToggle';
+import { NavBar } from '../utils/NavBar';
+import { ScrollToTopButton } from '../utils/ScrollToTopButton';
+import { Link } from 'react-router-dom';
+import { MiniFavoriteButton } from '../utils/MiniFavoriteButton';
+import { exportToPng } from '../utils/export';
+import { Download } from 'lucide-react';
+import { ExportChartCard } from '../components/export/ExportChartCard';
+
+// 榜单顺序：豆瓣、imdb、Rotten Tomatoes、Metacritic、letterboxd、tmdb、trakt
+const CHART_ORDER = ['豆瓣', 'IMDb', 'Rotten Tomatoes', 'Metacritic', 'Letterboxd', 'TMDB', 'Trakt'];
+
+// 豆瓣平台的榜单顺序
+const DOUBAN_CHART_ORDER = [
+  '一周口碑榜',
+  '一周华语剧集口碑榜',
+  '一周全球剧集口碑榜',
+];
+
+// 平台名称映射（后端返回的名称 → 前端显示的名称）
+const PLATFORM_NAME_MAP: Record<string, string> = {
+  '烂番茄': 'Rotten Tomatoes',
+  'MTC': 'Metacritic',
+};
+
+// 榜单名称映射（后端返回的名称 → 前端显示的名称）
+const CHART_NAME_MAP: Record<string, string> = {
+  'Top 10 on IMDb this week': 'IMDb 本周 Top 10',
+  'Popular Streaming Movies': '热门流媒体电影',
+  'Popular TV': '热门剧集',
+  'Trending Movies This Week': '本周趋势电影',
+  'Trending Shows This Week': '本周趋势剧集',
+  'Popular films this week': '本周热门影视',
+  '趋势本周': '本周趋势影视',
+  'Top TV Shows Last Week': '上周剧集 Top 榜',
+  'Top Movies Last Week': '上周电影 Top 榜',
+};
+
+// 平台logo映射
+const PLATFORM_LOGOS: Record<string, string> = {
+  '豆瓣': '/logos/douban.png',
+  'IMDb': '/logos/imdb.png',
+  '烂番茄': '/logos/rottentomatoes.png',
+  'Rotten Tomatoes': '/logos/rottentomatoes.png',
+  'MTC': '/logos/metacritic.png',
+  'Metacritic': '/logos/metacritic.png',
+  'Letterboxd': '/logos/letterboxd.png',
+  'TMDB': '/logos/tmdb.png',
+  'Trakt': '/logos/trakt.png',
+};
+
+interface ChartEntry {
+  tmdb_id: number;
+  rank: number;
+  title: string;
+  poster: string;
+  media_type?: 'movie' | 'tv';
+}
+
+interface ChartSection {
+  platform: string;
+  chart_name: string;
+  media_type: 'movie' | 'tv' | 'both';
+  entries: ChartEntry[];
+}
+
+export default function ChartsPage() {
+  useEffect(() => {
+    document.title = '榜单 - RateFuse';
+  }, []);
+
+  // 获取所有同步的榜单数据
+  const { data: chartsData, isLoading } = useQuery({
+    queryKey: ['public-charts'],
+    queryFn: async () => {
+      const response = await fetch('/api/charts/public');
+      if (!response.ok) {
+        throw new Error('获取榜单数据失败');
+      }
+      const data = await response.json() as ChartSection[];
+      // 应用名称映射
+      return data.map(chart => ({
+        ...chart,
+        platform: PLATFORM_NAME_MAP[chart.platform] || chart.platform,
+        chart_name: CHART_NAME_MAP[chart.chart_name] || chart.chart_name,
+      }));
+    },
+  });
+
+  // 按指定顺序排序
+  const sortedCharts = chartsData
+    ? CHART_ORDER.flatMap(platform => 
+        chartsData.filter(chart => chart.platform === platform)
+      ).concat(
+        chartsData.filter(chart => !CHART_ORDER.includes(chart.platform))
+      )
+    : [];
+
+  // 按平台分组，TMDB和IMDB合并显示（不分电影和剧集）
+  const chartsByPlatform = sortedCharts.reduce((acc, chart) => {
+    const platformKey = chart.platform;
+    
+    // TMDB和IMDB：合并同名榜单的电影和剧集
+    if (chart.platform === 'TMDB' || chart.platform === 'IMDb') {
+      if (acc[platformKey] && acc[platformKey].length > 0) {
+        const existingChart = acc[platformKey].find(c => c.chart_name === chart.chart_name);
+        if (existingChart) {
+          // 合并entries，去重（按tmdb_id和rank）
+          const existingIds = new Set(existingChart.entries.map(e => `${e.tmdb_id}-${e.rank}`));
+          chart.entries.forEach(entry => {
+            const entryKey = `${entry.tmdb_id}-${entry.rank}`;
+            if (!existingIds.has(entryKey)) {
+              existingChart.entries.push(entry);
+              existingIds.add(entryKey);
+            }
+          });
+          existingChart.entries.sort((a, b) => a.rank - b.rank);
+          // 设置为both类型，表示已合并
+          existingChart.media_type = 'both';
+          return acc;
+        }
+      }
+      // 如果是TMDB或IMDB，强制设置为both类型
+      const mergedChart = { ...chart, media_type: 'both' as const };
+      if (!acc[platformKey]) {
+        acc[platformKey] = [];
+      }
+      acc[platformKey].push(mergedChart);
+      return acc;
+    }
+    
+    // 其他平台正常处理
+    if (!acc[platformKey]) {
+      acc[platformKey] = [];
+    }
+    acc[platformKey].push(chart);
+    return acc;
+  }, {} as Record<string, ChartSection[]>);
+
+  // 对豆瓣平台的榜单进行排序
+  if (chartsByPlatform['豆瓣']) {
+    chartsByPlatform['豆瓣'].sort((a, b) => {
+      const indexA = DOUBAN_CHART_ORDER.indexOf(a.chart_name);
+      const indexB = DOUBAN_CHART_ORDER.indexOf(b.chart_name);
+      // 如果都在顺序列表中，按顺序排序
+      if (indexA !== -1 && indexB !== -1) {
+        return indexA - indexB;
+      }
+      // 如果只有一个在列表中，在列表中的排在前面
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      // 如果都不在列表中，按名称排序
+      return a.chart_name.localeCompare(b.chart_name);
+    });
+  }
+
+  // 对 Rotten Tomatoes 和 Metacritic 平台的榜单进行排序（电影在前，剧集在后）
+  ['Rotten Tomatoes', 'Metacritic'].forEach(platform => {
+    if (chartsByPlatform[platform]) {
+      chartsByPlatform[platform].sort((a, b) => {
+        // 电影类型排在前面
+        if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
+        if (a.media_type !== 'movie' && b.media_type === 'movie') return 1;
+        // 同类型按名称排序
+        return a.chart_name.localeCompare(b.chart_name);
+      });
+    }
+  });
+
+  // 对 Trakt 平台的榜单进行排序（剧集在前，电影在后）
+  if (chartsByPlatform['Trakt']) {
+    chartsByPlatform['Trakt'].sort((a, b) => {
+      // 剧集类型排在前面
+      if (a.media_type === 'tv' && b.media_type !== 'tv') return -1;
+      if (a.media_type !== 'tv' && b.media_type === 'tv') return 1;
+      // 同类型按名称排序
+      return a.chart_name.localeCompare(b.chart_name);
+    });
+  }
+
+  // 导出状态
+  const [exportingChart, setExportingChart] = useState<string | null>(null);
+  const exportRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // 导出榜单
+  const handleExportChart = async (platform: string, chartName: string, chartKey: string) => {
+    const element = exportRefs.current[chartKey];
+    if (!element || exportingChart) return;
+
+    setExportingChart(chartKey);
+    try {
+      // 找到对应的榜单数据
+      const chart = sortedCharts?.find(c => 
+        c.platform === platform && c.chart_name === chartName
+      );
+      
+      if (chart && element) {
+        // 将所有海报URL转换为base64并直接更新DOM中的图片 - 参考MoviePage的处理方式
+        const { getBase64Image } = await import('../api/image');
+        
+        // 为每个海报图片转换base64
+        const posterPromises = chart.entries
+          .sort((a, b) => a.rank - b.rank)
+          .map(async (entry) => {
+            if (entry.poster && entry.poster.trim() !== '') {
+              try {
+                // 转换base64
+                const base64 = await getBase64Image(entry.poster);
+                
+                // 在DOM中找到对应的图片元素（通过alt属性匹配标题）
+                const images = element.getElementsByTagName('img');
+                for (let i = 0; i < images.length; i++) {
+                  const img = images[i];
+                  if (img.getAttribute('alt') === entry.title) {
+                    // 更新图片src为base64
+                    img.src = base64;
+                    // 等待图片加载
+                    await new Promise<void>((resolve) => {
+                      if (img.complete && img.naturalWidth > 0) {
+                        resolve();
+                      } else {
+                        img.onload = () => resolve();
+                        img.onerror = () => resolve();
+                        setTimeout(() => resolve(), 5000);
+                      }
+                    });
+                    break;
+                  }
+                }
+              } catch (error) {
+                console.warn(`海报转换失败 (${entry.title}):`, error);
+              }
+            }
+          });
+        
+        await Promise.all(posterPromises);
+      }
+      
+      // 等待所有图片加载完成
+      const images = element.getElementsByTagName('img');
+      const imagePromises = Array.from(images).map(img => {
+        if (img.complete && img.naturalWidth > 0) {
+          return Promise.resolve();
+        }
+        return new Promise<void>((resolve) => {
+          img.onload = () => resolve();
+          img.onerror = () => resolve(); // 即使失败也继续
+          // 设置超时，避免无限等待
+          setTimeout(() => resolve(), 5000);
+        });
+      });
+      
+      await Promise.all(imagePromises);
+      
+      // 额外等待一小段时间，确保所有图片都已渲染
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const fileName = `${platform}-${chartName}`.replace(/[/\\?%*:|"<>]/g, '-');
+      await exportToPng(element, `${fileName}.png`);
+    } catch (error) {
+      console.error('导出失败:', error);
+    } finally {
+      setExportingChart(null);
+    }
+  };
+
+  return (
+    <>
+      <NavBar />
+      <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4">
+        <ThemeToggle />
+        <ScrollToTopButton />
+
+        <div className="max-w-7xl mx-auto space-y-8">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-gray-600 dark:text-gray-400">加载中...</div>
+            </div>
+          ) : sortedCharts.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-gray-600 dark:text-gray-400">
+                暂无榜单数据
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {CHART_ORDER.map(platform => {
+                const platformCharts = chartsByPlatform[platform] || [];
+                if (platformCharts.length === 0) return null;
+
+                return (
+                  <div key={platform} className="glass-card rounded-2xl p-6">
+                    <div className="flex items-center gap-3 mb-6">
+                      {PLATFORM_LOGOS[platform] && (
+                        <img 
+                          src={PLATFORM_LOGOS[platform]} 
+                          alt={platform}
+                          className="w-8 h-8 object-contain"
+                        />
+                      )}
+                      <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
+                        {platform}
+                      </h2>
+                    </div>
+                    <div className="space-y-6">
+                      {platformCharts.map((chart, idx) => {
+                        const chartKey = `${chart.platform}-${chart.chart_name}-${idx}`;
+                        
+                        return (
+                        <div key={chartKey}>
+                          <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
+                              {chart.chart_name}
+                            </h3>
+                            <button
+                              onClick={() => handleExportChart(chart.platform, chart.chart_name, chartKey)}
+                              disabled={exportingChart === chartKey}
+                              className="glass-button px-3 py-1.5 text-sm flex items-center gap-2 text-gray-800 dark:text-white hover:scale-105 transition-all"
+                            >
+                              <Download className="w-4 h-4" />
+                              {exportingChart === chartKey ? '导出中...' : '导出'}
+                            </button>
+                          </div>
+                          {chart.entries.length === 0 ? (
+                            <div className="text-gray-500 dark:text-gray-400 text-sm">
+                              暂无数据
+                            </div>
+                          ) : (
+                            <>
+                              {/* 显示用的网格 */}
+                              <div className="grid grid-cols-5 sm:grid-cols-10 gap-3">
+                                {chart.entries
+                                  .sort((a, b) => a.rank - b.rank)
+                                  .map(entry => {
+                                    // 根据榜单类型确定媒体类型
+                                    const mediaType = entry.media_type || 
+                                      (chart.media_type === 'both' ? 'movie' : chart.media_type);
+                                    const linkPath = mediaType === 'movie' 
+                                      ? `/movie/${entry.tmdb_id}` 
+                                      : `/tv/${entry.tmdb_id}`;
+                                    
+                                    return (
+                                      <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative">
+                                        <Link to={linkPath} target="_blank" rel="noopener noreferrer">
+                                          <div className="aspect-[2/3] rounded-lg overflow-hidden glass-card relative">
+                                            {entry.poster ? (
+                                              <img
+                                                src={/^(http|\/api|\/tmdb-images)/.test(entry.poster) 
+                                                  ? entry.poster 
+                                                  : `/api/image-proxy?url=${encodeURIComponent(entry.poster)}`}
+                                                alt={entry.title}
+                                                className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                                                loading="lazy"
+                                                style={{ willChange: 'transform' }}
+                                              />
+                                            ) : (
+                                              <div className="w-full h-full flex items-center justify-center text-xs text-gray-500 dark:text-gray-400">
+                                                无海报
+                                              </div>
+                                            )}
+                                            {/* 排名标签 - 红色丝带样式 */}
+                                            <div className="absolute top-0 left-0 pointer-events-none" style={{ zIndex: 10 }}>
+                                              <svg width="36" height="28" viewBox="0 0 36 28" className="drop-shadow-md" style={{ display: 'block' }}>
+                                                {/* 红色丝带形状 */}
+                                                <path
+                                                  d="M 0 7 Q 0 0 7 0 L 29 0 Q 36 0 36 7 L 36 28 L 18 22 L 0 28 Z"
+                                                  fill="#DC2626"
+                                                  stroke="none"
+                                                />
+                                                {/* 排名数字 - 白色 */}
+                                                <text
+                                                  x="18"
+                                                  y="13"
+                                                  textAnchor="middle"
+                                                  dominantBaseline="middle"
+                                                  className="text-[15px] font-bold fill-white"
+                                                  style={{ fontSize: '15px', fontWeight: 'bold' }}
+                                                >
+                                                  {entry.rank}
+                                                </text>
+                                              </svg>
+                                            </div>
+                                            <div className="absolute top-1 right-1 z-20">
+                                              <MiniFavoriteButton
+                                                mediaId={entry.tmdb_id.toString()}
+                                                mediaType={mediaType}
+                                                title={entry.title}
+                                                poster={entry.poster}
+                                                className="p-1"
+                                              />
+                                            </div>
+                                          </div>
+                                          <div className="mt-1 text-xs text-center text-gray-700 dark:text-gray-300 line-clamp-2">
+                                            {entry.title}
+                                          </div>
+                                        </Link>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                              
+                              {/* 导出用的隐藏容器 - 参考MoviePage的方式 */}
+                              <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
+                                <div 
+                                  ref={(el) => { exportRefs.current[chartKey] = el; }}
+                                  id={`export-chart-${chartKey}`}
+                                  className="bg-white"
+                                >
+                                  <ExportChartCard 
+                                    platform={chart.platform}
+                                    chartName={chart.chart_name}
+                                    entries={chart.entries.sort((a, b) => a.rank - b.rank)}
+                                    platformLogo={PLATFORM_LOGOS[chart.platform]}
+                                  />
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
