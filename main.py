@@ -2573,6 +2573,89 @@ async def get_public_charts(db: Session = Depends(get_db)):
         logger.error(f"获取公开榜单失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取公开榜单失败: {str(e)}")
 
+@app.get("/api/charts/detail")
+async def get_chart_detail(
+    platform: str,
+    chart_name: str,
+    db: Session = Depends(get_db)
+):
+    """获取完整榜单详情（Top 250）"""
+    try:
+        # 将前端显示的平台名称转换为后端存储名称
+        platform_map = {
+            'Rotten Tomatoes': '烂番茄',
+            'Metacritic': 'MTC',
+        }
+        backend_platform = platform_map.get(platform, platform)
+        
+        # 将前端显示的榜单名称转换为后端存储名称
+        chart_name_map = {
+            'IMDb 电影 Top 250': 'IMDb Top 250 Movies',
+            'IMDb 剧集 Top 250': 'IMDb Top 250 TV Shows',
+            'Letterboxd 电影 Top 250': 'Letterboxd Official Top 250',
+            '豆瓣 电影 Top 250': '豆瓣 Top 250',
+            'Metacritic 史上最佳电影 Top 250': 'Metacritic Best Movies of All Time',
+            'Metacritic 史上最佳剧集 Top 250': 'Metacritic Best TV Shows of All Time',
+            'TMDB 高分电影 Top 250': 'TMDB Top 250 Movies',
+            'TMDB 高分剧集 Top 250': 'TMDB Top 250 TV Shows',
+        }
+        backend_chart_name = chart_name_map.get(chart_name, chart_name)
+        
+        # 从 PublicChartEntry 获取数据（如果存在），否则从 ChartEntry 获取
+        entries = db.query(PublicChartEntry).filter(
+            PublicChartEntry.platform == backend_platform,
+            PublicChartEntry.chart_name == backend_chart_name,
+        ).order_by(PublicChartEntry.rank.asc()).all()
+        
+        # 如果 PublicChartEntry 中没有数据，尝试从 ChartEntry 获取
+        if not entries:
+            entries = db.query(ChartEntry).filter(
+                ChartEntry.platform == backend_platform,
+                ChartEntry.chart_name == backend_chart_name,
+            ).order_by(ChartEntry.rank.asc()).all()
+        
+        if not entries:
+            raise HTTPException(status_code=404, detail="榜单数据不存在")
+        
+        # 处理poster路径和确定媒体类型
+        chart_entries = []
+        media_type = None
+        for e in entries:
+            poster = e.poster or ""
+            if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
+                if not poster.startswith("/"):
+                    poster = "/" + poster
+                poster = f"/tmdb-images{poster}"
+            
+            # 获取媒体类型
+            entry_media_type = getattr(e, 'media_type', None)
+            if not media_type and entry_media_type:
+                media_type = entry_media_type
+            
+            chart_entries.append({
+                "tmdb_id": e.tmdb_id,
+                "rank": e.rank,
+                "title": e.title,
+                "poster": poster,
+                "media_type": entry_media_type,
+            })
+        
+        # 如果没有找到媒体类型，默认为 movie
+        if not media_type:
+            media_type = 'movie'
+        
+        return {
+            "platform": platform,  # 返回前端显示的平台名称
+            "chart_name": chart_name,  # 返回前端显示的榜单名称
+            "media_type": media_type,
+            "entries": chart_entries
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取榜单详情失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取榜单详情失败: {str(e)}")
+
 @app.post("/api/charts/auto-update")
 async def auto_update_charts(
     current_user: User = Depends(get_current_user),
@@ -2596,6 +2679,7 @@ async def auto_update_charts(
         results['Metacritic电影'] = await scraper.update_metacritic_movies()
         results['Metacritic剧集'] = await scraper.update_metacritic_shows()
         results['TMDB趋势'] = await scraper.update_tmdb_trending_all_week()
+        # 注意：Top 250 榜单不包含在"更新所有榜单"中，需要单独更新
         results['Trakt电影'] = await scraper.update_trakt_movies_weekly()
         results['Trakt剧集'] = await scraper.update_trakt_shows_weekly()
         results['IMDb'] = await scraper.update_imdb_top10()
@@ -2662,7 +2746,7 @@ async def auto_update_platform_charts(
             "Letterboxd": [scraper.update_letterboxd_popular],
             "烂番茄": [scraper.update_rotten_movies, scraper.update_rotten_tv],
             "MTC": [scraper.update_metacritic_movies, scraper.update_metacritic_shows],
-            "TMDB": [scraper.update_tmdb_trending_all_week],
+            "TMDB": [scraper.update_tmdb_trending_all_week],  # Top 250 榜单需要单独更新
             "Trakt": [scraper.update_trakt_movies_weekly, scraper.update_trakt_shows_weekly]
         }
         
@@ -2686,6 +2770,87 @@ async def auto_update_platform_charts(
     except Exception as e:
         logger.error(f"自动更新 {platform} 榜单失败: {e}")
         raise HTTPException(status_code=500, detail=f"自动更新 {platform} 失败: {str(e)}")
+
+@app.post("/api/charts/update-top250")
+async def update_top250_chart(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """更新单个 Top 250 榜单"""
+    require_admin(current_user)
+    
+    try:
+        body = await request.json()
+        platform = body.get("platform")
+        chart_name = body.get("chart_name")
+        
+        if not platform or not chart_name:
+            raise HTTPException(status_code=400, detail="缺少必要参数：platform 和 chart_name")
+        
+        # 导入榜单抓取器
+        from chart_scrapers import ChartScraper
+        
+        # 创建抓取器实例
+        scraper = ChartScraper(db)
+        
+        # 定义 Top 250 榜单更新方法映射（只包含已实现的方法）
+        top250_updaters = {
+            "TMDB": {
+                "TMDB Top 250 Movies": scraper.update_tmdb_top250_movies,
+                "TMDB Top 250 TV Shows": scraper.update_tmdb_top250_tv,
+            },
+            # 其他平台的 Top 250 方法将在后续实现时添加
+            "IMDb": {
+                "IMDb Top 250 Movies": scraper.update_imdb_top250_movies,
+                "IMDb Top 250 TV Shows": scraper.update_imdb_top250_tv,
+            },
+            "Letterboxd": {
+                "Letterboxd Official Top 250": scraper.update_letterboxd_top250,
+            },
+            "豆瓣": {
+                "豆瓣 Top 250": scraper.update_douban_top250,
+            },
+            "MTC": {
+                "Metacritic Best Movies of All Time": scraper.update_metacritic_best_movies,
+                "Metacritic Best TV Shows of All Time": scraper.update_metacritic_best_tv,
+            },
+            # "Trakt": {
+            #     "Trakt Highest Rated Movies (Top 250)": scraper.update_trakt_top250_movies,
+            #     "Trakt Highest Rated TV Shows (Top 250)": scraper.update_trakt_top250_tv,
+            # },
+        }
+        
+        if platform not in top250_updaters:
+            raise HTTPException(status_code=400, detail=f"平台 {platform} 暂不支持 Top 250 榜单更新")
+        
+        if chart_name not in top250_updaters[platform]:
+            raise HTTPException(status_code=400, detail=f"平台 {platform} 不支持榜单: {chart_name}")
+        
+        # 执行更新
+        updater = top250_updaters[platform][chart_name]
+        
+        # 如果是豆瓣 Top 250，传递用户的豆瓣 cookie 和 request
+        if platform == "豆瓣" and chart_name == "豆瓣 Top 250":
+            douban_cookie = current_user.douban_cookie if current_user.douban_cookie else None
+            count = await updater(douban_cookie=douban_cookie, request=request)
+        else:
+            count = await updater()
+        
+        return {
+            "status": "success",
+            "message": f"{platform} - {chart_name} 更新成功",
+            "platform": platform,
+            "chart_name": chart_name,
+            "count": count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新 Top 250 榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
 
 @app.post("/api/scheduler/test-notification")
 async def test_notification(
@@ -2857,7 +3022,7 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
         from chart_scrapers import scheduler_instance
         if scheduler_instance and scheduler_instance.running:
             status = scheduler_instance.get_status()
-            logger.info(f"从内存调度器实例获取状态: {status}")
+            logger.debug(f"从内存调度器实例获取状态: {status}")
             return {
                 "status": "success",
                 "data": status,
@@ -2868,7 +3033,7 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
         db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
         
         if db_status:
-            logger.info(f"从数据库获取调度器状态: running={db_status.running}")
+            logger.debug(f"从数据库获取调度器状态: running={db_status.running}")
             # 动态计算next_update，而不是使用数据库中的旧值
             next_update = calculate_next_update()
             return {
@@ -2884,7 +3049,7 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
             # 如果数据库中没有状态，使用内存中的状态
             from chart_scrapers import get_scheduler_status
             status = get_scheduler_status()
-            logger.info(f"从内存获取调度器状态: {status}")
+            logger.debug(f"从内存获取调度器状态: {status}")
             return {
                 "status": "success",
                 "data": status,
@@ -2963,17 +3128,32 @@ async def clear_platform_charts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """清空指定平台的所有榜单"""
+    """清空指定平台的所有榜单（排除 Top 250 榜单）"""
     require_admin(current_user)
     
     try:
-        # 删除指定平台的所有榜单条目
-        deleted_count = db.query(ChartEntry).filter(ChartEntry.platform == platform).delete()
+        # Top 250 榜单列表（后端存储名称）
+        top250_chart_names = [
+            "IMDb Top 250 Movies",
+            "IMDb Top 250 TV Shows",
+            "Letterboxd Official Top 250",
+            "豆瓣 Top 250",
+            "Metacritic Best Movies of All Time",
+            "Metacritic Best TV Shows of All Time",
+            "TMDB Top 250 Movies",
+            "TMDB Top 250 TV Shows",
+        ]
+        
+        # 删除指定平台的所有榜单条目（排除 Top 250 榜单）
+        deleted_count = db.query(ChartEntry).filter(
+            ChartEntry.platform == platform,
+            ~ChartEntry.chart_name.in_(top250_chart_names)
+        ).delete()
         db.commit()
         
         return {
             "status": "success",
-            "message": f"已清空 {platform} 平台的所有榜单，共删除 {deleted_count} 条记录",
+            "message": f"已清空 {platform} 平台的所有榜单（Top 250 榜单除外），共删除 {deleted_count} 条记录",
             "deleted_count": deleted_count,
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -2981,22 +3161,74 @@ async def clear_platform_charts(
         logger.error(f"清空 {platform} 平台榜单失败: {e}")
         raise HTTPException(status_code=500, detail=f"清空榜单失败: {str(e)}")
 
+@app.post("/api/charts/clear-top250")
+async def clear_top250_chart(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """清空单个 Top 250 榜单"""
+    require_admin(current_user)
+    
+    try:
+        body = await request.json()
+        platform = body.get("platform")
+        chart_name = body.get("chart_name")
+        
+        if not platform or not chart_name:
+            raise HTTPException(status_code=400, detail="缺少必要参数：platform 和 chart_name")
+        
+        # 删除指定平台和榜单名称的所有条目
+        deleted_count = db.query(ChartEntry).filter(
+            ChartEntry.platform == platform,
+            ChartEntry.chart_name == chart_name
+        ).delete()
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"已清空 {platform} - {chart_name}，共删除 {deleted_count} 条记录",
+            "platform": platform,
+            "chart_name": chart_name,
+            "deleted_count": deleted_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"清空 Top 250 榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"清空失败: {str(e)}")
+
 @app.post("/api/charts/clear-all")
 async def clear_all_charts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """清空所有平台的所有榜单"""
+    """清空所有平台的所有榜单（排除 Top 250 榜单）"""
     require_admin(current_user)
     
     try:
-        # 删除所有榜单条目
-        deleted_count = db.query(ChartEntry).delete()
+        # Top 250 榜单列表（后端存储名称）
+        top250_chart_names = [
+            "IMDb Top 250 Movies",
+            "IMDb Top 250 TV Shows",
+            "Letterboxd Official Top 250",
+            "豆瓣 Top 250",
+            "Metacritic Best Movies of All Time",
+            "Metacritic Best TV Shows of All Time",
+            "TMDB Top 250 Movies",
+            "TMDB Top 250 TV Shows",
+        ]
+        
+        # 删除所有榜单条目（排除 Top 250 榜单）
+        deleted_count = db.query(ChartEntry).filter(
+            ~ChartEntry.chart_name.in_(top250_chart_names)
+        ).delete()
         db.commit()
         
         return {
             "status": "success",
-            "message": f"已清空所有平台的所有榜单，共删除 {deleted_count} 条记录",
+            "message": f"已清空所有平台的所有榜单（Top 250 榜单除外），共删除 {deleted_count} 条记录",
             "deleted_count": deleted_count,
             "timestamp": datetime.utcnow().isoformat()
         }
