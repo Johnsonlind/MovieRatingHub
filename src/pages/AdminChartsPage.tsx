@@ -45,6 +45,25 @@ const CHART_STRUCTURE: Array<{ platform: string; sections: Array<{ name: string;
   ]},
 ];
 
+// 平台名称反向映射（前端显示名称 → 后端存储名称）
+const PLATFORM_NAME_REVERSE_MAP: Record<string, string> = {
+  'Rotten Tomatoes': '烂番茄',
+  'Metacritic': 'MTC',
+};
+
+// 榜单名称反向映射（前端显示名称 → 后端存储名称）
+const CHART_NAME_REVERSE_MAP: Record<string, string> = {
+  'IMDb 本周 Top 10': 'Top 10 on IMDb this week',
+  '热门流媒体电影': 'Popular Streaming Movies',
+  '热门剧集': 'Popular TV',
+  '本周趋势电影': 'Trending Movies This Week',
+  '本周趋势剧集': 'Trending Shows This Week',
+  '本周热门影视': 'Popular films this week',
+  '本周趋势影视': '趋势本周',
+  '上周剧集 Top 榜': 'Top TV Shows Last Week',
+  '上周电影 Top 榜': 'Top Movies Last Week',
+};
+
 async function searchTMDB(q: string): Promise<SearchResult> {
   if (!q) return { movies: { results: [] }, tvShows: { results: [] } };
   const res = await fetch(`/api/tmdb-proxy/search/multi?query=${encodeURIComponent(q)}&language=zh-CN`);
@@ -216,9 +235,12 @@ export default function AdminChartsPage() {
       return;
     }
     setSubmitting(true);
+    // 将前端显示名称转换为后端存储名称
+    const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+    const backendChartName = CHART_NAME_REVERSE_MAP[chart_name] || chart_name;
     const payload = {
-      platform: String(platform),
-      chart_name: String(chart_name),
+      platform: String(backendPlatform),
+      chart_name: String(backendChartName),
       media_type: media_type === 'movie' ? 'movie' as const : 'tv' as const,
       tmdb_id: Number(choice.id),
       rank: Number(rank),
@@ -302,7 +324,9 @@ export default function AdminChartsPage() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/charts/auto-update/${platform}`, {
+      // 将前端显示名称转换为后端存储名称
+      const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+      const response = await fetch(`/api/charts/auto-update/${backendPlatform}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -345,7 +369,9 @@ export default function AdminChartsPage() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/charts/clear/${platform}`, {
+      // 将前端显示名称转换为后端存储名称
+      const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+      const response = await fetch(`/api/charts/clear/${backendPlatform}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -423,11 +449,15 @@ export default function AdminChartsPage() {
       const token = localStorage.getItem('token');
       const authHeaders = { 'Authorization': `Bearer ${token}` };
       
+      // 将前端显示名称转换为后端存储名称
+      const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+      const backendChartName = CHART_NAME_REVERSE_MAP[chart_name] || chart_name;
+      
       if (media_type === 'both') {
         // 对于both类型，分别获取电影和剧集数据
         const [movieResponse, tvResponse] = await Promise.all([
-          fetch(`/api/charts/entries?platform=${encodeURIComponent(platform)}&chart_name=${encodeURIComponent(chart_name)}&media_type=movie`, { headers: authHeaders }),
-          fetch(`/api/charts/entries?platform=${encodeURIComponent(platform)}&chart_name=${encodeURIComponent(chart_name)}&media_type=tv`, { headers: authHeaders })
+          fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=movie`, { headers: authHeaders }),
+          fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=tv`, { headers: authHeaders })
         ]);
         
         const movies = movieResponse.ok ? await movieResponse.json() : [];
@@ -453,7 +483,7 @@ export default function AdminChartsPage() {
         });
       } else {
         // 对于单一类型，直接获取数据
-        const response = await fetch(`/api/charts/entries?platform=${encodeURIComponent(platform)}&chart_name=${encodeURIComponent(chart_name)}&media_type=${media_type}`, {
+        const response = await fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${media_type}`, {
           headers: authHeaders,
         });
         
@@ -859,7 +889,9 @@ export default function AdminChartsPage() {
                                     <button
                                       onClick={async ()=>{
                                         const effectiveType = sec.media_type==='both' ? (current?.title ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : 'movie') : sec.media_type;
-                                        await fetch(`/api/charts/entries/lock?platform=${encodeURIComponent(platform)}&chart_name=${encodeURIComponent(sec.name)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}&locked=${!locked}`, { method:'PUT', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
+                                        const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+                                        const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
+                                        await fetch(`/api/charts/entries/lock?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}&locked=${!locked}`, { method:'PUT', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
                                         setSubmitting(s=>!s);
                                       }}
                                       className={`px-2 py-1 rounded text-sm transition-colors ${
@@ -875,7 +907,9 @@ export default function AdminChartsPage() {
                                     <button
                                       onClick={async ()=>{
                                         const effectiveType = sec.media_type==='both' ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : sec.media_type;
-                                        await fetch(`/api/charts/entries?platform=${encodeURIComponent(platform)}&chart_name=${encodeURIComponent(sec.name)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}`, { method:'DELETE', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
+                                        const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+                                        const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
+                                        await fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}`, { method:'DELETE', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
                                         setSubmitting(s=>!s);
                                       }}
                                       className={`px-2 py-1 rounded text-sm transition-colors bg-gray-600 text-gray-200 hover:bg-gray-500`}
