@@ -182,18 +182,27 @@ export default function ChartsPage() {
       });
     }
 
-    // 对 Rotten Tomatoes 和 Metacritic 平台的榜单进行排序（电影在前，剧集在后）
-    ['Rotten Tomatoes', 'Metacritic'].forEach(platform => {
-      if (result[platform]) {
-        result[platform].sort((a, b) => {
-          // 电影类型排在前面
-          if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
-          if (a.media_type !== 'movie' && b.media_type === 'movie') return 1;
-          // 同类型按名称排序
-          return a.chart_name.localeCompare(b.chart_name);
-        });
-      }
-    });
+    // 对 Rotten Tomatoes 平台的榜单进行排序（电影在前，剧集在后）
+    if (result['Rotten Tomatoes']) {
+      result['Rotten Tomatoes'].sort((a, b) => {
+        // 电影类型排在前面
+        if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
+        if (a.media_type !== 'movie' && b.media_type === 'movie') return 1;
+        // 同类型按名称排序
+        return a.chart_name.localeCompare(b.chart_name);
+      });
+    }
+    
+    // 对 Metacritic 平台的榜单进行排序（电影在前，剧集在后）
+    if (result['Metacritic']) {
+      result['Metacritic'].sort((a, b) => {
+        // 电影类型排在前面
+        if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
+        if (a.media_type !== 'movie' && b.media_type === 'movie') return 1;
+        // 同类型按名称排序
+        return a.chart_name.localeCompare(b.chart_name);
+      });
+    }
 
     // 对 Trakt 平台的榜单进行排序（剧集在前，电影在后）
     if (result['Trakt']) {
@@ -207,19 +216,31 @@ export default function ChartsPage() {
     }
 
     // 对所有平台的榜单进行排序：Top 250 榜单放在最后
+    // 注意：Rotten Tomatoes 和 Metacritic 已经按 media_type 排序过了，这里只处理 Top 250 的顺序
     Object.keys(result).forEach(platform => {
       if (result[platform]) {
-        result[platform].sort((a, b) => {
-          const aIsTop250 = NON_EXPORTABLE_CHARTS.includes(a.chart_name);
-          const bIsTop250 = NON_EXPORTABLE_CHARTS.includes(b.chart_name);
-          
-          // Top 250 榜单排在最后
-          if (aIsTop250 && !bIsTop250) return 1;
-          if (!aIsTop250 && bIsTop250) return -1;
-          
-          // 如果都是或都不是 Top 250，保持原有顺序（或按名称排序）
-          return a.chart_name.localeCompare(b.chart_name);
-        });
+        // 对于已经排序过的平台（Rotten Tomatoes, Metacritic），只调整 Top 250 的位置
+        const alreadySorted = ['Rotten Tomatoes', 'Metacritic'].includes(platform);
+        
+        if (alreadySorted) {
+          // 对于已排序的平台，只将 Top 250 榜单移到最后，保持其他顺序不变
+          const top250Charts = result[platform].filter(chart => NON_EXPORTABLE_CHARTS.includes(chart.chart_name));
+          const nonTop250Charts = result[platform].filter(chart => !NON_EXPORTABLE_CHARTS.includes(chart.chart_name));
+          result[platform] = [...nonTop250Charts, ...top250Charts];
+        } else {
+          // 对于其他平台，按原来的逻辑排序
+          result[platform].sort((a, b) => {
+            const aIsTop250 = NON_EXPORTABLE_CHARTS.includes(a.chart_name);
+            const bIsTop250 = NON_EXPORTABLE_CHARTS.includes(b.chart_name);
+            
+            // Top 250 榜单排在最后
+            if (aIsTop250 && !bIsTop250) return 1;
+            if (!aIsTop250 && bIsTop250) return -1;
+            
+            // 如果都是或都不是 Top 250，保持原有顺序（或按名称排序）
+            return a.chart_name.localeCompare(b.chart_name);
+          });
+        }
       }
     });
 
