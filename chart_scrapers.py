@@ -2135,8 +2135,38 @@ class ChartScraper:
     async def scrape_metacritic_top250(self, media_type: str) -> List[Dict]:
         """抓取 Metacritic Top 250 榜单（电影或剧集），获取排名、名称和年份"""
         async def scrape_with_browser(browser):
-            page = await browser.new_page()
+            context = None
+            page = None
             try:
+                # 创建浏览器上下文，设置真实的 User-Agent 和 headers（避免被识别为自动化工具）
+                context_options = {
+                    'viewport': {'width': 1280, 'height': 720},
+                    'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                    'bypass_csp': True,
+                    'ignore_https_errors': True,
+                    'java_script_enabled': True,
+                    'has_touch': False,
+                    'is_mobile': False,
+                    'locale': 'en-US',
+                    'timezone_id': 'America/New_York',
+                    'extra_http_headers': {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1'
+                    }
+                }
+                
+                context = await browser.new_context(**context_options)
+                page = await context.new_page()
+                page.set_default_timeout(60000)
+                
                 all_items = []
                 base_url = f"https://www.metacritic.com/browse/{media_type}/"
                 
@@ -2150,29 +2180,63 @@ class ChartScraper:
                     logger.info(f"访问 Metacritic Top 250 ({media_type}) 第 {page_num} 页: {url}")
                     
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
                     
-                    # 尝试快速等待列表容器出现（最多等待3秒）
+                    # 等待页面加载完成
                     try:
-                        await page.wait_for_selector('div.c-productListings_grid', timeout=3000)
+                        await page.wait_for_load_state("networkidle", timeout=30000)
                     except Exception:
-                        pass
+                        await asyncio.sleep(3)
+                    
+                    # 获取页面标题用于调试
+                    page_title = await page.title()
+                    logger.debug(f"第 {page_num} 页页面标题: {page_title}")
+                    
+                    # 等待列表容器出现（增加等待时间）
+                    try:
+                        await page.wait_for_selector('div.c-productListings_grid', timeout=10000)
+                    except Exception as e:
+                        logger.warning(f"第 {page_num} 页等待列表容器超时: {e}")
+                        # 如果等待超时，检查页面内容
+                        page_content = await page.content()
+                        content_preview = page_content[:500] if len(page_content) > 500 else page_content
+                        logger.warning(f"第 {page_num} 页内容预览: {content_preview}")
                     
                     # 查找包含列表的容器
                     grid_container = await page.query_selector('div.c-productListings_grid')
                     if not grid_container:
                         logger.warning(f"Metacritic Top 250 ({media_type}) 第 {page_num} 页: 未找到列表容器")
-                        continue
+                        # 尝试备用选择器
+                        grid_container = await page.query_selector('div[class*="productListings"]')
+                        if not grid_container:
+                            logger.warning(f"Metacritic Top 250 ({media_type}) 第 {page_num} 页: 备用选择器也未找到列表容器")
+                            continue
                     
                     # 解析页面，获取项目列表
                     items = await grid_container.query_selector_all('div.c-finderProductCard')
+                    logger.info(f"第 {page_num} 页找到 {len(items)} 个卡片元素")
                     
+                    # 如果找到 0 个元素，尝试备用选择器
+                    if len(items) == 0:
+                        items = await grid_container.query_selector_all('div[class*="finderProductCard"]')
+                        logger.info(f"第 {page_num} 页使用备用选择器找到 {len(items)} 个卡片元素")
+                    
+                    # 如果还是 0 个，记录调试信息
+                    if len(items) == 0:
+                        page_content = await page.content()
+                        content_preview = page_content[:500] if len(page_content) > 500 else page_content
+                        logger.warning(f"第 {page_num} 页未找到卡片元素，页面内容预览: {content_preview}")
+                    
+                    page_items_count = 0
                     for item in items:
                         try:
                             # 获取标题元素
                             title_heading = await item.query_selector('h3.c-finderProductCard_titleHeading')
                             if not title_heading:
-                                continue
+                                # 尝试备用选择器
+                                title_heading = await item.query_selector('h3[class*="titleHeading"]')
+                                if not title_heading:
+                                    continue
                             
                             # 获取所有 span 元素
                             spans = await title_heading.query_selector_all('span')
@@ -2197,6 +2261,9 @@ class ChartScraper:
                                         year = int(match.group(2))
                                     else:
                                         title = text
+                                # 如果没有年份，可能是纯标题
+                                elif not title and text:
+                                    title = text
                             
                             # 如果排名和标题都获取到了
                             if rank and title:
@@ -2205,9 +2272,12 @@ class ChartScraper:
                                     'title': title,
                                     'year': year
                                 })
+                                page_items_count += 1
                         except Exception as e:
                             logger.warning(f"解析项目失败: {e}")
                             continue
+                    
+                    logger.info(f"第 {page_num} 页成功解析 {page_items_count} 个项目")
                     
                     # 避免请求过快
                     await asyncio.sleep(1)
@@ -2224,7 +2294,10 @@ class ChartScraper:
                 logger.error(traceback.format_exc())
                 return []
             finally:
-                await page.close()
+                if page:
+                    await page.close()
+                if context:
+                    await context.close()
         
         # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
         try:
@@ -3172,7 +3245,7 @@ class TMDBMatcher:
             return None
     
     def clean_title_for_search(self, title: str) -> str:
-        """清理标题，移除季数、集数等后缀，用于TMDB搜索"""
+        """清理标题，移除季数、集数、重映等后缀，用于TMDB搜索"""
         import re
         
         # 移除常见的季数后缀
@@ -3189,6 +3262,23 @@ class TMDBMatcher:
         
         cleaned_title = title
         for pattern in season_patterns:
+            cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
+        
+        # 移除重映、修复版等后缀（括号内的内容）
+        # 匹配括号内的常见重映/修复相关词汇
+        re_release_patterns = [
+            r'\s*\(re-release\)\s*',
+            r'\s*\(re-issue\)\s*',
+            r'\s*\(restored\)\s*',
+            r'\s*\(restoration\)\s*',
+            r'\s*\(restored version\)\s*',
+            r'\s*\(director\'?s cut\)\s*',
+            r'\s*\(extended cut\)\s*',
+            r'\s*\(uncut\)\s*',
+            r'\s*\(uncensored\)\s*',
+        ]
+        
+        for pattern in re_release_patterns:
             cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
         
         # 移除首尾空格
