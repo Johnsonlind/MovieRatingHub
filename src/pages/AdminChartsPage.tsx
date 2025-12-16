@@ -166,23 +166,10 @@ export default function AdminChartsPage() {
   const [pickerQuery, setPickerQuery] = useState('');
   const [pickerSelected, setPickerSelected] = useState<MediaItem | null>(null);
 
-  // 手动录入弹窗（带排名输入框）
-  const [manualPickerOpen, setManualPickerOpen] = useState(false);
-  const [manualPickerRank, setManualPickerRank] = useState<string>('');
-  const [manualPickerContext, setManualPickerContext] = useState<{ platform:string; chart_name:string; media_type:SectionType } | null>(null);
-  const [manualPickerQuery, setManualPickerQuery] = useState('');
-  const [manualPickerSelected, setManualPickerSelected] = useState<MediaItem | null>(null);
-
   const { data: pickerData } = useQuery({
     queryKey: ['tmdb-picker', pickerQuery],
     queryFn: () => searchTMDB(pickerQuery),
     enabled: pickerOpen && !!pickerQuery,
-  });
-
-  const { data: manualPickerData } = useQuery({
-    queryKey: ['tmdb-manual-picker', manualPickerQuery],
-    queryFn: () => searchTMDB(manualPickerQuery),
-    enabled: manualPickerOpen && !!manualPickerQuery,
   });
 
   // 获取调度器状态 - 改进版本
@@ -335,14 +322,6 @@ export default function AdminChartsPage() {
     setPickerContext({ platform, chart_name, media_type });
     setPickerQuery('');
     setPickerSelected(null);
-  }
-
-  function openManualPicker(platform:string, chart_name:string, media_type:SectionType){
-    setManualPickerOpen(true);
-    setManualPickerContext({ platform, chart_name, media_type });
-    setManualPickerRank('');
-    setManualPickerQuery('');
-    setManualPickerSelected(null);
   }
 
   // 自动更新所有榜单
@@ -1018,14 +997,6 @@ export default function AdminChartsPage() {
                                 {platformOperations[`${platform}_${sec.name}_update`] ? '更新中...' : '更新 Top 250'}
                               </button>
                             )}
-                            {MANUAL_ONLY_CHARTS.includes(sec.name) && (
-                              <button
-                                onClick={() => openManualPicker(platform, sec.name, sec.media_type)}
-                                className={`text-sm px-3 py-1 rounded transition-colors bg-orange-500 text-white hover:bg-orange-600`}
-                              >
-                                手动录入
-                              </button>
-                            )}
                             <button
                               onClick={() => handleClearTop250Chart(platform, sec.name)}
                               disabled={platformOperations[`${platform}_${sec.name}_clear`]}
@@ -1061,71 +1032,157 @@ export default function AdminChartsPage() {
                     </div>
                     {activeKey === key && (
                       <div className="space-y-3">
-                        <div className="flex gap-3 flex-wrap items-end">
-                          {Array.from({ length: 10 }, (_, idx) => idx + 1).map(r => {
-                            const current = currentList.find(i => i.rank === r);
-                            const locked = (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
-                            return (
-                              <div key={r} className="flex flex-col items-center">
-                                <div className={`w-12 h-18 overflow-hidden rounded mb-1 bg-gray-700`}>
-                                  {current?.poster ? (
-                                    <img src={/^(http|\/api|\/tmdb-images)/.test(current.poster) ? current.poster : `/api/image-proxy?url=${encodeURIComponent(current.poster)}`} alt="thumb" className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className={`w-full h-full flex items-center justify-center text-[10px] text-gray-500`}>
-                                      无
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex gap-1">
-                                  <button
-                                    disabled={locked}
-                                    onClick={() => openPicker(platform, sec.name, sec.media_type, r)}
-                                    className={`px-2 py-1 rounded text-sm transition-colors ${locked ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
-                                  >
-                                    排名{r}
-                                  </button>
-                                  {current && (
+                        {MANUAL_ONLY_CHARTS.includes(sec.name) ? (
+                          // 手动录入的 Top 250 榜单：表格形式
+                          <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
+                            <table className="w-full border-collapse">
+                              <thead className={`sticky top-0 bg-gray-900 z-10`}>
+                                <tr className={`border-b border-gray-600`}>
+                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-800 dark:text-white w-16`}>排名</th>
+                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-800 dark:text-white w-20`}>海报</th>
+                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-800 dark:text-white`}>标题</th>
+                                  <th className={`text-left py-2 px-3 text-sm font-medium text-gray-800 dark:text-white w-32`}>操作</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Array.from({ length: 250 }, (_, idx) => idx + 1).map(r => {
+                                  const current = currentList.find(i => i.rank === r);
+                                  const locked = (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
+                                  return (
+                                    <tr key={r} className={`border-b border-gray-700 hover:bg-gray-800/30 ${current ? '' : 'opacity-60'}`}>
+                                      <td className={`py-2 px-3 text-sm text-gray-800 dark:text-white font-medium text-center`}>{r}</td>
+                                      <td className={`py-2 px-3`}>
+                                        <div className={`w-12 h-18 overflow-hidden rounded bg-gray-700`}>
+                                          {current?.poster ? (
+                                            <img src={/^(http|\/api|\/tmdb-images)/.test(current.poster) ? current.poster : `/api/image-proxy?url=${encodeURIComponent(current.poster)}`} alt="thumb" className="w-full h-full object-cover" />
+                                          ) : (
+                                            <div className={`w-full h-full flex items-center justify-center text-[10px] text-gray-500`}>
+                                              无
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className={`py-2 px-3 text-sm text-gray-800 dark:text-white`}>
+                                        {current?.title || <span className="text-gray-500">-</span>}
+                                      </td>
+                                      <td className={`py-2 px-3`}>
+                                        <div className="flex gap-1 items-center whitespace-nowrap">
+                                          <button
+                                            disabled={locked}
+                                            onClick={() => openPicker(platform, sec.name, sec.media_type, r)}
+                                            className={`px-2 py-1 rounded text-xs transition-colors ${locked ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                                          >
+                                            {current ? '修改' : '选择'}
+                                          </button>
+                                          {current && (
+                                            <button
+                                              onClick={async ()=>{
+                                                const effectiveType = sec.media_type==='both' ? (current?.title ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : 'movie') : sec.media_type;
+                                                const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+                                                const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
+                                                await fetch(`/api/charts/entries/lock?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}&locked=${!locked}`, { method:'PUT', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
+                                                setSubmitting(s=>!s);
+                                              }}
+                                              className={`px-2 py-1 rounded text-xs transition-colors ${
+                                                locked 
+                                                  ? 'bg-red-500 text-white hover:bg-red-600' 
+                                                  : 'bg-blue-500 text-white hover:bg-blue-600'
+                                              }`}
+                                            >
+                                              {locked?'解锁':'锁定'}
+                                            </button>
+                                          )}
+                                          {current && !locked && (
+                                            <button
+                                              onClick={async ()=>{
+                                                const effectiveType = sec.media_type==='both' ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : sec.media_type;
+                                                const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+                                                const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
+                                                await fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}`, { method:'DELETE', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
+                                                setSubmitting(s=>!s);
+                                              }}
+                                              className={`px-2 py-1 rounded text-xs transition-colors bg-gray-600 text-gray-200 hover:bg-gray-500`}
+                                            >
+                                              清空
+                                            </button>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          // 非手动录入的榜单：保持原有显示方式
+                          <div className="flex gap-3 flex-wrap items-end">
+                            {Array.from({ length: 10 }, (_, idx) => idx + 1).map(r => {
+                              const current = currentList.find(i => i.rank === r);
+                              const locked = (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
+                              return (
+                                <div key={r} className="flex flex-col items-center">
+                                  <div className={`w-12 h-18 overflow-hidden rounded mb-1 bg-gray-700`}>
+                                    {current?.poster ? (
+                                      <img src={/^(http|\/api|\/tmdb-images)/.test(current.poster) ? current.poster : `/api/image-proxy?url=${encodeURIComponent(current.poster)}`} alt="thumb" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className={`w-full h-full flex items-center justify-center text-[10px] text-gray-500`}>
+                                        无
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-1">
                                     <button
-                                      onClick={async ()=>{
-                                        const effectiveType = sec.media_type==='both' ? (current?.title ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : 'movie') : sec.media_type;
-                                        const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
-                                        const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
-                                        await fetch(`/api/charts/entries/lock?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}&locked=${!locked}`, { method:'PUT', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
-                                        setSubmitting(s=>!s);
-                                      }}
-                                      className={`px-2 py-1 rounded text-sm transition-colors ${
-                                        locked 
-                                          ? 'bg-red-500 text-white hover:bg-red-600' 
-                                          : 'bg-blue-500 text-white hover:bg-blue-600'
-                                      }`}
+                                      disabled={locked}
+                                      onClick={() => openPicker(platform, sec.name, sec.media_type, r)}
+                                      className={`px-2 py-1 rounded text-sm transition-colors ${locked ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
                                     >
-                                      {locked?'解锁':'锁定'}
+                                      排名{r}
                                     </button>
-                                  )}
-                                  {current && !locked && (
-                                    <button
-                                      onClick={async ()=>{
-                                        const effectiveType = sec.media_type==='both' ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : sec.media_type;
-                                        const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
-                                        const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
-                                        await fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}`, { method:'DELETE', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
-                                        setSubmitting(s=>!s);
-                                      }}
-                                      className={`px-2 py-1 rounded text-sm transition-colors bg-gray-600 text-gray-200 hover:bg-gray-500`}
-                                    >
-                                      清空
-                                    </button>
-                                  )}
+                                    {current && (
+                                      <button
+                                        onClick={async ()=>{
+                                          const effectiveType = sec.media_type==='both' ? (current?.title ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : 'movie') : sec.media_type;
+                                          const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+                                          const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
+                                          await fetch(`/api/charts/entries/lock?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}&locked=${!locked}`, { method:'PUT', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
+                                          setSubmitting(s=>!s);
+                                        }}
+                                        className={`px-2 py-1 rounded text-sm transition-colors ${
+                                          locked 
+                                            ? 'bg-red-500 text-white hover:bg-red-600' 
+                                            : 'bg-blue-500 text-white hover:bg-blue-600'
+                                        }`}
+                                      >
+                                        {locked?'解锁':'锁定'}
+                                      </button>
+                                    )}
+                                    {current && !locked && (
+                                      <button
+                                        onClick={async ()=>{
+                                          const effectiveType = sec.media_type==='both' ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : sec.media_type;
+                                          const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+                                          const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
+                                          await fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}`, { method:'DELETE', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
+                                          setSubmitting(s=>!s);
+                                        }}
+                                        className={`px-2 py-1 rounded text-sm transition-colors bg-gray-600 text-gray-200 hover:bg-gray-500`}
+                                      >
+                                        清空
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        {/* 底部缩略图网格已取消，保留上方缩略图 */}
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                     <div className={`text-xs mt-2 text-gray-600 dark:text-gray-400`}>
-                      提示：点击排名按钮后进行搜索选择并完成。
+                      {MANUAL_ONLY_CHARTS.includes(sec.name) 
+                        ? '提示：点击"选择"按钮后搜索选择影视作品，排名由表格行号决定。' 
+                        : '提示：点击排名按钮后进行搜索选择并完成。'}
                     </div>
                   </div>
                 );
@@ -1134,151 +1191,6 @@ export default function AdminChartsPage() {
           </div>
         ))}
       </div>
-
-      {/* 手动录入弹窗（带排名输入框） */}
-      {manualPickerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className={`w-full max-w-3xl rounded-lg p-4 glass-card`}>
-            <div className="flex items-center justify-between mb-3">
-              <div className={`text-lg font-semibold text-gray-800 dark:text-white`}>
-                {manualPickerContext?.chart_name} - 手动录入
-              </div>
-              <button 
-                onClick={()=>{
-                  setManualPickerOpen(false);
-                  setManualPickerRank('');
-                  setManualPickerQuery('');
-                  setManualPickerSelected(null);
-                  setManualPickerContext(null);
-                }} 
-                className={`text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300`}
-              >
-                关闭
-              </button>
-            </div>
-            
-            {/* 排名输入框 */}
-            <div className="mb-4">
-              <label className={`block text-sm font-medium mb-2 text-gray-800 dark:text-white`}>
-                排名（1-250）
-              </label>
-              <input 
-                type="number"
-                min="1"
-                max="250"
-                value={manualPickerRank} 
-                onChange={e=>setManualPickerRank(e.target.value)} 
-                placeholder="请输入排名（1-250）" 
-                className={`w-full border rounded px-3 py-2 glass-dropdown text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400`} 
-              />
-            </div>
-
-            {/* 搜索框 */}
-            <div className="flex gap-2 mb-4">
-              <input 
-                value={manualPickerQuery} 
-                onChange={e=>setManualPickerQuery(e.target.value)} 
-                placeholder="搜索 TMDB..." 
-                className={`flex-1 border rounded px-3 py-2 glass-dropdown text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400`} 
-              />
-              <button 
-                onClick={()=>setManualPickerQuery(manualPickerQuery)} 
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-              >
-                搜索
-              </button>
-            </div>
-
-            {/* 搜索结果 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-4 max-h-[50vh] overflow-auto">
-              {[...(manualPickerData?.movies.results||[]), ...(manualPickerData?.tvShows.results||[])].filter(i=>{
-                if (!manualPickerContext) return true;
-                // 对于手动录入的榜单，严格限制类型：
-                // - movie 类型榜单只显示电影
-                // - tv 类型榜单只显示剧集
-                // - both 类型榜单显示所有
-                if (manualPickerContext.media_type === 'both') return true;
-                if (manualPickerContext.media_type === 'movie') return i.type === 'movie';
-                if (manualPickerContext.media_type === 'tv') return i.type === 'tv';
-                return i.type === manualPickerContext.media_type;
-              }).map((item:any)=> (
-                <button key={`${item.type}-${item.id}`} onClick={()=>setManualPickerSelected(item)}
-                  className={`text-left rounded overflow-hidden border transition-colors ${
-                    manualPickerSelected?.id===item.id
-                      ? 'border-blue-600 ring-2 ring-blue-200'
-                      : 'border-gray-600 hover:border-gray-500'
-                  }`}>
-                  <div className={`w-full aspect-[2/3] bg-gray-700`}>
-                    {item.poster ? (
-                      <img src={item.poster} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className={`w-full h-full flex items-center justify-center text-sm text-gray-600 dark:text-gray-400`}>
-                        无海报
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-2 text-sm">
-                    <div className={`font-medium line-clamp-2 text-gray-800 dark:text-white`}>
-                      {item.title}
-                    </div>
-                    <div className={`text-gray-600 dark:text-gray-400`}>
-                      {item.type.toUpperCase()} {item.year||''}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* 操作按钮 */}
-            <div className="flex justify-end gap-2 mt-4">
-              <button 
-                className={`px-3 py-2 rounded transition-colors bg-gray-700 text-gray-200 hover:bg-gray-600`} 
-                onClick={()=>{
-                  setManualPickerOpen(false);
-                  setManualPickerRank('');
-                  setManualPickerQuery('');
-                  setManualPickerSelected(null);
-                  setManualPickerContext(null);
-                }}
-              >
-                取消
-              </button>
-              <button 
-                className="px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-60 transition-colors" 
-                disabled={!manualPickerSelected || !manualPickerContext || !manualPickerRank || !manualPickerRank.match(/^\d+$/) || parseInt(manualPickerRank) < 1 || parseInt(manualPickerRank) > 250}
-                onClick={async ()=> {
-                  if (manualPickerContext && manualPickerRank && manualPickerSelected) {
-                    const rankNum = parseInt(manualPickerRank);
-                    if (rankNum < 1 || rankNum > 250) {
-                      alert('排名必须在 1-250 之间');
-                      return;
-                    }
-                    await addEntry(
-                      manualPickerContext.platform,
-                      manualPickerContext.chart_name,
-                      manualPickerContext.media_type === 'both' ? manualPickerSelected.type : manualPickerContext.media_type,
-                      rankNum,
-                      manualPickerSelected
-                    );
-                    // 刷新列表
-                    if (activeKey) {
-                      const [platform, chart_name, media_type] = activeKey.split(':');
-                      loadCurrentList(platform, chart_name, media_type as SectionType);
-                    }
-                    setManualPickerOpen(false);
-                    setManualPickerRank('');
-                    setManualPickerQuery('');
-                    setManualPickerSelected(null);
-                    setManualPickerContext(null);
-                  }
-                }}
-              >
-                完成
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 选择器弹层 */}
       {pickerOpen && (
@@ -1312,7 +1224,13 @@ export default function AdminChartsPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-4 max-h-[50vh] overflow-auto">
               {[...(pickerData?.movies.results||[]), ...(pickerData?.tvShows.results||[])].filter(i=>{
                 if (!pickerContext) return true;
+                // 对于手动录入的榜单，严格限制类型：
+                // - movie 类型榜单只显示电影
+                // - tv 类型榜单只显示剧集
+                // - both 类型榜单显示所有
                 if (pickerContext.media_type === 'both') return true;
+                if (pickerContext.media_type === 'movie') return i.type === 'movie';
+                if (pickerContext.media_type === 'tv') return i.type === 'tv';
                 return i.type === pickerContext.media_type;
               }).map((item:any)=> (
                 <button key={`${item.type}-${item.id}`} onClick={()=>setPickerSelected(item)}
