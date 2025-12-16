@@ -1339,7 +1339,11 @@ class ChartScraper:
             return []
 
     async def update_imdb_top250_movies(self) -> int:
-        """IMDb Top 250 Movies → 'IMDb / IMDb Top 250 Movies'"""
+        """IMDb Top 250 Movies → 'IMDb / IMDb Top 250 Movies'
+        
+        注意：此方法已改为手动录入，不再支持自动更新。
+        请在管理界面手动填写排名。
+        """
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'IMDb',
@@ -1427,7 +1431,11 @@ class ChartScraper:
         return saved
 
     async def update_imdb_top250_tv(self) -> int:
-        """IMDb Top 250 TV Shows → 'IMDb / IMDb Top 250 TV Shows'"""
+        """IMDb Top 250 TV Shows → 'IMDb / IMDb Top 250 TV Shows'
+        
+        注意：此方法已改为手动录入，不再支持自动更新。
+        请在管理界面手动填写排名。
+        """
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'IMDb',
@@ -1888,7 +1896,11 @@ class ChartScraper:
             return None
 
     async def update_douban_top250(self, douban_cookie: Optional[str] = None, request: Optional['Request'] = None) -> int:
-        """豆瓣 Top 250 → '豆瓣 / 豆瓣 Top 250'"""
+        """豆瓣 Top 250 → '豆瓣 / 豆瓣 Top 250'
+        
+        注意：此方法已改为手动录入，不再支持自动更新。
+        请在管理界面手动填写排名。
+        """
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == '豆瓣',
@@ -2446,7 +2458,11 @@ class ChartScraper:
             return []
 
     async def update_metacritic_best_movies(self) -> int:
-        """Metacritic Best Movies of All Time → 'MTC / Metacritic Best Movies of All Time'"""
+        """Metacritic Best Movies of All Time → 'MTC / Metacritic Best Movies of All Time'
+        
+        注意：此方法已改为手动录入，不再支持自动更新。
+        请在管理界面手动填写排名。
+        """
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'MTC',
@@ -2536,7 +2552,11 @@ class ChartScraper:
         return saved
 
     async def update_metacritic_best_tv(self) -> int:
-        """Metacritic Best TV Shows of All Time → 'MTC / Metacritic Best TV Shows of All Time'"""
+        """Metacritic Best TV Shows of All Time → 'MTC / Metacritic Best TV Shows of All Time'
+        
+        注意：此方法已改为手动录入，不再支持自动更新。
+        请在管理界面手动填写排名。
+        """
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'MTC',
