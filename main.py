@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, SchedulerStatus
+from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, PublicChartEntry, SchedulerStatus
 from sqlalchemy.orm import Session
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
 from redis import asyncio as aioredis
@@ -336,9 +336,15 @@ async def login(request: Request, db: Session = Depends(get_db)):
                 "avatar": user.avatar
             }
         }
-    except Exception as e:
-        print(f"登录过程出错: {str(e)}")
+    except HTTPException:
         raise
+    except Exception as e:
+        logger.error(f"登录过程出错: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"登录失败: {str(e)}"
+        )
 
 @app.post("/auth/forgot-password")
 async def forgot_password(
@@ -2450,6 +2456,122 @@ async def get_aggregate_charts(db: Session = Depends(get_db)):
     tv = tv_candidates[:10]
     return {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
 
+@app.post("/api/charts/sync")
+async def sync_charts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """同步榜单数据到公开页面（将ChartEntry数据复制到PublicChartEntry）"""
+    require_admin(current_user)
+    
+    try:
+        # 清空旧的公开榜单数据
+        db.query(PublicChartEntry).delete()
+        db.commit()
+        
+        # 获取所有榜单数据（取每个rank的最新一条）
+        distinct_charts = db.query(
+            ChartEntry.platform,
+            ChartEntry.chart_name,
+            ChartEntry.media_type
+        ).distinct().all()
+        
+        synced_count = 0
+        synced_at = datetime.utcnow()
+        
+        for platform, chart_name, media_type in distinct_charts:
+            # 获取该榜单的所有条目（取每个rank的最新一条）
+            sub = db.query(
+                ChartEntry.rank,
+                func.max(ChartEntry.id).label('max_id')
+            ).filter(
+                ChartEntry.platform == platform,
+                ChartEntry.chart_name == chart_name,
+                ChartEntry.media_type == media_type,
+            ).group_by(ChartEntry.rank).subquery()
+            
+            entries = db.query(ChartEntry).join(
+                sub, ChartEntry.id == sub.c.max_id
+            ).order_by(ChartEntry.rank.asc()).all()
+            
+            # 复制到PublicChartEntry
+            for entry in entries:
+                public_entry = PublicChartEntry(
+                    platform=entry.platform,
+                    chart_name=entry.chart_name,
+                    media_type=entry.media_type,
+                    tmdb_id=entry.tmdb_id,
+                    title=entry.title,
+                    poster=entry.poster,
+                    rank=entry.rank,
+                    synced_at=synced_at
+                )
+                db.add(public_entry)
+                synced_count += 1
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"榜单数据已同步，共 {synced_count} 条记录",
+            "total_count": synced_count,
+            "timestamp": synced_at.isoformat()
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"同步榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"同步榜单失败: {str(e)}")
+
+@app.get("/api/charts/public")
+async def get_public_charts(db: Session = Depends(get_db)):
+    """获取所有公开榜单数据（从PublicChartEntry读取，只有同步后的数据）"""
+    try:
+        # 获取所有唯一的平台、榜单名称、媒体类型组合（从PublicChartEntry）
+        distinct_charts = db.query(
+            PublicChartEntry.platform,
+            PublicChartEntry.chart_name,
+            PublicChartEntry.media_type
+        ).distinct().all()
+        
+        result = []
+        
+        for platform, chart_name, media_type in distinct_charts:
+            # 获取该榜单的所有条目
+            entries = db.query(PublicChartEntry).filter(
+                PublicChartEntry.platform == platform,
+                PublicChartEntry.chart_name == chart_name,
+                PublicChartEntry.media_type == media_type,
+            ).order_by(PublicChartEntry.rank.asc()).all()
+            
+            if entries:
+                # 处理poster路径
+                chart_entries = []
+                for e in entries:
+                    poster = e.poster or ""
+                    if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
+                        if not poster.startswith("/"):
+                            poster = "/" + poster
+                        poster = f"/tmdb-images{poster}"
+                    
+                    chart_entries.append({
+                        "tmdb_id": e.tmdb_id,
+                        "rank": e.rank,
+                        "title": e.title,
+                        "poster": poster,
+                        "media_type": e.media_type,
+                    })
+                
+                result.append({
+                    "platform": platform,
+                    "chart_name": chart_name,
+                    "media_type": media_type,
+                    "entries": chart_entries
+                })
+        
+        return result
+    except Exception as e:
+        logger.error(f"获取公开榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取公开榜单失败: {str(e)}")
 
 @app.post("/api/charts/auto-update")
 async def auto_update_charts(
