@@ -59,10 +59,10 @@ export function SearchButton() {
     <>
       <button
         onClick={() => setShowSearch(true)}
-        className="w-7 h-7 flex items-center justify-center rounded-full overflow-hidden bg-black/20 hover:bg-black/30 dark:bg-white/10 dark:hover:bg-white/20 transition-all duration-200 hover:scale-110"
+        className="w-7 h-7 flex items-center justify-center rounded-full glass-button transition-all duration-200 hover:scale-110"
         aria-label="搜索"
       >
-        <Search className="w-5 h-5 text-gray-700 dark:text-white" />
+        <Search className="w-5 h-5 text-gray-800 dark:text-white" />
       </button>
 
       {showSearch && createPortal(
