@@ -1,7 +1,7 @@
 // ==========================================
 // 榜单页面 - 显示各平台榜单（公开）
 // ==========================================
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ThemeToggle } from '../utils/ThemeToggle';
 import { NavBar } from '../utils/NavBar';
@@ -92,19 +92,17 @@ export default function ChartsPage() {
     },
   });
 
-  // 按指定顺序排序 - 使用 useMemo 优化
-  const sortedCharts = useMemo(() => {
-    if (!chartsData) return [];
-    return CHART_ORDER.flatMap(platform => 
-      chartsData.filter(chart => chart.platform === platform)
-    ).concat(
-      chartsData.filter(chart => !CHART_ORDER.includes(chart.platform))
-    );
-  }, [chartsData]);
+  // 按指定顺序排序
+  const sortedCharts = chartsData
+    ? CHART_ORDER.flatMap(platform => 
+        chartsData.filter(chart => chart.platform === platform)
+      ).concat(
+        chartsData.filter(chart => !CHART_ORDER.includes(chart.platform))
+      )
+    : [];
 
-  // 按平台分组，TMDB和IMDB合并显示（不分电影和剧集） - 使用 useMemo 优化
-  const chartsByPlatform = useMemo(() => {
-    const result = sortedCharts.reduce((acc, chart) => {
+  // 按平台分组，TMDB和IMDB合并显示（不分电影和剧集）
+  const chartsByPlatform = sortedCharts.reduce((acc, chart) => {
     const platformKey = chart.platform;
     
     // TMDB和IMDB：合并同名榜单的电影和剧集
@@ -140,60 +138,57 @@ export default function ChartsPage() {
     if (!acc[platformKey]) {
       acc[platformKey] = [];
     }
-      acc[platformKey].push(chart);
-      return acc;
-    }, {} as Record<string, ChartSection[]>);
+    acc[platformKey].push(chart);
+    return acc;
+  }, {} as Record<string, ChartSection[]>);
 
-    // 对豆瓣平台的榜单进行排序
-    if (result['豆瓣']) {
-      result['豆瓣'].sort((a, b) => {
-        const indexA = DOUBAN_CHART_ORDER.indexOf(a.chart_name);
-        const indexB = DOUBAN_CHART_ORDER.indexOf(b.chart_name);
-        // 如果都在顺序列表中，按顺序排序
-        if (indexA !== -1 && indexB !== -1) {
-          return indexA - indexB;
-        }
-        // 如果只有一个在列表中，在列表中的排在前面
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        // 如果都不在列表中，按名称排序
-        return a.chart_name.localeCompare(b.chart_name);
-      });
-    }
-
-    // 对 Rotten Tomatoes 和 Metacritic 平台的榜单进行排序（电影在前，剧集在后）
-    ['Rotten Tomatoes', 'Metacritic'].forEach(platform => {
-      if (result[platform]) {
-        result[platform].sort((a, b) => {
-          // 电影类型排在前面
-          if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
-          if (a.media_type !== 'movie' && b.media_type === 'movie') return 1;
-          // 同类型按名称排序
-          return a.chart_name.localeCompare(b.chart_name);
-        });
+  // 对豆瓣平台的榜单进行排序
+  if (chartsByPlatform['豆瓣']) {
+    chartsByPlatform['豆瓣'].sort((a, b) => {
+      const indexA = DOUBAN_CHART_ORDER.indexOf(a.chart_name);
+      const indexB = DOUBAN_CHART_ORDER.indexOf(b.chart_name);
+      // 如果都在顺序列表中，按顺序排序
+      if (indexA !== -1 && indexB !== -1) {
+        return indexA - indexB;
       }
+      // 如果只有一个在列表中，在列表中的排在前面
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      // 如果都不在列表中，按名称排序
+      return a.chart_name.localeCompare(b.chart_name);
     });
+  }
 
-    // 对 Trakt 平台的榜单进行排序（剧集在前，电影在后）
-    if (result['Trakt']) {
-      result['Trakt'].sort((a, b) => {
-        // 剧集类型排在前面
-        if (a.media_type === 'tv' && b.media_type !== 'tv') return -1;
-        if (a.media_type !== 'tv' && b.media_type === 'tv') return 1;
+  // 对 Rotten Tomatoes 和 Metacritic 平台的榜单进行排序（电影在前，剧集在后）
+  ['Rotten Tomatoes', 'Metacritic'].forEach(platform => {
+    if (chartsByPlatform[platform]) {
+      chartsByPlatform[platform].sort((a, b) => {
+        // 电影类型排在前面
+        if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
+        if (a.media_type !== 'movie' && b.media_type === 'movie') return 1;
         // 同类型按名称排序
         return a.chart_name.localeCompare(b.chart_name);
       });
     }
+  });
 
-    return result;
-  }, [sortedCharts]);
+  // 对 Trakt 平台的榜单进行排序（剧集在前，电影在后）
+  if (chartsByPlatform['Trakt']) {
+    chartsByPlatform['Trakt'].sort((a, b) => {
+      // 剧集类型排在前面
+      if (a.media_type === 'tv' && b.media_type !== 'tv') return -1;
+      if (a.media_type !== 'tv' && b.media_type === 'tv') return 1;
+      // 同类型按名称排序
+      return a.chart_name.localeCompare(b.chart_name);
+    });
+  }
 
   // 导出状态
   const [exportingChart, setExportingChart] = useState<string | null>(null);
   const exportRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // 导出榜单 - 使用 useCallback 优化
-  const handleExportChart = useCallback(async (platform: string, chartName: string, chartKey: string) => {
+  // 导出榜单
+  const handleExportChart = async (platform: string, chartName: string, chartKey: string) => {
     const element = exportRefs.current[chartKey];
     if (!element || exportingChart) return;
 
@@ -272,7 +267,7 @@ export default function ChartsPage() {
     } finally {
       setExportingChart(null);
     }
-  }, [sortedCharts]);
+  };
 
   return (
     <>
@@ -315,8 +310,6 @@ export default function ChartsPage() {
                     <div className="space-y-6">
                       {platformCharts.map((chart, idx) => {
                         const chartKey = `${chart.platform}-${chart.chart_name}-${idx}`;
-                        // 预先排序 entries，避免每次渲染时排序（创建新数组避免修改原数组）
-                        const sortedEntries = [...chart.entries].sort((a, b) => a.rank - b.rank);
                         
                         return (
                         <div key={chartKey}>
@@ -341,7 +334,9 @@ export default function ChartsPage() {
                             <>
                               {/* 显示用的网格 */}
                               <div className="grid grid-cols-5 sm:grid-cols-10 gap-3">
-                                {sortedEntries.map(entry => {
+                                {chart.entries
+                                  .sort((a, b) => a.rank - b.rank)
+                                  .map(entry => {
                                     // 根据榜单类型确定媒体类型
                                     const mediaType = entry.media_type || 
                                       (chart.media_type === 'both' ? 'movie' : chart.media_type);
@@ -359,9 +354,9 @@ export default function ChartsPage() {
                                                   ? entry.poster 
                                                   : `/api/image-proxy?url=${encodeURIComponent(entry.poster)}`}
                                                 alt={entry.title}
-                                                className="w-full h-full object-cover"
+                                                className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
                                                 loading="lazy"
-                                                decoding="async"
+                                                style={{ willChange: 'transform' }}
                                               />
                                             ) : (
                                               <div className="w-full h-full flex items-center justify-center text-xs text-gray-500 dark:text-gray-400">
