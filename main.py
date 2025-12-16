@@ -2813,18 +2813,18 @@ async def update_top250_chart(
             },
             # 其他平台的 Top 250 方法将在后续实现时添加
             "IMDb": {
-                # "IMDb Top 250 Movies": scraper.update_imdb_top250_movies,  # 已改为手动录入
-                # "IMDb Top 250 TV Shows": scraper.update_imdb_top250_tv,  # 已改为手动录入
+                "IMDb Top 250 Movies": scraper.update_imdb_top250_movies,
+                "IMDb Top 250 TV Shows": scraper.update_imdb_top250_tv,
             },
             "Letterboxd": {
                 "Letterboxd Official Top 250": scraper.update_letterboxd_top250,
             },
             "豆瓣": {
-                # "豆瓣 Top 250": scraper.update_douban_top250,  # 已改为手动录入
+                "豆瓣 Top 250": scraper.update_douban_top250,
             },
             "MTC": {
-                # "Metacritic Best Movies of All Time": scraper.update_metacritic_best_movies,  # 已改为手动录入
-                # "Metacritic Best TV Shows of All Time": scraper.update_metacritic_best_tv,  # 已改为手动录入
+                "Metacritic Best Movies of All Time": scraper.update_metacritic_best_movies,
+                "Metacritic Best TV Shows of All Time": scraper.update_metacritic_best_tv,
             },
             # "Trakt": {
             #     "Trakt Highest Rated Movies (Top 250)": scraper.update_trakt_top250_movies,
@@ -2836,14 +2836,6 @@ async def update_top250_chart(
             raise HTTPException(status_code=400, detail=f"平台 {platform} 暂不支持 Top 250 榜单更新")
         
         if chart_name not in top250_updaters[platform]:
-            # 检查是否是已改为手动录入的榜单
-            manual_only_charts = {
-                "IMDb": ["IMDb Top 250 Movies", "IMDb Top 250 TV Shows"],
-                "豆瓣": ["豆瓣 Top 250"],
-                "MTC": ["Metacritic Best Movies of All Time", "Metacritic Best TV Shows of All Time"],
-            }
-            if platform in manual_only_charts and chart_name in manual_only_charts[platform]:
-                raise HTTPException(status_code=400, detail=f"榜单 {chart_name} 已改为手动录入，请在管理界面手动填写排名")
             raise HTTPException(status_code=400, detail=f"平台 {platform} 不支持榜单: {chart_name}")
         
         # 执行更新
@@ -2868,6 +2860,19 @@ async def update_top250_chart(
     except HTTPException:
         raise
     except Exception as e:
+        error_msg = str(e)
+        # 检查是否是反爬虫检测异常
+        if "ANTI_SCRAPING_DETECTED" in error_msg:
+            logger.warning(f"更新 Top 250 榜单遇到反爬虫机制: {e}")
+            raise HTTPException(
+                status_code=428,  # 428 Precondition Required - 用于表示需要用户操作
+                detail={
+                    "error": "ANTI_SCRAPING_DETECTED",
+                    "message": "遇到反爬虫机制，请验证",
+                    "platform": platform,
+                    "chart_name": chart_name
+                }
+            )
         logger.error(f"更新 Top 250 榜单失败: {e}")
         raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
 
