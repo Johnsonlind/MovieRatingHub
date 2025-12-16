@@ -39,7 +39,28 @@ const CHART_NAME_MAP: Record<string, string> = {
   '趋势本周': '本周趋势影视',
   'Top TV Shows Last Week': '上周剧集 Top 榜',
   'Top Movies Last Week': '上周电影 Top 榜',
+  // Top 250 榜单映射
+  'IMDb Top 250 Movies': 'IMDb 电影 Top 250',
+  'IMDb Top 250 TV Shows': 'IMDb 剧集 Top 250',
+  'Letterboxd Official Top 250': 'Letterboxd 电影 Top 250',
+  '豆瓣 Top 250': '豆瓣 电影 Top 250',
+  'Metacritic Best Movies of All Time': 'Metacritic 史上最佳电影 Top 250',
+  'Metacritic Best TV Shows of All Time': 'Metacritic 史上最佳剧集 Top 250',
+  'TMDB Top 250 Movies': 'TMDB 高分电影 Top 250',
+  'TMDB Top 250 TV Shows': 'TMDB 高分剧集 Top 250',
 };
+
+// 不可导出的榜单列表（Top 250 榜单）
+const NON_EXPORTABLE_CHARTS = [
+  'IMDb 电影 Top 250',
+  'IMDb 剧集 Top 250',
+  'Letterboxd 电影 Top 250',
+  '豆瓣 电影 Top 250',
+  'Metacritic 史上最佳电影 Top 250',
+  'Metacritic 史上最佳剧集 Top 250',
+  'TMDB 高分电影 Top 250',
+  'TMDB 高分剧集 Top 250',
+];
 
 // 平台logo映射
 const PLATFORM_LOGOS: Record<string, string> = {
@@ -185,6 +206,23 @@ export default function ChartsPage() {
       });
     }
 
+    // 对所有平台的榜单进行排序：Top 250 榜单放在最后
+    Object.keys(result).forEach(platform => {
+      if (result[platform]) {
+        result[platform].sort((a, b) => {
+          const aIsTop250 = NON_EXPORTABLE_CHARTS.includes(a.chart_name);
+          const bIsTop250 = NON_EXPORTABLE_CHARTS.includes(b.chart_name);
+          
+          // Top 250 榜单排在最后
+          if (aIsTop250 && !bIsTop250) return 1;
+          if (!aIsTop250 && bIsTop250) return -1;
+          
+          // 如果都是或都不是 Top 250，保持原有顺序（或按名称排序）
+          return a.chart_name.localeCompare(b.chart_name);
+        });
+      }
+    });
+
     return result;
   }, [sortedCharts]);
 
@@ -318,20 +356,34 @@ export default function ChartsPage() {
                         // 预先排序 entries，避免每次渲染时排序（创建新数组避免修改原数组）
                         const sortedEntries = [...chart.entries].sort((a, b) => a.rank - b.rank);
                         
+                        const isNonExportable = NON_EXPORTABLE_CHARTS.includes(chart.chart_name);
+                        const displayEntries = isNonExportable ? sortedEntries.slice(0, 10) : sortedEntries;
+                        
                         return (
                         <div key={chartKey}>
                           <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
                               {chart.chart_name}
                             </h3>
-                            <button
-                              onClick={() => handleExportChart(chart.platform, chart.chart_name, chartKey)}
-                              disabled={exportingChart === chartKey}
-                              className="glass-button px-3 py-1.5 text-sm flex items-center gap-2 text-gray-800 dark:text-white hover:scale-105 transition-all"
-                            >
-                              <Download className="w-4 h-4" />
-                              {exportingChart === chartKey ? '导出中...' : '导出'}
-                            </button>
+                            {isNonExportable ? (
+                              <Link
+                                to={`/charts/${encodeURIComponent(chart.platform)}/${encodeURIComponent(chart.chart_name)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="glass-button px-3 py-1.5 text-sm flex items-center gap-2 text-gray-800 dark:text-white hover:scale-105 transition-all"
+                              >
+                                更多
+                              </Link>
+                            ) : (
+                              <button
+                                onClick={() => handleExportChart(chart.platform, chart.chart_name, chartKey)}
+                                disabled={exportingChart === chartKey}
+                                className="glass-button px-3 py-1.5 text-sm flex items-center gap-2 text-gray-800 dark:text-white hover:scale-105 transition-all"
+                              >
+                                <Download className="w-4 h-4" />
+                                {exportingChart === chartKey ? '导出中...' : '导出'}
+                              </button>
+                            )}
                           </div>
                           {chart.entries.length === 0 ? (
                             <div className="text-gray-500 dark:text-gray-400 text-sm">
@@ -341,7 +393,7 @@ export default function ChartsPage() {
                             <>
                               {/* 显示用的网格 */}
                               <div className="grid grid-cols-5 sm:grid-cols-10 gap-3">
-                                {sortedEntries.map(entry => {
+                                {displayEntries.map(entry => {
                                     // 根据榜单类型确定媒体类型
                                     const mediaType = entry.media_type || 
                                       (chart.media_type === 'both' ? 'movie' : chart.media_type);
@@ -409,21 +461,23 @@ export default function ChartsPage() {
                                   })}
                               </div>
                               
-                              {/* 导出用的隐藏容器 - 参考MoviePage的方式 */}
-                              <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
-                                <div 
-                                  ref={(el) => { exportRefs.current[chartKey] = el; }}
-                                  id={`export-chart-${chartKey}`}
-                                  className="bg-white"
-                                >
-                                  <ExportChartCard 
-                                    platform={chart.platform}
-                                    chartName={chart.chart_name}
-                                    entries={chart.entries.sort((a, b) => a.rank - b.rank)}
-                                    platformLogo={PLATFORM_LOGOS[chart.platform]}
-                                  />
+                              {/* 导出用的隐藏容器 - 仅对可导出榜单渲染 */}
+                              {!isNonExportable && (
+                                <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
+                                  <div 
+                                    ref={(el) => { exportRefs.current[chartKey] = el; }}
+                                    id={`export-chart-${chartKey}`}
+                                    className="bg-white"
+                                  >
+                                    <ExportChartCard 
+                                      platform={chart.platform}
+                                      chartName={chart.chart_name}
+                                      entries={chart.entries.sort((a, b) => a.rank - b.rank)}
+                                      platformLogo={PLATFORM_LOGOS[chart.platform]}
+                                    />
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                             </>
                           )}
                         </div>
