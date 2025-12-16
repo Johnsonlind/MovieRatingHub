@@ -10,7 +10,7 @@ import time
 import logging
 import os
 import httpx
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
 from playwright.async_api import Page
 from sqlalchemy.orm import Session
@@ -18,6 +18,9 @@ from sqlalchemy import and_, or_, not_, func
 
 from browser_pool import browser_pool
 from models import ChartEntry, engine, SessionLocal
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 # 设置日志
 logging.basicConfig(level=logging.INFO)
@@ -963,6 +966,1389 @@ class ChartScraper:
 
         self.db.commit()
         logger.info(f"TMDB 趋势本周 入库 {saved} 条（来源：{'remote panel' if items else 'api'}）")
+        return saved
+
+    async def update_tmdb_top250_movies(self) -> int:
+        """TMDB 高分电影 Top 250：使用官方 API 获取，保存前 250 条"""
+        import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform == 'TMDB',
+            ChartEntry.chart_name == 'TMDB Top 250 Movies'
+        ).delete()
+        logger.info(f"TMDB Top 250 Movies: 清空旧数据 {deleted} 条")
+        
+        # TMDB API Token
+        tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
+        headers = {
+            'Authorization': f'Bearer {tmdb_token}',
+            'accept': 'application/json'
+        }
+        
+        matcher = TMDBMatcher(self.db)
+        all_items = []
+        
+        # TMDB API 每页返回 20 条，需要获取 250 条，所以需要 13 页（250/20 = 12.5，向上取整）
+        for page in range(1, 14):  # 1-13 页
+            try:
+                url = f"https://api.themoviedb.org/3/movie/top_rated?page={page}"
+                response = requests.get(url, headers=headers, timeout=20, verify=False)
+                
+                if response.status_code != 200:
+                    logger.warning(f"TMDB Top 250 Movies API 调用失败 (page {page}): {response.status_code}")
+                    break
+                
+                data = response.json()
+                results = data.get('results', [])
+                
+                if not results:
+                    break
+                
+                for item in results:
+                    tmdb_id = int(item.get('id', 0))
+                    if tmdb_id:
+                        all_items.append({
+                            'tmdb_id': tmdb_id,
+                            'title': item.get('title', ''),
+                            'poster_path': item.get('poster_path', '')
+                        })
+                
+                # 如果已经获取了 250 条，停止
+                if len(all_items) >= 250:
+                    break
+                    
+                # 避免请求过快
+                await asyncio.sleep(0.3)
+                
+            except Exception as e:
+                logger.error(f"TMDB Top 250 Movies 获取第 {page} 页失败: {e}")
+                continue
+        
+        # 限制为 250 条
+        all_items = all_items[:250]
+        
+        # 入库
+        saved = 0
+        for rank, item in enumerate(all_items, 1):
+            tmdb_id = item['tmdb_id']
+            title = item.get('title', '')
+            poster_path = item.get('poster_path', '')
+            
+            try:
+                # 获取详细信息以获取中文标题和完整海报URL
+                info = await matcher.get_tmdb_info(tmdb_id, 'movie')
+                if info:
+                    title = self._safe_get_title(info, title)
+                    poster = info.get('poster_url', '')
+                else:
+                    # 如果获取详细信息失败，使用API返回的数据
+                    poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
+            except Exception as e:
+                logger.warning(f"TMDB Top 250 Movies 获取详细信息失败 (rank {rank}, tmdb_id {tmdb_id}): {e}")
+                poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
+            
+            self.db.add(ChartEntry(
+                platform='TMDB',
+                chart_name='TMDB Top 250 Movies',
+                media_type='movie',
+                rank=rank,
+                tmdb_id=tmdb_id,
+                title=title,
+                poster=poster
+            ))
+            saved += 1
+        
+        self.db.commit()
+        logger.info(f"TMDB Top 250 Movies 入库 {saved} 条")
+        return saved
+
+    async def update_tmdb_top250_tv(self) -> int:
+        """TMDB 高分剧集 Top 250：使用官方 API 获取，保存前 250 条"""
+        import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform == 'TMDB',
+            ChartEntry.chart_name == 'TMDB Top 250 TV Shows'
+        ).delete()
+        logger.info(f"TMDB Top 250 TV Shows: 清空旧数据 {deleted} 条")
+        
+        # TMDB API Token
+        tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
+        headers = {
+            'Authorization': f'Bearer {tmdb_token}',
+            'accept': 'application/json'
+        }
+        
+        matcher = TMDBMatcher(self.db)
+        all_items = []
+        
+        # TMDB API 每页返回 20 条，需要获取 250 条，所以需要 13 页（250/20 = 12.5，向上取整）
+        for page in range(1, 14):  # 1-13 页
+            try:
+                url = f"https://api.themoviedb.org/3/tv/top_rated?page={page}"
+                response = requests.get(url, headers=headers, timeout=20, verify=False)
+                
+                if response.status_code != 200:
+                    logger.warning(f"TMDB Top 250 TV Shows API 调用失败 (page {page}): {response.status_code}")
+                    break
+                
+                data = response.json()
+                results = data.get('results', [])
+                
+                if not results:
+                    break
+                
+                for item in results:
+                    tmdb_id = int(item.get('id', 0))
+                    if tmdb_id:
+                        all_items.append({
+                            'tmdb_id': tmdb_id,
+                            'title': item.get('name', ''),
+                            'poster_path': item.get('poster_path', '')
+                        })
+                
+                # 如果已经获取了 250 条，停止
+                if len(all_items) >= 250:
+                    break
+                    
+                # 避免请求过快
+                await asyncio.sleep(0.3)
+                
+            except Exception as e:
+                logger.error(f"TMDB Top 250 TV Shows 获取第 {page} 页失败: {e}")
+                continue
+        
+        # 限制为 250 条
+        all_items = all_items[:250]
+        
+        # 入库
+        saved = 0
+        for rank, item in enumerate(all_items, 1):
+            tmdb_id = item['tmdb_id']
+            title = item.get('title', '')
+            poster_path = item.get('poster_path', '')
+            
+            try:
+                # 获取详细信息以获取中文标题和完整海报URL
+                info = await matcher.get_tmdb_info(tmdb_id, 'tv')
+                if info:
+                    title = self._safe_get_title(info, title)
+                    poster = info.get('poster_url', '')
+                else:
+                    # 如果获取详细信息失败，使用API返回的数据
+                    poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
+            except Exception as e:
+                logger.warning(f"TMDB Top 250 TV Shows 获取详细信息失败 (rank {rank}, tmdb_id {tmdb_id}): {e}")
+                poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
+            
+            self.db.add(ChartEntry(
+                platform='TMDB',
+                chart_name='TMDB Top 250 TV Shows',
+                media_type='tv',
+                rank=rank,
+                tmdb_id=tmdb_id,
+                title=title,
+                poster=poster
+            ))
+            saved += 1
+        
+        self.db.commit()
+        logger.info(f"TMDB Top 250 TV Shows 入库 {saved} 条")
+        return saved
+
+    async def scrape_imdb_top250(self, chart_url: str, media_type: str) -> List[Dict]:
+        """抓取 IMDb Top 250 榜单（电影或剧集），使用 Playwright 拦截 GraphQL 请求"""
+        async def scrape_with_browser(browser):
+            page = await browser.new_page()
+            try:
+                logger.info(f"访问 IMDb Top 250 页面: {chart_url}")
+                await page.goto(chart_url, wait_until="domcontentloaded", timeout=60000)
+                await asyncio.sleep(2)
+                
+                # 尝试快速等待列表项出现（最多等待5秒）
+                try:
+                    await page.wait_for_selector('li[data-testid="title-list-item"], li.ipc-metadata-list-summary-item', timeout=5000)
+                except Exception:
+                    pass
+                
+                # 拦截 GraphQL 请求并获取数据
+                chart_data = None
+                
+                async def handle_response(response):
+                    nonlocal chart_data
+                    try:
+                        url = response.url
+                        # 检查是否是 GraphQL API 请求
+                        if "api.graphql.imdb.com" in url or "caching.graphql.imdb.com" in url:
+                            try:
+                                data = await response.json()
+                                # 查找包含 Top 250 数据的响应
+                                if isinstance(data, dict):
+                                    # 尝试从不同路径获取数据
+                                    edges = None
+                                    if "data" in data:
+                                        data_obj = data["data"]
+                                        # 检查各种可能的数据路径
+                                        if "chartTitles" in data_obj:
+                                            edges = data_obj["chartTitles"].get("edges", [])
+                                        elif "topMeterTitles" in data_obj:
+                                            edges = data_obj["topMeterTitles"].get("edges", [])
+                                        elif "chart" in data_obj:
+                                            edges = data_obj["chart"].get("edges", [])
+                                    
+                                    if edges and len(edges) > 0:
+                                        chart_data = edges
+                                        logger.info(f"从 GraphQL 响应中获取到 {len(edges)} 条数据")
+                            except Exception as e:
+                                logger.debug(f"解析 GraphQL 响应失败: {e}")
+                    except Exception as e:
+                        logger.debug(f"处理响应失败: {e}")
+                
+                # 监听响应
+                page.on("response", handle_response)
+                
+                # 等待一段时间让 GraphQL 请求完成
+                await asyncio.sleep(5)
+                
+                # 如果通过 GraphQL 没有获取到数据，尝试从页面 HTML 中提取
+                if not chart_data:
+                    logger.info("GraphQL 拦截失败，尝试从页面 HTML 提取数据")
+                    try:
+                        # 获取页面内容
+                        content = await page.content()
+                        
+                        # 尝试从 __NEXT_DATA__ 中提取
+                        import json
+                        import re
+                        json_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', content, re.DOTALL)
+                        if json_match:
+                            try:
+                                next_data = json.loads(json_match.group(1))
+                                # 查找 Top 250 数据
+                                props = next_data.get("props", {})
+                                page_props = props.get("pageProps", {})
+                                # 尝试不同的路径
+                                chart_data = (
+                                    page_props.get("contentData", {}).get("chartTitles", {}).get("edges", []) or
+                                    page_props.get("chartTitles", {}).get("edges", []) or
+                                    []
+                                )
+                                if chart_data:
+                                    logger.info(f"从 __NEXT_DATA__ 中获取到 {len(chart_data)} 条数据")
+                            except Exception as e:
+                                logger.warning(f"解析 __NEXT_DATA__ 失败: {e}")
+                    except Exception as e:
+                        logger.warning(f"从页面 HTML 提取数据失败: {e}")
+                
+                # 如果还是没有数据，尝试直接解析页面上的列表项
+                if not chart_data:
+                    logger.info("尝试从页面 DOM 提取数据")
+                    try:
+                        # 查找包含排名和标题的元素
+                        items = await page.query_selector_all('li[data-testid="title-list-item"]')
+                        if not items:
+                            items = await page.query_selector_all('li.ipc-metadata-list-summary-item')
+                        
+                        chart_data = []
+                        for idx, item in enumerate(items[:250], 1):
+                            try:
+                                # 获取标题链接
+                                link = await item.query_selector('a[href*="/title/tt"]')
+                                if link:
+                                    href = await link.get_attribute('href')
+                                    # 提取 IMDb ID
+                                    imdb_match = re.search(r'/title/(tt\d+)/', href)
+                                    if imdb_match:
+                                        imdb_id = imdb_match.group(1)
+                                        # 获取标题
+                                        title_elem = await link.query_selector('h3, .ipc-title__text')
+                                        title = await title_elem.inner_text() if title_elem else ""
+                                        title = title.strip()
+                                        
+                                        chart_data.append({
+                                            "currentRank": idx,
+                                            "node": {
+                                                "id": imdb_id,
+                                                "titleText": {"text": title}
+                                            }
+                                        })
+                            except Exception as e:
+                                logger.debug(f"提取列表项失败: {e}")
+                                continue
+                        
+                        if chart_data:
+                            logger.info(f"从页面 DOM 中获取到 {len(chart_data)} 条数据")
+                    except Exception as e:
+                        logger.warning(f"从页面 DOM 提取数据失败: {e}")
+                
+                if not chart_data:
+                    raise Exception("未能获取到 IMDb Top 250 数据")
+                
+                # 解析数据
+                results = []
+                for edge in chart_data:
+                    try:
+                        if isinstance(edge, dict):
+                            rank = edge.get("currentRank")
+                            node = edge.get("node", {})
+                            
+                            if not rank and not node:
+                                # 可能是直接从 DOM 提取的数据，已经包含 rank 和 node
+                                rank = edge.get("currentRank")
+                                node = edge.get("node", {})
+                            
+                            imdb_id = node.get("id") if isinstance(node, dict) else None
+                            title_text = node.get("titleText", {}) if isinstance(node, dict) else {}
+                            title = title_text.get("text", "") if isinstance(title_text, dict) else ""
+                            
+                            if imdb_id and rank:
+                                results.append({
+                                    "rank": int(rank),
+                                    "title": title,
+                                    "imdb_id": imdb_id
+                                })
+                    except Exception as e:
+                        logger.warning(f"解析数据项失败: {e}")
+                        continue
+                
+                # 按排名排序
+                results.sort(key=lambda x: x["rank"])
+                
+                logger.info(f"IMDb Top 250 ({media_type}) 获取到 {len(results)} 条数据")
+                return results
+                
+            except Exception as e:
+                logger.error(f"抓取 IMDb Top 250 ({media_type}) 失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return []
+            finally:
+                await page.close()
+        
+        # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
+        try:
+            return await browser_pool.execute_in_browser(scrape_with_browser)
+        except Exception as e:
+            logger.error(f"IMDb Top 250 ({media_type}) 抓取失败: {e}")
+            return []
+
+    async def update_imdb_top250_movies(self) -> int:
+        """IMDb Top 250 Movies → 'IMDb / IMDb Top 250 Movies'"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform == 'IMDb',
+            ChartEntry.chart_name == 'IMDb Top 250 Movies'
+        ).delete()
+        logger.info(f"IMDb Top 250 Movies: 清空旧数据 {deleted} 条")
+        
+        matcher = TMDBMatcher(self.db)
+        items = await self.scrape_imdb_top250("https://www.imdb.com/chart/top/?ref_=hm_nv_menu", "movie")
+        
+        if not items:
+            logger.error("未能获取到 IMDb Top 250 Movies 数据")
+            return 0
+        
+        saved = 0
+        total = len(items[:250])
+        
+        # 使用信号量控制并发数（最多同时处理10个，因为IMDb匹配是API调用，速度较快）
+        semaphore = asyncio.Semaphore(10)
+        
+        async def process_item(item: Dict) -> Optional[Dict]:
+            """处理单个项目，返回匹配结果或None"""
+            async with semaphore:
+                rank = item.get('rank')
+                title = item.get('title') or ''
+                imdb_id = item.get('imdb_id') or ''
+                
+                if not imdb_id:
+                    logger.warning(f"IMDb Top 250 Movies rank {rank}: 缺少 IMDb ID")
+                    return None
+                
+                try:
+                    match = await matcher.match_imdb_with_tmdb(imdb_id, title, 'movie')
+                    if not match:
+                        logger.warning(f"IMDb Top 250 Movies rank {rank} ({title}): 未匹配到 TMDB")
+                        return None
+                    
+                    return {
+                        'rank': rank,
+                        'match': match,
+                        'title': title
+                    }
+                except Exception as e:
+                    logger.warning(f"IMDb Top 250 Movies rank {rank} ({title}): 匹配失败: {e}")
+                    return None
+        
+        # 批量并发处理（每批30个）
+        batch_size = 30
+        for batch_start in range(0, total, batch_size):
+            batch = items[batch_start:batch_start + batch_size]
+            results = await asyncio.gather(*[process_item(item) for item in batch], return_exceptions=True)
+            
+            # 处理结果并入库
+            for result in results:
+                if isinstance(result, Exception):
+                    continue
+                if not result:
+                    continue
+                
+                rank = result['rank']
+                match = result['match']
+                title = result['title']
+                
+                media_type = match.get('media_type') or 'movie'
+                self.db.add(ChartEntry(
+                    platform='IMDb',
+                    chart_name='IMDb Top 250 Movies',
+                    media_type=media_type,
+                    rank=rank,
+                    tmdb_id=match['tmdb_id'],
+                    title=match.get('title', title),
+                    poster=match.get('poster', '')
+                ))
+                saved += 1
+            
+            # 每批提交一次数据库
+            self.db.commit()
+            logger.info(f"IMDb Top 250 Movies 处理进度: {saved}/{total} 条已入库")
+            
+            # 批次之间稍作休息
+            if batch_start + batch_size < total:
+                await asyncio.sleep(0.3)
+        
+        logger.info(f"IMDb Top 250 Movies 入库完成，共 {saved}/{total} 条")
+        return saved
+
+    async def update_imdb_top250_tv(self) -> int:
+        """IMDb Top 250 TV Shows → 'IMDb / IMDb Top 250 TV Shows'"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform == 'IMDb',
+            ChartEntry.chart_name == 'IMDb Top 250 TV Shows'
+        ).delete()
+        logger.info(f"IMDb Top 250 TV Shows: 清空旧数据 {deleted} 条")
+        
+        matcher = TMDBMatcher(self.db)
+        items = await self.scrape_imdb_top250("https://www.imdb.com/chart/toptv/?ref_=hm_nv_menu", "tv")
+        
+        if not items:
+            logger.error("未能获取到 IMDb Top 250 TV Shows 数据")
+            return 0
+        
+        saved = 0
+        total = len(items[:250])
+        
+        # 使用信号量控制并发数（最多同时处理10个）
+        semaphore = asyncio.Semaphore(10)
+        
+        async def process_item(item: Dict) -> Optional[Dict]:
+            """处理单个项目，返回匹配结果或None"""
+            async with semaphore:
+                rank = item.get('rank')
+                title = item.get('title') or ''
+                imdb_id = item.get('imdb_id') or ''
+                
+                if not imdb_id:
+                    logger.warning(f"IMDb Top 250 TV Shows rank {rank}: 缺少 IMDb ID")
+                    return None
+                
+                try:
+                    match = await matcher.match_imdb_with_tmdb(imdb_id, title, 'tv')
+                    if not match:
+                        logger.warning(f"IMDb Top 250 TV Shows rank {rank} ({title}): 未匹配到 TMDB")
+                        return None
+                    
+                    return {
+                        'rank': rank,
+                        'match': match,
+                        'title': title
+                    }
+                except Exception as e:
+                    logger.warning(f"IMDb Top 250 TV Shows rank {rank} ({title}): 匹配失败: {e}")
+                    return None
+        
+        # 批量并发处理（每批30个）
+        batch_size = 30
+        for batch_start in range(0, total, batch_size):
+            batch = items[batch_start:batch_start + batch_size]
+            results = await asyncio.gather(*[process_item(item) for item in batch], return_exceptions=True)
+            
+            # 处理结果并入库
+            for result in results:
+                if isinstance(result, Exception):
+                    continue
+                if not result:
+                    continue
+                
+                rank = result['rank']
+                match = result['match']
+                title = result['title']
+                
+                media_type = match.get('media_type') or 'tv'
+                self.db.add(ChartEntry(
+                    platform='IMDb',
+                    chart_name='IMDb Top 250 TV Shows',
+                    media_type=media_type,
+                    rank=rank,
+                    tmdb_id=match['tmdb_id'],
+                    title=match.get('title', title),
+                    poster=match.get('poster', '')
+                ))
+                saved += 1
+            
+            # 每批提交一次数据库
+            self.db.commit()
+            logger.info(f"IMDb Top 250 TV Shows 处理进度: {saved}/{total} 条已入库")
+            
+            # 批次之间稍作休息
+            if batch_start + batch_size < total:
+                await asyncio.sleep(0.3)
+        
+        logger.info(f"IMDb Top 250 TV Shows 入库完成，共 {saved}/{total} 条")
+        return saved
+
+    async def scrape_douban_top250(self, douban_cookie: Optional[str] = None) -> List[Dict]:
+        """抓取豆瓣 Top 250 榜单，获取电影链接"""
+        async def scrape_with_browser(browser):
+            page = await browser.new_page()
+            try:
+                # 如果提供了 cookie，设置 cookie
+                if douban_cookie:
+                    # 解析 cookie 字符串并设置到浏览器上下文
+                    context = page.context
+                    # 将 cookie 字符串转换为字典列表
+                    cookies = []
+                    for cookie_pair in douban_cookie.split(';'):
+                        cookie_pair = cookie_pair.strip()
+                        if '=' in cookie_pair:
+                            key, value = cookie_pair.split('=', 1)
+                            cookies.append({
+                                'name': key.strip(),
+                                'value': value.strip(),
+                                'domain': '.douban.com',
+                                'path': '/'
+                            })
+                    if cookies:
+                        await context.add_cookies(cookies)
+                        logger.info(f"已设置豆瓣 Cookie")
+                
+                # 访问豆瓣 Top 250 页面（共 10 页，每页 25 条）
+                all_movies = []
+                for page_num in range(10):
+                    start = page_num * 25
+                    url = f"https://movie.douban.com/top250?start={start}"
+                    logger.info(f"访问豆瓣 Top 250 第 {page_num + 1} 页: {url}")
+                    
+                    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    await asyncio.sleep(2)
+                    
+                    # 等待页面加载完成
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=30000)
+                    except Exception:
+                        await asyncio.sleep(3)
+                    
+                    # 解析页面，获取电影列表
+                    items = await page.query_selector_all('div.item')
+                    
+                    for item in items:
+                        try:
+                            # 获取排名
+                            rank_elem = await item.query_selector('div.pic em')
+                            rank_text = await rank_elem.inner_text() if rank_elem else ""
+                            rank = int(rank_text) if rank_text.isdigit() else None
+                            
+                            # 获取电影链接
+                            link_elem = await item.query_selector('div.pic a')
+                            if not link_elem:
+                                continue
+                            
+                            href = await link_elem.get_attribute('href')
+                            if not href:
+                                continue
+                            
+                            # 从链接中提取豆瓣 ID
+                            douban_id_match = re.search(r'/subject/(\d+)/', href)
+                            if not douban_id_match:
+                                continue
+                            
+                            douban_id = douban_id_match.group(1)
+                            
+                            # 获取电影标题
+                            title_elem = await item.query_selector('div.info span.title')
+                            title = await title_elem.inner_text() if title_elem else ""
+                            title = title.strip()
+                            
+                            all_movies.append({
+                                'rank': rank or len(all_movies) + 1,
+                                'title': title,
+                                'douban_id': douban_id,
+                                'url': href
+                            })
+                        except Exception as e:
+                            logger.warning(f"解析电影项失败: {e}")
+                            continue
+                    
+                    # 避免请求过快
+                    await asyncio.sleep(1)
+                
+                # 按排名排序
+                all_movies.sort(key=lambda x: x['rank'])
+                
+                logger.info(f"豆瓣 Top 250 获取到 {len(all_movies)} 条电影链接")
+                return all_movies
+                
+            except Exception as e:
+                logger.error(f"抓取豆瓣 Top 250 失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return []
+            finally:
+                await page.close()
+        
+        # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
+        try:
+            return await browser_pool.execute_in_browser(scrape_with_browser)
+        except Exception as e:
+            logger.error(f"豆瓣 Top 250 抓取失败: {e}")
+            return []
+
+    async def get_douban_imdb_id_with_cookie(self, douban_id: str, douban_cookie: Optional[str] = None) -> Optional[str]:
+        """从豆瓣详情页获取IMDb ID（支持 Cookie，优化版）"""
+        async def get_with_browser(browser):
+            page = await browser.new_page()
+            try:
+                # 如果提供了 cookie，设置 cookie
+                if douban_cookie:
+                    context = page.context
+                    cookies = []
+                    for cookie_pair in douban_cookie.split(';'):
+                        cookie_pair = cookie_pair.strip()
+                        if '=' in cookie_pair:
+                            key, value = cookie_pair.split('=', 1)
+                            cookies.append({
+                                'name': key.strip(),
+                                'value': value.strip(),
+                                'domain': '.douban.com',
+                                'path': '/'
+                            })
+                    if cookies:
+                        await context.add_cookies(cookies)
+                
+                url = f"https://movie.douban.com/subject/{douban_id}/"
+                
+                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                # 减少等待时间，只等待必要的内容加载
+                await asyncio.sleep(1)
+                
+                # 尝试快速查找 IMDb ID，不等待 networkidle
+                try:
+                    # 等待 IMDb 链接出现（最多等待3秒）
+                    await page.wait_for_selector('a[href*="imdb.com/title/tt"]', timeout=3000)
+                except Exception:
+                    # 如果没找到，继续尝试其他方法
+                    pass
+                
+                # 获取页面内容
+                content = await page.content()
+                
+                # 使用 BeautifulSoup 解析
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(content, 'html.parser')
+                
+                # 查找IMDb链接
+                imdb_links = soup.find_all('a', href=lambda x: x and 'imdb.com' in x)
+                for link in imdb_links:
+                    href = link.get('href', '')
+                    if '/title/tt' in href:
+                        # 提取IMDb ID (tt开头)
+                        imdb_id = href.split('/title/')[-1].rstrip('/')
+                        if imdb_id.startswith('tt'):
+                            return imdb_id
+                
+                # 如果没找到链接，尝试从文本中提取
+                imdb_spans = soup.find_all('span', class_='pl')
+                for span in imdb_spans:
+                    if span.get_text().strip() == 'IMDb:':
+                        # 1) 尝试紧邻文本兄弟节点（非标签）
+                        sibling_text = getattr(span.next_sibling, 'strip', lambda: str(span.next_sibling))()
+                        if sibling_text:
+                            m = re.search(r'(tt\d+)', sibling_text)
+                            if m:
+                                return m.group(1)
+
+                        # 2) 尝试下一个span兄弟节点
+                        next_span = span.find_next_sibling('span')
+                        if next_span:
+                            imdb_text = next_span.get_text().strip()
+                            if imdb_text.startswith('tt'):
+                                return imdb_text
+
+                        # 3) 兜底：在整页HTML中用正则提取
+                        m2 = re.search(r'<span class="pl">IMDb:</span>\s*([tT]{2}\d+)<br>', content)
+                        if m2:
+                            return m2.group(1)
+                
+                return None
+                
+            except Exception as e:
+                logger.debug(f"获取豆瓣IMDb ID失败 (douban_id: {douban_id}): {e}")
+                return None
+            finally:
+                await page.close()
+        
+        # 使用浏览器池执行（自动处理浏览器的获取和释放）
+        try:
+            return await browser_pool.execute_in_browser(get_with_browser)
+        except Exception as e:
+            logger.debug(f"获取豆瓣IMDb ID失败: {e}")
+            return None
+
+    async def update_douban_top250(self, douban_cookie: Optional[str] = None, request: Optional['Request'] = None) -> int:
+        """豆瓣 Top 250 → '豆瓣 / 豆瓣 Top 250'"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform == '豆瓣',
+            ChartEntry.chart_name == '豆瓣 Top 250'
+        ).delete()
+        logger.info(f"豆瓣 Top 250: 清空旧数据 {deleted} 条")
+        
+        # 抓取豆瓣 Top 250 列表
+        movies = await self.scrape_douban_top250(douban_cookie)
+        
+        if not movies:
+            logger.error("未能获取到豆瓣 Top 250 数据")
+            return 0
+        
+        matcher = TMDBMatcher(self.db)
+        saved = 0
+        total = len(movies[:250])
+        
+        # 使用信号量控制并发数（最多同时处理5个）
+        semaphore = asyncio.Semaphore(5)
+        
+        async def process_movie(movie: Dict) -> Optional[Dict]:
+            """处理单个电影，返回匹配结果或None"""
+            nonlocal saved
+            async with semaphore:
+                # 检查请求是否被取消
+                if request and await request.is_disconnected():
+                    return None
+                
+                rank = movie.get('rank')
+                title = movie.get('title') or ''
+                douban_id = movie.get('douban_id') or ''
+                
+                if not douban_id:
+                    logger.warning(f"豆瓣 Top 250 rank {rank}: 缺少豆瓣 ID")
+                    return None
+                
+                try:
+                    # 从豆瓣详情页获取 IMDb ID
+                    imdb_id = await self.get_douban_imdb_id_with_cookie(douban_id, douban_cookie)
+                    
+                    if not imdb_id:
+                        logger.warning(f"豆瓣 Top 250 rank {rank} ({title}): 未能获取 IMDb ID")
+                        return None
+                    
+                    # 使用 IMDb ID 匹配 TMDB
+                    match = None
+                    try:
+                        match = await matcher.match_imdb_with_tmdb(imdb_id, title, 'movie')
+                    except Exception as e:
+                        logger.warning(f"豆瓣 Top 250 rank {rank} ({title}): 匹配失败: {e}")
+                    
+                    if not match:
+                        logger.warning(f"豆瓣 Top 250 rank {rank} ({title}): 未匹配到 TMDB")
+                        return None
+                    
+                    return {
+                        'rank': rank,
+                        'match': match,
+                        'title': title
+                    }
+                except Exception as e:
+                    logger.error(f"豆瓣 Top 250 rank {rank} ({title}) 处理失败: {e}")
+                    return None
+        
+        # 批量并发处理（每批20个）
+        batch_size = 20
+        for batch_start in range(0, total, batch_size):
+            # 检查请求是否被取消
+            if request and await request.is_disconnected():
+                logger.warning(f"请求已被取消，已处理 {saved}/{total} 条")
+                self.db.commit()
+                return saved
+            
+            batch = movies[batch_start:batch_start + batch_size]
+            results = await asyncio.gather(*[process_movie(movie) for movie in batch], return_exceptions=True)
+            
+            # 处理结果并入库
+            for result in results:
+                if isinstance(result, Exception):
+                    continue
+                if not result:
+                    continue
+                
+                rank = result['rank']
+                match = result['match']
+                title = result['title']
+                
+                media_type = match.get('media_type') or 'movie'
+                self.db.add(ChartEntry(
+                    platform='豆瓣',
+                    chart_name='豆瓣 Top 250',
+                    media_type=media_type,
+                    rank=rank,
+                    tmdb_id=match['tmdb_id'],
+                    title=match.get('title', title),
+                    poster=match.get('poster', '')
+                ))
+                saved += 1
+            
+            # 每批提交一次数据库
+            self.db.commit()
+            logger.info(f"豆瓣 Top 250 处理进度: {saved}/{total} 条已入库")
+            
+            # 批次之间稍作休息，避免请求过快
+            if batch_start + batch_size < total:
+                await asyncio.sleep(0.5)
+        
+        # 最终提交剩余的数据
+        self.db.commit()
+        logger.info(f"豆瓣 Top 250 入库完成，共 {saved}/{total} 条")
+        return saved
+
+    async def scrape_letterboxd_top250(self) -> List[Dict]:
+        """抓取 Letterboxd Top 250 榜单，获取电影链接和排名"""
+        async def scrape_with_browser(browser):
+            page = await browser.new_page()
+            try:
+                all_movies = []
+                base_url = "https://letterboxd.com/dave/list/official-top-250-narrative-feature-films"
+                
+                # 抓取3页（每页约83-84条，总共250条）
+                for page_num in range(1, 4):
+                    if page_num == 1:
+                        url = f"{base_url}/"
+                    else:
+                        url = f"{base_url}/page/{page_num}/"
+                    
+                    logger.info(f"访问 Letterboxd Top 250 第 {page_num} 页: {url}")
+                    
+                    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    await asyncio.sleep(1)
+                    
+                    # 尝试快速等待列表项出现（最多等待3秒）
+                    try:
+                        await page.wait_for_selector('li.posteritem.numbered-list-item', timeout=3000)
+                    except Exception:
+                        pass
+                    
+                    # 解析页面，获取电影列表
+                    items = await page.query_selector_all('li.posteritem.numbered-list-item')
+                    
+                    for item in items:
+                        try:
+                            # 获取排名
+                            rank_elem = await item.query_selector('p.list-number')
+                            rank_text = await rank_elem.inner_text() if rank_elem else ""
+                            rank = int(rank_text.strip()) if rank_text.strip().isdigit() else None
+                            
+                            if not rank:
+                                continue
+                            
+                            # 获取电影链接
+                            link_elem = await item.query_selector('a[data-item-link]')
+                            if not link_elem:
+                                # 尝试其他选择器
+                                link_elem = await item.query_selector('a[href*="/film/"]')
+                            
+                            if not link_elem:
+                                continue
+                            
+                            href = await link_elem.get_attribute('href')
+                            if not href:
+                                # 尝试从 data-item-link 获取
+                                href = await link_elem.get_attribute('data-item-link')
+                            
+                            if not href:
+                                continue
+                            
+                            # 构建完整链接
+                            if href.startswith('/'):
+                                full_url = f"https://letterboxd.com{href}"
+                            elif href.startswith('http'):
+                                full_url = href
+                            else:
+                                full_url = f"https://letterboxd.com/{href}"
+                            
+                            # 获取电影标题
+                            title_elem = await item.query_selector('[data-item-name]')
+                            title = await title_elem.get_attribute('data-item-name') if title_elem else ""
+                            if not title:
+                                # 尝试从其他属性获取
+                                title = await link_elem.get_attribute('data-original-title') or ""
+                            
+                            title = title.strip() if title else ""
+                            
+                            all_movies.append({
+                                'rank': rank,
+                                'title': title,
+                                'url': full_url
+                            })
+                        except Exception as e:
+                            logger.warning(f"解析电影项失败: {e}")
+                            continue
+                    
+                    # 避免请求过快
+                    await asyncio.sleep(1)
+                
+                # 按排名排序
+                all_movies.sort(key=lambda x: x['rank'])
+                
+                logger.info(f"Letterboxd Top 250 获取到 {len(all_movies)} 条电影链接")
+                return all_movies
+                
+            except Exception as e:
+                logger.error(f"抓取 Letterboxd Top 250 失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return []
+            finally:
+                await page.close()
+        
+        # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
+        try:
+            return await browser_pool.execute_in_browser(scrape_with_browser)
+        except Exception as e:
+            logger.error(f"Letterboxd Top 250 抓取失败: {e}")
+            return []
+
+    async def get_letterboxd_tmdb_id(self, letterboxd_url: str) -> Optional[int]:
+        """从 Letterboxd 详情页获取 TMDB ID（优化版）"""
+        async def get_with_browser(browser):
+            page = await browser.new_page()
+            try:
+                await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
+                # 减少等待时间
+                await asyncio.sleep(1)
+                
+                # 尝试快速查找 TMDB 链接（最多等待3秒）
+                try:
+                    await page.wait_for_selector('a[href*="themoviedb.org/movie/"]', timeout=3000)
+                except Exception:
+                    pass
+                
+                # 查找 TMDB 链接
+                tmdb_link = await page.query_selector('a[href*="themoviedb.org/movie/"]')
+                
+                if tmdb_link:
+                    href = await tmdb_link.get_attribute('href')
+                    if href:
+                        # 提取 TMDB ID
+                        # 格式: https://www.themoviedb.org/movie/14537/
+                        match = re.search(r'/movie/(\d+)/', href)
+                        if match:
+                            return int(match.group(1))
+                
+                return None
+                
+            except Exception as e:
+                logger.debug(f"获取 Letterboxd TMDB ID 失败 (url: {letterboxd_url}): {e}")
+                return None
+            finally:
+                await page.close()
+        
+        # 使用浏览器池执行（自动处理浏览器的获取和释放）
+        try:
+            return await browser_pool.execute_in_browser(get_with_browser)
+        except Exception as e:
+            logger.debug(f"获取 Letterboxd TMDB ID 失败: {e}")
+            return None
+
+    async def update_letterboxd_top250(self) -> int:
+        """Letterboxd Top 250 → 'Letterboxd / Letterboxd Official Top 250'"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform == 'Letterboxd',
+            ChartEntry.chart_name == 'Letterboxd Official Top 250'
+        ).delete()
+        logger.info(f"Letterboxd Top 250: 清空旧数据 {deleted} 条")
+        
+        # 抓取 Letterboxd Top 250 列表
+        movies = await self.scrape_letterboxd_top250()
+        
+        if not movies:
+            logger.error("未能获取到 Letterboxd Top 250 数据")
+            return 0
+        
+        matcher = TMDBMatcher(self.db)
+        saved = 0
+        total = len(movies[:250])
+        
+        # 使用信号量控制并发数（最多同时处理5个）
+        semaphore = asyncio.Semaphore(5)
+        
+        async def process_movie(movie: Dict) -> Optional[Dict]:
+            """处理单个电影，返回匹配结果或None"""
+            async with semaphore:
+                rank = movie.get('rank')
+                title = movie.get('title') or ''
+                letterboxd_url = movie.get('url') or ''
+                
+                if not letterboxd_url:
+                    logger.warning(f"Letterboxd Top 250 rank {rank}: 缺少链接")
+                    return None
+                
+                try:
+                    # 从 Letterboxd 详情页获取 TMDB ID
+                    tmdb_id = await self.get_letterboxd_tmdb_id(letterboxd_url)
+                    
+                    if not tmdb_id:
+                        logger.warning(f"Letterboxd Top 250 rank {rank} ({title}): 未能获取 TMDB ID")
+                        return None
+                    
+                    # 获取 TMDB 详细信息（包括中文标题和海报）
+                    info = await matcher.get_tmdb_info(tmdb_id, 'movie')
+                    if info:
+                        final_title = self._safe_get_title(info, title)
+                        poster = info.get('poster_url', '')
+                    else:
+                        final_title = title
+                        poster = ""
+                    
+                    return {
+                        'rank': rank,
+                        'tmdb_id': tmdb_id,
+                        'title': final_title,
+                        'poster': poster
+                    }
+                except Exception as e:
+                    logger.warning(f"Letterboxd Top 250 rank {rank} ({title}): 处理异常: {e}")
+                    return None
+        
+        # 批量并发处理（每批20个）
+        batch_size = 20
+        for batch_start in range(0, total, batch_size):
+            batch = movies[batch_start:batch_start + batch_size]
+            results = await asyncio.gather(*[process_movie(movie) for movie in batch], return_exceptions=True)
+            
+            # 处理结果并入库
+            for result in results:
+                if isinstance(result, Exception):
+                    continue
+                if not result:
+                    continue
+                
+                self.db.add(ChartEntry(
+                    platform='Letterboxd',
+                    chart_name='Letterboxd Official Top 250',
+                    media_type='movie',
+                    rank=result['rank'],
+                    tmdb_id=result['tmdb_id'],
+                    title=result['title'],
+                    poster=result['poster']
+                ))
+                saved += 1
+            
+            # 每批提交一次数据库
+            self.db.commit()
+            logger.info(f"Letterboxd Top 250 处理进度: {saved}/{total} 条已入库")
+            
+            # 批次之间稍作休息
+            if batch_start + batch_size < total:
+                await asyncio.sleep(0.5)
+        
+        logger.info(f"Letterboxd Top 250 入库完成，共 {saved}/{total} 条")
+        return saved
+
+    async def scrape_metacritic_top250(self, media_type: str) -> List[Dict]:
+        """抓取 Metacritic Top 250 榜单（电影或剧集），获取排名、名称和年份"""
+        async def scrape_with_browser(browser):
+            page = await browser.new_page()
+            try:
+                all_items = []
+                base_url = f"https://www.metacritic.com/browse/{media_type}/"
+                
+                # 抓取11页
+                for page_num in range(1, 12):
+                    if page_num == 1:
+                        url = base_url
+                    else:
+                        url = f"{base_url}?page={page_num}"
+                    
+                    logger.info(f"访问 Metacritic Top 250 ({media_type}) 第 {page_num} 页: {url}")
+                    
+                    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    await asyncio.sleep(1)
+                    
+                    # 尝试快速等待列表容器出现（最多等待3秒）
+                    try:
+                        await page.wait_for_selector('div.c-productListings_grid', timeout=3000)
+                    except Exception:
+                        pass
+                    
+                    # 查找包含列表的容器
+                    grid_container = await page.query_selector('div.c-productListings_grid')
+                    if not grid_container:
+                        logger.warning(f"Metacritic Top 250 ({media_type}) 第 {page_num} 页: 未找到列表容器")
+                        continue
+                    
+                    # 解析页面，获取项目列表
+                    items = await grid_container.query_selector_all('div.c-finderProductCard')
+                    
+                    for item in items:
+                        try:
+                            # 获取标题元素
+                            title_heading = await item.query_selector('h3.c-finderProductCard_titleHeading')
+                            if not title_heading:
+                                continue
+                            
+                            # 获取所有 span 元素
+                            spans = await title_heading.query_selector_all('span')
+                            
+                            rank = None
+                            title = ""
+                            year = None
+                            
+                            for span in spans:
+                                text = await span.inner_text()
+                                text = text.strip()
+                                
+                                # 检查是否是排名（如 "1."）
+                                if text.endswith('.') and text[:-1].isdigit():
+                                    rank = int(text[:-1])
+                                # 检查是否包含年份（如 "Dekalog (1988)"）
+                                elif '(' in text and ')' in text:
+                                    # 提取标题和年份
+                                    match = re.search(r'^(.+?)\s*\((\d{4})\)$', text)
+                                    if match:
+                                        title = match.group(1).strip()
+                                        year = int(match.group(2))
+                                    else:
+                                        title = text
+                            
+                            # 如果排名和标题都获取到了
+                            if rank and title:
+                                all_items.append({
+                                    'rank': rank,
+                                    'title': title,
+                                    'year': year
+                                })
+                        except Exception as e:
+                            logger.warning(f"解析项目失败: {e}")
+                            continue
+                    
+                    # 避免请求过快
+                    await asyncio.sleep(1)
+                
+                # 按排名排序
+                all_items.sort(key=lambda x: x['rank'])
+                
+                logger.info(f"Metacritic Top 250 ({media_type}) 获取到 {len(all_items)} 条数据")
+                return all_items
+                
+            except Exception as e:
+                logger.error(f"抓取 Metacritic Top 250 ({media_type}) 失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return []
+            finally:
+                await page.close()
+        
+        # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
+        try:
+            return await browser_pool.execute_in_browser(scrape_with_browser)
+        except Exception as e:
+            logger.error(f"Metacritic Top 250 ({media_type}) 抓取失败: {e}")
+            return []
+
+    async def update_metacritic_best_movies(self) -> int:
+        """Metacritic Best Movies of All Time → 'MTC / Metacritic Best Movies of All Time'"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform == 'MTC',
+            ChartEntry.chart_name == 'Metacritic Best Movies of All Time'
+        ).delete()
+        logger.info(f"Metacritic Best Movies of All Time: 清空旧数据 {deleted} 条")
+        
+        # 抓取 Metacritic Top 250 列表
+        items = await self.scrape_metacritic_top250('movie')
+        
+        if not items:
+            logger.error("未能获取到 Metacritic Best Movies of All Time 数据")
+            return 0
+        
+        matcher = TMDBMatcher(self.db)
+        saved = 0
+        total = len(items[:250])
+        
+        # 使用信号量控制并发数（最多同时处理10个）
+        semaphore = asyncio.Semaphore(10)
+        
+        async def process_item(item: Dict) -> Optional[Dict]:
+            """处理单个项目，返回匹配结果或None"""
+            async with semaphore:
+                rank = item.get('rank')
+                title = item.get('title') or ''
+                year = item.get('year')
+                
+                if not title:
+                    logger.warning(f"Metacritic Best Movies rank {rank}: 缺少标题")
+                    return None
+                
+                try:
+                    tmdb_id = await matcher.match_by_title_and_year(title, 'movie', str(year) if year else None)
+                    if not tmdb_id:
+                        logger.warning(f"Metacritic Best Movies rank {rank} ({title}): 未匹配到 TMDB")
+                        return None
+                    
+                    info = await matcher.get_tmdb_info(tmdb_id, 'movie')
+                    if not info:
+                        return None
+                    
+                    return {
+                        'rank': rank,
+                        'tmdb_id': tmdb_id,
+                        'title': self._safe_get_title(info, title),
+                        'poster': info.get('poster_url', ''),
+                        'media_type': 'movie'
+                    }
+                except Exception as e:
+                    logger.warning(f"Metacritic Best Movies rank {rank} ({title}): 匹配失败: {e}")
+                    return None
+        
+        # 批量并发处理（每批30个）
+        batch_size = 30
+        for batch_start in range(0, total, batch_size):
+            batch = items[batch_start:batch_start + batch_size]
+            results = await asyncio.gather(*[process_item(item) for item in batch], return_exceptions=True)
+            
+            # 处理结果并入库
+            for result in results:
+                if isinstance(result, Exception):
+                    continue
+                if not result:
+                    continue
+                
+                self.db.add(ChartEntry(
+                    platform='MTC',
+                    chart_name='Metacritic Best Movies of All Time',
+                    media_type='movie',
+                    rank=result['rank'],
+                    tmdb_id=result['tmdb_id'],
+                    title=result['title'],
+                    poster=result['poster']
+                ))
+                saved += 1
+            
+            # 每批提交一次数据库
+            self.db.commit()
+            logger.info(f"Metacritic Best Movies of All Time 处理进度: {saved}/{total} 条已入库")
+            
+            # 批次之间稍作休息
+            if batch_start + batch_size < total:
+                await asyncio.sleep(0.3)
+        
+        logger.info(f"Metacritic Best Movies of All Time 入库完成，共 {saved}/{total} 条")
+        return saved
+
+    async def update_metacritic_best_tv(self) -> int:
+        """Metacritic Best TV Shows of All Time → 'MTC / Metacritic Best TV Shows of All Time'"""
+        # 先清空该榜单的旧数据
+        deleted = self.db.query(ChartEntry).filter(
+            ChartEntry.platform == 'MTC',
+            ChartEntry.chart_name == 'Metacritic Best TV Shows of All Time'
+        ).delete()
+        logger.info(f"Metacritic Best TV Shows of All Time: 清空旧数据 {deleted} 条")
+        
+        # 抓取 Metacritic Top 250 列表
+        items = await self.scrape_metacritic_top250('tv')
+        
+        if not items:
+            logger.error("未能获取到 Metacritic Best TV Shows of All Time 数据")
+            return 0
+        
+        matcher = TMDBMatcher(self.db)
+        saved = 0
+        total = len(items[:250])
+        
+        # 使用信号量控制并发数（最多同时处理10个）
+        semaphore = asyncio.Semaphore(10)
+        
+        async def process_item(item: Dict) -> Optional[Dict]:
+            """处理单个项目，返回匹配结果或None"""
+            async with semaphore:
+                rank = item.get('rank')
+                title = item.get('title') or ''
+                year = item.get('year')
+                
+                if not title:
+                    logger.warning(f"Metacritic Best TV Shows rank {rank}: 缺少标题")
+                    return None
+                
+                try:
+                    tmdb_id = await matcher.match_by_title_and_year(title, 'tv', str(year) if year else None)
+                    if not tmdb_id:
+                        logger.warning(f"Metacritic Best TV Shows rank {rank} ({title}): 未匹配到 TMDB")
+                        return None
+                    
+                    info = await matcher.get_tmdb_info(tmdb_id, 'tv')
+                    if not info:
+                        return None
+                    
+                    return {
+                        'rank': rank,
+                        'tmdb_id': tmdb_id,
+                        'title': self._safe_get_title(info, title),
+                        'poster': info.get('poster_url', ''),
+                        'media_type': 'tv'
+                    }
+                except Exception as e:
+                    logger.warning(f"Metacritic Best TV Shows rank {rank} ({title}): 匹配失败: {e}")
+                    return None
+        
+        # 批量并发处理（每批30个）
+        batch_size = 30
+        for batch_start in range(0, total, batch_size):
+            batch = items[batch_start:batch_start + batch_size]
+            results = await asyncio.gather(*[process_item(item) for item in batch], return_exceptions=True)
+            
+            # 处理结果并入库
+            for result in results:
+                if isinstance(result, Exception):
+                    continue
+                if not result:
+                    continue
+                
+                self.db.add(ChartEntry(
+                    platform='MTC',
+                    chart_name='Metacritic Best TV Shows of All Time',
+                    media_type='tv',
+                    rank=result['rank'],
+                    tmdb_id=result['tmdb_id'],
+                    title=result['title'],
+                    poster=result['poster']
+                ))
+                saved += 1
+            
+            # 每批提交一次数据库
+            self.db.commit()
+            logger.info(f"Metacritic Best TV Shows of All Time 处理进度: {saved}/{total} 条已入库")
+            
+            # 批次之间稍作休息
+            if batch_start + batch_size < total:
+                await asyncio.sleep(0.3)
+        
+        logger.info(f"Metacritic Best TV Shows of All Time 入库完成，共 {saved}/{total} 条")
         return saved
 
     async def update_trakt_movies_weekly(self) -> int:
@@ -2189,6 +3575,7 @@ class AutoUpdateScheduler:
                 ("Metacritic电影", scraper.update_metacritic_movies),
                 ("Metacritic剧集", scraper.update_metacritic_shows),
                 ("TMDB趋势", scraper.update_tmdb_trending_all_week),
+                # 注意：Top 250 榜单不包含在定时任务中，需要单独更新
                 ("Trakt电影", scraper.update_trakt_movies_weekly),
                 ("Trakt剧集", scraper.update_trakt_shows_weekly),
                 ("IMDb", scraper.update_imdb_top10),
@@ -2350,3 +3737,4 @@ def get_scheduler_status() -> dict:
         }
         logger.info(f"返回默认状态: {status}")
         return status
+
