@@ -10,6 +10,7 @@ import { messages } from '../utils/messages';
 import { ThemeToggle } from '../utils/ThemeToggle';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { UserButton } from '../utils/UserButton';
+import { ChartsButton } from '../utils/ChartsButton';
 import { MiniFavoriteButton } from '../utils/MiniFavoriteButton';
 
 // 页脚组件
@@ -76,7 +77,7 @@ export default function HomePage() {
                 return (
                   <div key={`${item.type}-${item.id}`} className="group">
                     <div className="w-full aspect-[2/3] overflow-hidden rounded-xl glass-card relative">
-                      <Link to={linkPath}>
+                      <Link to={linkPath} target="_blank" rel="noopener noreferrer">
                         <img
                           src={item.poster
                             ? (
@@ -113,7 +114,7 @@ export default function HomePage() {
                 return (
                   <div key={`${item.type}-${item.id}`} className="group">
                     <div className="w-full aspect-[2/3] overflow-hidden rounded-xl glass-card relative">
-                      <Link to={linkPath}>
+                      <Link to={linkPath} target="_blank" rel="noopener noreferrer">
                         <img
                           src={item.poster
                             ? (
@@ -160,7 +161,8 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[var(--page-bg)]">
       <ThemeToggle />
-      <div className="absolute top-2 sm:top-3 right-2 sm:right-2 z-30">
+      <div className="absolute top-2 sm:top-3 right-2 sm:right-2 z-30 flex items-center gap-2">
+        <ChartsButton />
         <UserButton />
       </div>
       
