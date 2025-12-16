@@ -27,8 +27,13 @@ const CHART_STRUCTURE: Array<{ platform: string; sections: Array<{ name: string;
     { name: '一周口碑榜', media_type: 'movie' },
     { name: '一周华语剧集口碑榜', media_type: 'tv' },
     { name: '一周全球剧集口碑榜', media_type: 'tv' },
+    { name: '豆瓣 电影 Top 250', media_type: 'movie' },
   ]},
-  { platform: 'IMDb', sections: [{ name: 'IMDb 本周 Top 10', media_type: 'both' }] },
+  { platform: 'IMDb', sections: [
+    { name: 'IMDb 本周 Top 10', media_type: 'both' },
+    { name: 'IMDb 电影 Top 250', media_type: 'movie' },
+    { name: 'IMDb 剧集 Top 250', media_type: 'tv' },
+  ]},
   { platform: 'Rotten Tomatoes', sections: [
     { name: '热门流媒体电影', media_type: 'movie' },
     { name: '热门剧集', media_type: 'tv' },
@@ -36,13 +41,34 @@ const CHART_STRUCTURE: Array<{ platform: string; sections: Array<{ name: string;
   { platform: 'Metacritic', sections: [
     { name: '本周趋势电影', media_type: 'movie' },
     { name: '本周趋势剧集', media_type: 'tv' },
+    { name: 'Metacritic 史上最佳电影 Top 250', media_type: 'movie' },
+    { name: 'Metacritic 史上最佳剧集 Top 250', media_type: 'tv' },
   ]},
-  { platform: 'Letterboxd', sections: [{ name: '本周热门影视', media_type: 'both' }] },
-  { platform: 'TMDB', sections: [{ name: '本周趋势影视', media_type: 'both' }] },
+  { platform: 'Letterboxd', sections: [
+    { name: '本周热门影视', media_type: 'both' },
+    { name: 'Letterboxd 电影 Top 250', media_type: 'movie' },
+  ]},
+  { platform: 'TMDB', sections: [
+    { name: '本周趋势影视', media_type: 'both' },
+    { name: 'TMDB 高分电影 Top 250', media_type: 'movie' },
+    { name: 'TMDB 高分剧集 Top 250', media_type: 'tv' },
+  ]},
   { platform: 'Trakt', sections: [
     { name: '上周剧集 Top 榜', media_type: 'tv' },
     { name: '上周电影 Top 榜', media_type: 'movie' },
   ]},
+];
+
+// Top 250 榜单列表（需要单独更新）
+const TOP_250_CHARTS = [
+  'IMDb 电影 Top 250',
+  'IMDb 剧集 Top 250',
+  'Letterboxd 电影 Top 250',
+  '豆瓣 电影 Top 250',
+  'Metacritic 史上最佳电影 Top 250',
+  'Metacritic 史上最佳剧集 Top 250',
+  'TMDB 高分电影 Top 250',
+  'TMDB 高分剧集 Top 250',
 ];
 
 // 平台名称反向映射（前端显示名称 → 后端存储名称）
@@ -62,6 +88,15 @@ const CHART_NAME_REVERSE_MAP: Record<string, string> = {
   '本周趋势影视': '趋势本周',
   '上周剧集 Top 榜': 'Top TV Shows Last Week',
   '上周电影 Top 榜': 'Top Movies Last Week',
+  // Top 250 榜单反向映射
+  'IMDb 电影 Top 250': 'IMDb Top 250 Movies',
+  'IMDb 剧集 Top 250': 'IMDb Top 250 TV Shows',
+  'Letterboxd 电影 Top 250': 'Letterboxd Official Top 250',
+  '豆瓣 电影 Top 250': '豆瓣 Top 250',
+  'Metacritic 史上最佳电影 Top 250': 'Metacritic Best Movies of All Time',
+  'Metacritic 史上最佳剧集 Top 250': 'Metacritic Best TV Shows of All Time',
+  'TMDB 高分电影 Top 250': 'TMDB Top 250 Movies',
+  'TMDB 高分剧集 Top 250': 'TMDB Top 250 TV Shows',
 };
 
 async function searchTMDB(q: string): Promise<SearchResult> {
@@ -162,7 +197,7 @@ export default function AdminChartsPage() {
         };
       }
     },
-    refetchInterval: 3000, // 每3秒刷新一次
+    refetchInterval: 10000, // 每10秒刷新一次
     staleTime: 0,
     retry: 3, // 重试3次
     retryDelay: 1000 // 重试延迟1秒
@@ -350,6 +385,104 @@ export default function AdminChartsPage() {
       }
     } catch (error) {
       setUpdateStatus(`更新失败: ${error}`);
+    } finally {
+      setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
+      // 3秒后清除状态消息
+      setTimeout(() => setUpdateStatus(''), 3000);
+    }
+  }
+
+  // 更新单个 Top 250 榜单
+  async function handleUpdateTop250Chart(platform: string, chartName: string) {
+    const operationKey = `${platform}_${chartName}_update`;
+    setPlatformOperations(prev => ({ ...prev, [operationKey]: true }));
+    setUpdateStatus(`正在更新 ${chartName}...`);
+    
+    try {
+      const token = localStorage.getItem('token');
+      // 将前端显示名称转换为后端存储名称
+      const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+      const backendChartName = CHART_NAME_REVERSE_MAP[chartName] || chartName;
+      
+      const response = await fetch(`/api/charts/update-top250`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          platform: backendPlatform,
+          chart_name: backendChartName,
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        setUpdateStatus(`${chartName} 更新成功！`);
+        // 刷新当前列表
+        if (activeKey) {
+          const [currentPlatform, currentChartName, media_type] = activeKey.split(':');
+          if (currentPlatform === platform && currentChartName === chartName) {
+            loadCurrentList(currentPlatform, currentChartName, media_type as SectionType);
+          }
+        }
+      } else {
+        setUpdateStatus(`更新失败: ${result.detail || '未知错误'}`);
+      }
+    } catch (error) {
+      setUpdateStatus(`更新失败: ${error}`);
+    } finally {
+      setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
+      // 3秒后清除状态消息
+      setTimeout(() => setUpdateStatus(''), 3000);
+    }
+  }
+
+  // 清空单个 Top 250 榜单
+  async function handleClearTop250Chart(platform: string, chartName: string) {
+    if (!confirm(`确定要清空 ${chartName} 吗？此操作不可撤销！`)) {
+      return;
+    }
+    
+    const operationKey = `${platform}_${chartName}_clear`;
+    setPlatformOperations(prev => ({ ...prev, [operationKey]: true }));
+    setUpdateStatus(`正在清空 ${chartName}...`);
+    
+    try {
+      const token = localStorage.getItem('token');
+      // 将前端显示名称转换为后端存储名称
+      const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+      const backendChartName = CHART_NAME_REVERSE_MAP[chartName] || chartName;
+      
+      const response = await fetch(`/api/charts/clear-top250`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          platform: backendPlatform,
+          chart_name: backendChartName,
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        setUpdateStatus(`${chartName} 已清空！`);
+        // 刷新当前列表
+        if (activeKey) {
+          const [currentPlatform, currentChartName, media_type] = activeKey.split(':');
+          if (currentPlatform === platform && currentChartName === chartName) {
+            loadCurrentList(currentPlatform, currentChartName, media_type as SectionType);
+          }
+        }
+      } else {
+        setUpdateStatus(`清空失败: ${result.detail || '未知错误'}`);
+      }
+    } catch (error) {
+      setUpdateStatus(`清空失败: ${error}`);
     } finally {
       setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
       // 3秒后清除状态消息
@@ -840,6 +973,32 @@ export default function AdminChartsPage() {
                         {sec.name}
                       </div>
                       <div className="flex gap-2">
+                        {TOP_250_CHARTS.includes(sec.name) && (
+                          <>
+                            <button
+                              onClick={() => handleUpdateTop250Chart(platform, sec.name)}
+                              disabled={platformOperations[`${platform}_${sec.name}_update`]}
+                              className={`text-sm px-3 py-1 rounded transition-colors ${
+                                platformOperations[`${platform}_${sec.name}_update`]
+                                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                  : 'bg-orange-500 text-white hover:bg-orange-600'
+                              }`}
+                            >
+                              {platformOperations[`${platform}_${sec.name}_update`] ? '更新中...' : '更新 Top 250'}
+                            </button>
+                            <button
+                              onClick={() => handleClearTop250Chart(platform, sec.name)}
+                              disabled={platformOperations[`${platform}_${sec.name}_clear`]}
+                              className={`text-sm px-3 py-1 rounded transition-colors ${
+                                platformOperations[`${platform}_${sec.name}_clear`]
+                                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                  : 'bg-red-500 text-white hover:bg-red-600'
+                              }`}
+                            >
+                              {platformOperations[`${platform}_${sec.name}_clear`] ? '清空中...' : '清空 Top 250'}
+                            </button>
+                          </>
+                        )}
                         <button 
                           className={`text-sm text-purple-400 hover:text-purple-300`} 
                           onClick={() => setActiveKey(key)}
