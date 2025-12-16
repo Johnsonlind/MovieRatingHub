@@ -1712,14 +1712,45 @@ class ChartScraper:
             logger.error(f"豆瓣 Top 250 抓取失败: {e}")
             return []
 
-    async def get_douban_imdb_id_with_cookie(self, douban_id: str, douban_cookie: Optional[str] = None) -> Optional[str]:
-        """从豆瓣详情页获取IMDb ID（支持 Cookie，优化版）"""
+    async def get_douban_imdb_id_with_cookie(self, douban_id: str, douban_cookie: Optional[str] = None, max_retries: int = 2) -> Optional[str]:
+        """从豆瓣详情页获取IMDb ID（支持 Cookie，优化版，带反爬虫规避和重试机制）"""
+        import random
+        
         async def get_with_browser(browser):
-            page = await browser.new_page()
+            context = None
+            page = None
             try:
-                # 如果提供了 cookie，设置 cookie
+                # 创建浏览器上下文，设置真实的 User-Agent 和 headers（避免被识别为自动化工具）
+                context_options = {
+                    'viewport': {'width': 1280, 'height': 720},
+                    'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                    'bypass_csp': True,
+                    'ignore_https_errors': True,
+                    'java_script_enabled': True,
+                    'has_touch': False,
+                    'is_mobile': False,
+                    'locale': 'zh-CN',
+                    'timezone_id': 'Asia/Shanghai',
+                    'extra_http_headers': {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1'
+                    }
+                }
+                
+                context = await browser.new_context(**context_options)
+                page = await context.new_page()
+                page.set_default_timeout(30000)
+                
+                # 如果提供了 cookie，设置 cookie（在创建上下文后设置）
                 if douban_cookie:
-                    context = page.context
                     cookies = []
                     for cookie_pair in douban_cookie.split(';'):
                         cookie_pair = cookie_pair.strip()
@@ -1736,57 +1767,107 @@ class ChartScraper:
                 
                 url = f"https://movie.douban.com/subject/{douban_id}/"
                 
-                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                # 减少等待时间，只等待必要的内容加载
-                await asyncio.sleep(1)
-                
-                # 尝试快速查找 IMDb ID，不等待 networkidle
-                try:
-                    # 等待 IMDb 链接出现（最多等待3秒）
-                    await page.wait_for_selector('a[href*="imdb.com/title/tt"]', timeout=3000)
-                except Exception:
-                    # 如果没找到，继续尝试其他方法
-                    pass
-                
-                # 获取页面内容
-                content = await page.content()
-                
-                # 使用 BeautifulSoup 解析
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(content, 'html.parser')
-                
-                # 查找IMDb链接
-                imdb_links = soup.find_all('a', href=lambda x: x and 'imdb.com' in x)
-                for link in imdb_links:
-                    href = link.get('href', '')
-                    if '/title/tt' in href:
-                        # 提取IMDb ID (tt开头)
-                        imdb_id = href.split('/title/')[-1].rstrip('/')
-                        if imdb_id.startswith('tt'):
-                            return imdb_id
-                
-                # 如果没找到链接，尝试从文本中提取
-                imdb_spans = soup.find_all('span', class_='pl')
-                for span in imdb_spans:
-                    if span.get_text().strip() == 'IMDb:':
-                        # 1) 尝试紧邻文本兄弟节点（非标签）
-                        sibling_text = getattr(span.next_sibling, 'strip', lambda: str(span.next_sibling))()
-                        if sibling_text:
-                            m = re.search(r'(tt\d+)', sibling_text)
-                            if m:
-                                return m.group(1)
+                # 重试机制
+                for attempt in range(max_retries + 1):
+                    try:
+                        # 如果不是第一次尝试，等待更长时间（5-10秒）
+                        if attempt > 0:
+                            wait_time = random.uniform(5, 10)
+                            logger.debug(f"豆瓣详情页 (ID: {douban_id}) 第 {attempt + 1} 次尝试，等待 {wait_time:.2f} 秒")
+                            await asyncio.sleep(wait_time)
+                        
+                        # 随机延迟，模拟人类行为（0.5-2秒）
+                        await asyncio.sleep(random.uniform(0.5, 2))
+                        
+                        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                        
+                        # 模拟人类行为：随机滚动
+                        await page.evaluate("window.scrollTo(0, Math.random() * 200)")
+                        await asyncio.sleep(random.uniform(0.5, 1.5))
+                        
+                        # 等待页面加载完成
+                        try:
+                            await page.wait_for_load_state("networkidle", timeout=10000)
+                        except Exception:
+                            await asyncio.sleep(1)
+                        
+                        # 检查是否返回"禁止访问"页面
+                        page_title = await page.title()
+                        if '禁止访问' in page_title or '禁止' in page_title:
+                            if attempt < max_retries:
+                                logger.warning(f"豆瓣详情页 (ID: {douban_id}) 返回禁止访问页面，将重试")
+                                continue
+                            else:
+                                logger.warning(f"豆瓣详情页 (ID: {douban_id}) 返回禁止访问页面，已达最大重试次数")
+                                return None
+                        
+                        # 获取页面内容
+                        content = await page.content()
+                        
+                        # 检查页面内容是否包含"禁止访问"
+                        if '禁止访问' in content or '<title>禁止访问</title>' in content:
+                            if attempt < max_retries:
+                                logger.warning(f"豆瓣详情页 (ID: {douban_id}) 检测到禁止访问，将重试")
+                                continue
+                            else:
+                                logger.warning(f"豆瓣详情页 (ID: {douban_id}) 检测到禁止访问，已达最大重试次数")
+                                return None
+                        
+                        # 尝试快速查找 IMDb ID，不等待 networkidle
+                        try:
+                            # 等待 IMDb 链接出现（最多等待5秒）
+                            await page.wait_for_selector('a[href*="imdb.com/title/tt"]', timeout=5000)
+                        except Exception:
+                            # 如果没找到，继续尝试其他方法
+                            pass
+                        
+                        # 使用 BeautifulSoup 解析
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(content, 'html.parser')
+                        
+                        # 查找IMDb链接
+                        imdb_links = soup.find_all('a', href=lambda x: x and 'imdb.com' in x)
+                        for link in imdb_links:
+                            href = link.get('href', '')
+                            if '/title/tt' in href:
+                                # 提取IMDb ID (tt开头)
+                                imdb_id = href.split('/title/')[-1].rstrip('/')
+                                if imdb_id.startswith('tt'):
+                                    return imdb_id
+                        
+                        # 如果没找到链接，尝试从文本中提取
+                        imdb_spans = soup.find_all('span', class_='pl')
+                        for span in imdb_spans:
+                            if span.get_text().strip() == 'IMDb:':
+                                # 1) 尝试紧邻文本兄弟节点（非标签）
+                                sibling_text = getattr(span.next_sibling, 'strip', lambda: str(span.next_sibling))()
+                                if sibling_text:
+                                    m = re.search(r'(tt\d+)', sibling_text)
+                                    if m:
+                                        return m.group(1)
 
-                        # 2) 尝试下一个span兄弟节点
-                        next_span = span.find_next_sibling('span')
-                        if next_span:
-                            imdb_text = next_span.get_text().strip()
-                            if imdb_text.startswith('tt'):
-                                return imdb_text
+                                # 2) 尝试下一个span兄弟节点
+                                next_span = span.find_next_sibling('span')
+                                if next_span:
+                                    imdb_text = next_span.get_text().strip()
+                                    if imdb_text.startswith('tt'):
+                                        return imdb_text
 
-                        # 3) 兜底：在整页HTML中用正则提取
-                        m2 = re.search(r'<span class="pl">IMDb:</span>\s*([tT]{2}\d+)<br>', content)
-                        if m2:
-                            return m2.group(1)
+                                # 3) 兜底：在整页HTML中用正则提取
+                                m2 = re.search(r'<span class="pl">IMDb:</span>\s*([tT]{2}\d+)<br>', content)
+                                if m2:
+                                    return m2.group(1)
+                        
+                        # 如果找到了页面但没有 IMDb ID，直接返回 None（不重试）
+                        return None
+                        
+                    except Exception as e:
+                        if attempt < max_retries:
+                            logger.debug(f"获取豆瓣IMDb ID失败 (douban_id: {douban_id})，将重试: {e}")
+                            continue
+                        else:
+                            logger.debug(f"获取豆瓣IMDb ID失败 (douban_id: {douban_id}): {e}")
+                            return None
                 
                 return None
                 
@@ -1794,7 +1875,10 @@ class ChartScraper:
                 logger.debug(f"获取豆瓣IMDb ID失败 (douban_id: {douban_id}): {e}")
                 return None
             finally:
-                await page.close()
+                if page:
+                    await page.close()
+                if context:
+                    await context.close()
         
         # 使用浏览器池执行（自动处理浏览器的获取和释放）
         try:
@@ -1823,8 +1907,8 @@ class ChartScraper:
         saved = 0
         total = len(movies[:250])
         
-        # 使用信号量控制并发数（最多同时处理5个）
-        semaphore = asyncio.Semaphore(5)
+        # 使用信号量控制并发数（降低到3个，避免触发反爬虫）
+        semaphore = asyncio.Semaphore(3)
         
         async def process_movie(movie: Dict) -> Optional[Dict]:
             """处理单个电影，返回匹配结果或None"""
@@ -1870,8 +1954,8 @@ class ChartScraper:
                     logger.error(f"豆瓣 Top 250 rank {rank} ({title}) 处理失败: {e}")
                     return None
         
-        # 批量并发处理（每批20个）
-        batch_size = 20
+        # 批量并发处理（降低到10个，避免触发反爬虫）
+        batch_size = 10
         for batch_start in range(0, total, batch_size):
             # 检查请求是否被取消
             if request and await request.is_disconnected():
@@ -2086,8 +2170,8 @@ class ChartScraper:
         saved = 0
         total = len(movies[:250])
         
-        # 使用信号量控制并发数（最多同时处理5个）
-        semaphore = asyncio.Semaphore(5)
+        # 使用信号量控制并发数（降低到3个，避免触发反爬虫）
+        semaphore = asyncio.Semaphore(3)
         
         async def process_movie(movie: Dict) -> Optional[Dict]:
             """处理单个电影，返回匹配结果或None"""
@@ -2232,6 +2316,20 @@ class ChartScraper:
                         content_preview = page_content[:500] if len(page_content) > 500 else page_content
                         logger.warning(f"第 {page_num} 页内容预览: {content_preview}")
                     
+                    # 滚动页面以确保所有内容都加载（Metacritic 页面可能是懒加载）
+                    try:
+                        # 先滚动到底部
+                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        await asyncio.sleep(1)
+                        # 再滚动回顶部
+                        await page.evaluate("window.scrollTo(0, 0)")
+                        await asyncio.sleep(1)
+                        # 再次滚动到底部，确保所有内容加载
+                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        await asyncio.sleep(2)
+                    except Exception as e:
+                        logger.debug(f"滚动页面时出错: {e}")
+                    
                     # 查找包含列表的容器
                     grid_container = await page.query_selector('div.c-productListings_grid')
                     if not grid_container:
@@ -2245,6 +2343,17 @@ class ChartScraper:
                     # 解析页面，获取项目列表
                     items = await grid_container.query_selector_all('div.c-finderProductCard')
                     logger.info(f"第 {page_num} 页找到 {len(items)} 个卡片元素")
+                    
+                    # 如果只找到 12 个，可能是页面需要更多时间加载，再等待并重新获取
+                    if len(items) == 12:
+                        logger.debug(f"第 {page_num} 页只找到 12 个元素，等待更长时间后重试...")
+                        await asyncio.sleep(3)
+                        # 再次滚动到底部
+                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        await asyncio.sleep(2)
+                        # 重新获取元素
+                        items = await grid_container.query_selector_all('div.c-finderProductCard')
+                        logger.info(f"第 {page_num} 页重新获取后找到 {len(items)} 个卡片元素")
                     
                     # 如果找到 0 个元素，尝试备用选择器
                     if len(items) == 0:
