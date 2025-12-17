@@ -16,7 +16,7 @@ import { DragDropContext, Draggable, DropResult } from '@hello-pangea/dnd';
 import { StrictModeDroppable } from '../utils/StrictModeDroppable';
 import { NavBar } from '../utils/NavBar';
 import { ScrollToTopButton } from '../utils/ScrollToTopButton';
-import { useGentleScroll } from '../hooks/useGentleScroll';
+import { useAggressiveImagePreload } from '../hooks/useAggressiveImagePreload';
 
 interface Creator {
   id: number;
@@ -75,7 +75,7 @@ export default function FavoriteListPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const gentleContentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [list, setList] = useState<FavoriteList | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -95,15 +95,10 @@ export default function FavoriteListPage() {
     }
   }, [list]);
 
-  useGentleScroll(gentleContentRef, {
-    enabled: !!list && !isLoading,
-    damping: 0.22,
-    maxOffset: 6,
-    stopEpsilon: 0.35,
-    scrollBurstThreshold: 10,
-    scrollBurstWindow: 120,
-    scrollBurstCooldown: 320,
-  });
+  // 图片预加载由 useAggressiveImagePreload hook 统一处理，避免重复加载
+
+  // 激进图片预加载，确保滚动时无空白
+  useAggressiveImagePreload(contentRef, !!list && !isLoading);
 
   useEffect(() => {
     const fetchListDetails = async () => {
@@ -588,7 +583,7 @@ export default function FavoriteListPage() {
   return (
     <>
       <NavBar />
-      <div ref={gentleContentRef} className="min-h-screen bg-[var(--page-bg)] pt-16 p-4 gentle-scroll">
+      <div ref={contentRef} className="min-h-screen bg-[var(--page-bg)] pt-16 p-4 gentle-scroll">
         <ThemeToggle />
         <ScrollToTopButton />
 
