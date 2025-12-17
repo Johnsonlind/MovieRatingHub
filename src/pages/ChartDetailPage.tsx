@@ -108,6 +108,13 @@ export default function ChartDetailPage() {
 
   const sortedEntries = [...data.entries].sort((a, b) => a.rank - b.rank);
 
+  // 判断是否是 Metacritic Top 250 榜单
+  const isMetacriticTop250 = data.chart_name === 'Metacritic 史上最佳电影 Top 250' || 
+                             data.chart_name === 'Metacritic 史上最佳剧集 Top 250';
+  
+  // 对于 Metacritic Top 250 榜单，显示 250，否则显示实际数量
+  const displayCount = isMetacriticTop250 ? 250 : sortedEntries.length;
+
   return (
     <>
       <NavBar />
@@ -138,7 +145,7 @@ export default function ChartDetailPage() {
                   {data.chart_name}
                 </h1>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  {data.platform} · 共 {sortedEntries.length} 部作品
+                  {data.platform} · 共 {displayCount} 部作品
                 </p>
               </div>
             </div>
