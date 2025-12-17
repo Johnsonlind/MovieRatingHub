@@ -283,12 +283,25 @@ export default function AdminChartsPage() {
   async function addEntry(platform: string, chart_name: string, media_type: 'movie' | 'tv', rank: number, item?: MediaItem) {
     const choice = item ? { id: item.id } : (selected ? { id: selected.tmdb_id } : null);
     if (!choice) return;
+    
     // 本地重复校验：相同 media_type 下相同 rank 已存在则阻止
-    const conflictExists = (media_type === 'movie' ? currentListsByType.movie : currentListsByType.tv).some(i => i.rank === rank);
+    // 对于 Metacritic 史上最佳电影 Top 250，需要检查两种类型
+    const isMetacriticMovieChart = chart_name === 'Metacritic 史上最佳电影 Top 250';
+    let conflictExists = false;
+    if (isMetacriticMovieChart) {
+      // 对于 Metacritic 电影榜单，检查 movie 和 tv 两种类型
+      conflictExists = currentListsByType.movie.some(i => i.rank === rank) || 
+                      currentListsByType.tv.some(i => i.rank === rank);
+    } else {
+      // 其他榜单只检查对应类型
+      conflictExists = (media_type === 'movie' ? currentListsByType.movie : currentListsByType.tv).some(i => i.rank === rank);
+    }
+    
     if (conflictExists) {
-      alert(`该排名已存在${media_type==='movie'?'电影':'剧集'}条目，请先清空或选择其他排名。`);
+      alert(`该排名已存在条目，请先清空或选择其他排名。`);
       return;
     }
+    
     setSubmitting(true);
     // 将前端显示名称转换为后端存储名称
     const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
@@ -302,29 +315,46 @@ export default function AdminChartsPage() {
       title: item?.title || undefined,
       poster: item?.poster || undefined,
     };
-    await fetch('/api/charts/entries', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-      },
-      body: JSON.stringify(payload),
-    }).then(async r => {
-      if (!r.ok) {
-        const err = await r.json().catch(()=>({}));
+    
+    try {
+      const response = await fetch('/api/charts/entries', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      
+      if (!response.ok) {
+        const err = await response.json().catch(()=>({}));
         const detail = (err && (err.detail || err.message)) ? (err.detail || err.message) : '添加失败';
         alert(typeof detail === 'string' ? detail : JSON.stringify(detail));
-        throw new Error('添加失败');
+        return;
       }
-      return r.json();
-    }).catch(()=>{});
-    setSubmitting(false);
-    // 关闭选择器
-    setPickerOpen(false);
-    setPickerRank(null);
-    setPickerContext(null);
-    setPickerQuery('');
-    setPickerSelected(null);
+      
+      // 保存成功后，刷新当前列表
+      if (activeKey) {
+        const [currentPlatform, currentChartName, currentMediaType] = activeKey.split(':');
+        // 对于 Metacritic 电影榜单，需要同时加载 movie 和 tv 数据
+        if (isMetacriticMovieChart) {
+          // 重新加载，但需要同时获取两种类型的数据
+          await loadCurrentList(currentPlatform, currentChartName, 'both' as SectionType);
+        } else {
+          await loadCurrentList(currentPlatform, currentChartName, currentMediaType as SectionType);
+        }
+      }
+    } catch (error) {
+      alert(`保存失败: ${error}`);
+    } finally {
+      setSubmitting(false);
+      // 关闭选择器
+      setPickerOpen(false);
+      setPickerRank(null);
+      setPickerContext(null);
+      setPickerQuery('');
+      setPickerSelected(null);
+    }
   }
 
   function openPicker(platform:string, chart_name:string, media_type:SectionType, rank:number){
@@ -643,8 +673,12 @@ export default function AdminChartsPage() {
       const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
       const backendChartName = CHART_NAME_REVERSE_MAP[chart_name] || chart_name;
       
-      if (media_type === 'both') {
-        // 对于both类型，分别获取电影和剧集数据
+      // 对于 Metacritic 史上最佳电影 Top 250，需要同时加载 movie 和 tv 数据
+      const isMetacriticMovieChart = chart_name === 'Metacritic 史上最佳电影 Top 250';
+      const shouldLoadBoth = media_type === 'both' || isMetacriticMovieChart;
+      
+      if (shouldLoadBoth) {
+        // 对于both类型或 Metacritic 电影榜单，分别获取电影和剧集数据
         const [movieResponse, tvResponse] = await Promise.all([
           fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=movie`, { headers: authHeaders }),
           fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=tv`, { headers: authHeaders })
@@ -653,12 +687,15 @@ export default function AdminChartsPage() {
         const movies = movieResponse.ok ? await movieResponse.json() : [];
         const tvs = tvResponse.ok ? await tvResponse.json() : [];
         
-        // 合并数据，按排名排序
+        // 合并数据，按排名排序（对于 Top 250，合并所有250个排名）
         const byRank: Record<number, any> = {};
         [...movies, ...tvs].forEach((i: any) => {
-          if (!byRank[i.rank]) byRank[i.rank] = i;
+          // 如果同一排名有多个条目，保留最新的（id更大的）
+          if (!byRank[i.rank] || byRank[i.rank].id < i.id) {
+            byRank[i.rank] = i;
+          }
         });
-        const merged = Array.from({ length: 10 }, (_, idx) => byRank[idx+1]).filter(Boolean).map((i: any) => ({ 
+        const merged = Array.from({ length: 250 }, (_, idx) => byRank[idx+1]).filter(Boolean).map((i: any) => ({ 
           tmdb_id: i.tmdb_id, 
           rank: i.rank, 
           title: i.title, 
@@ -1066,7 +1103,9 @@ export default function AdminChartsPage() {
             </div>
             <div className="grid grid-cols-1 gap-4">
               {sections.map((sec) => {
-                const key = `${platform}:${sec.name}:${sec.media_type}`;
+                // 对于 Metacritic 电影榜单，使用 'both' 作为 media_type，以便加载两种类型的数据
+                const effectiveMediaType = (sec.name === 'Metacritic 史上最佳电影 Top 250' && MANUAL_ENTRY_CHARTS.includes(sec.name)) ? 'both' : sec.media_type;
+                const key = `${platform}:${sec.name}:${effectiveMediaType}`;
                 return (
                   <div key={key} className={`border rounded p-3 glass-card`}>
                     <div className="flex items-center justify-between mb-2">
@@ -1152,7 +1191,11 @@ export default function AdminChartsPage() {
                               <tbody>
                                 {Array.from({ length: 250 }, (_, idx) => idx + 1).map(r => {
                                   const current = currentList.find(i => i.rank === r);
-                                  const locked = (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
+                                  // 对于 Metacritic 电影榜单，需要检查两种类型
+                                  const isMetacriticMovieChart = sec.name === 'Metacritic 史上最佳电影 Top 250';
+                                  const locked = isMetacriticMovieChart 
+                                    ? (currentListsByType.movie.some(i=> i.rank===r && i.locked) || currentListsByType.tv.some(i=> i.rank===r && i.locked))
+                                    : (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
                                   return (
                                     <tr key={r} className={`border-b border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800/30 ${current ? '' : 'opacity-60'}`}>
                                       <td className={`py-2 px-3 text-sm text-gray-900 dark:text-white font-medium text-center`}>{r}</td>
@@ -1182,11 +1225,24 @@ export default function AdminChartsPage() {
                                           {current && (
                                             <button
                                               onClick={async ()=>{
-                                                const effectiveType = sec.media_type==='both' ? (current?.title ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : 'movie') : sec.media_type;
+                                                // 对于 Metacritic 电影榜单，需要确定是 movie 还是 tv
+                                                const isMetacriticMovieChart = sec.name === 'Metacritic 史上最佳电影 Top 250';
+                                                let effectiveType = sec.media_type;
+                                                if (isMetacriticMovieChart) {
+                                                  // 检查该排名是 movie 还是 tv
+                                                  effectiveType = currentListsByType.movie.find(i=>i.rank===r) ? 'movie' : 'tv';
+                                                } else if (sec.media_type==='both') {
+                                                  effectiveType = current?.title ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : 'movie';
+                                                }
                                                 const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
                                                 const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
                                                 await fetch(`/api/charts/entries/lock?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}&locked=${!locked}`, { method:'PUT', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
                                                 setSubmitting(s=>!s);
+                                                // 刷新列表
+                                                if (activeKey) {
+                                                  const [currentPlatform, currentChartName, currentMediaType] = activeKey.split(':');
+                                                  await loadCurrentList(currentPlatform, currentChartName, currentMediaType as SectionType);
+                                                }
                                               }}
                                               className={`px-2 py-1 rounded text-xs transition-colors ${
                                                 locked 
@@ -1200,11 +1256,24 @@ export default function AdminChartsPage() {
                                           {current && !locked && (
                                             <button
                                               onClick={async ()=>{
-                                                const effectiveType = sec.media_type==='both' ? (currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv') : sec.media_type;
+                                                // 对于 Metacritic 电影榜单，需要确定是 movie 还是 tv
+                                                const isMetacriticMovieChart = sec.name === 'Metacritic 史上最佳电影 Top 250';
+                                                let effectiveType = sec.media_type;
+                                                if (isMetacriticMovieChart) {
+                                                  // 检查该排名是 movie 还是 tv
+                                                  effectiveType = currentListsByType.movie.find(i=>i.rank===r) ? 'movie' : 'tv';
+                                                } else if (sec.media_type==='both') {
+                                                  effectiveType = currentListsByType.movie.find(i=>i.rank===r)?'movie':'tv';
+                                                }
                                                 const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
                                                 const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
                                                 await fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=${encodeURIComponent(effectiveType)}&rank=${r}`, { method:'DELETE', headers:{ 'Authorization': `Bearer ${localStorage.getItem('token')||''}` } });
                                                 setSubmitting(s=>!s);
+                                                // 刷新列表
+                                                if (activeKey) {
+                                                  const [currentPlatform, currentChartName, currentMediaType] = activeKey.split(':');
+                                                  await loadCurrentList(currentPlatform, currentChartName, currentMediaType as SectionType);
+                                                }
                                               }}
                                               className={`px-2 py-1 rounded text-xs transition-colors bg-gray-600 text-gray-200 hover:bg-gray-500`}
                                             >
