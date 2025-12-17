@@ -106,17 +106,15 @@ export default function ChartDetailPage() {
     );
   }
 
+  // 对条目按排名排序
   const sortedEntries = [...data.entries].sort((a, b) => a.rank - b.rank);
-
-  // 判断是否是 Metacritic Top 250 榜单
-  const isMetacriticTop250 = data.chart_name === 'Metacritic 史上最佳电影 Top 250' || 
-                             data.chart_name === 'Metacritic 史上最佳剧集 Top 250';
   
-  // 对于 Metacritic Top 250 榜单，只取前250个条目，否则使用全部条目
-  const displayedEntries = isMetacriticTop250 ? sortedEntries.slice(0, 250) : sortedEntries;
-  
-  // 对于 Metacritic Top 250 榜单，显示 250，否则显示实际数量
-  const displayCount = isMetacriticTop250 ? 250 : sortedEntries.length;
+  // 对于 Metacritic Top 250 榜单，只显示前250个条目
+  const isMetacriticTop250 = chartName === 'Metacritic 史上最佳电影 Top 250' || 
+                              chartName === 'Metacritic 史上最佳剧集 Top 250';
+  const displayedEntries = isMetacriticTop250 
+    ? sortedEntries.slice(0, 250) 
+    : sortedEntries;
 
   return (
     <>
@@ -148,7 +146,7 @@ export default function ChartDetailPage() {
                   {data.chart_name}
                 </h1>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  {data.platform} · 共 {displayCount} 部作品
+                  {data.platform} · 共 {displayedEntries.length} 部作品
                 </p>
               </div>
             </div>
