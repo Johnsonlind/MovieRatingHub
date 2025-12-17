@@ -1,0 +1,27 @@
+@media (prefers-reduced-motion: reduce) {
+  .gentle-scroll {
+    transform: none !important;
+    will-change: auto !important;
+  }
+}
+
+/* 确保图片未加载时完全隐藏，避免占位符闪烁 */
+img[style*="opacity: 0"] {
+  visibility: hidden;
+}
+
+/* 图片容器优化 - 使用更通用的选择器 */
+[class*="aspect-"] img {
+  will-change: opacity;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+/* 优化滚动性能 - 使用 content-visibility */
+.gentle-scroll > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
+
