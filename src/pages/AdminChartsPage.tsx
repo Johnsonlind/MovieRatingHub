@@ -285,11 +285,11 @@ export default function AdminChartsPage() {
     if (!choice) return;
     
     // 本地重复校验：相同 media_type 下相同 rank 已存在则阻止
-    // 对于 Metacritic 史上最佳电影 Top 250，需要检查两种类型
-    const isMetacriticMovieChart = chart_name === 'Metacritic 史上最佳电影 Top 250';
+    // 对于 Metacritic Top 250 榜单，需要检查两种类型
+    const isMetacriticTop250 = chart_name === 'Metacritic 史上最佳电影 Top 250' || chart_name === 'Metacritic 史上最佳剧集 Top 250';
     let conflictExists = false;
-    if (isMetacriticMovieChart) {
-      // 对于 Metacritic 电影榜单，检查 movie 和 tv 两种类型
+    if (isMetacriticTop250) {
+      // 对于 Metacritic Top 250 榜单，检查 movie 和 tv 两种类型
       conflictExists = currentListsByType.movie.some(i => i.rank === rank) || 
                       currentListsByType.tv.some(i => i.rank === rank);
     } else {
@@ -336,8 +336,8 @@ export default function AdminChartsPage() {
       // 保存成功后，刷新当前列表
       if (activeKey) {
         const [currentPlatform, currentChartName, currentMediaType] = activeKey.split(':');
-        // 对于 Metacritic 电影榜单，需要同时加载 movie 和 tv 数据
-        if (isMetacriticMovieChart) {
+        // 对于 Metacritic Top 250 榜单，需要同时加载 movie 和 tv 数据
+        if (isMetacriticTop250) {
           // 重新加载，但需要同时获取两种类型的数据
           await loadCurrentList(currentPlatform, currentChartName, 'both' as SectionType);
         } else {
@@ -360,8 +360,9 @@ export default function AdminChartsPage() {
   function openPicker(platform:string, chart_name:string, media_type:SectionType, rank:number){
     setPickerOpen(true);
     setPickerRank(rank);
-    // Metacritic 史上最佳电影 Top 250 在手动录入时允许搜索电影和剧集
-    const effectiveMediaType = (chart_name === 'Metacritic 史上最佳电影 Top 250' && MANUAL_ENTRY_CHARTS.includes(chart_name)) ? 'both' : media_type;
+    // Metacritic Top 250 榜单在手动录入时允许搜索电影和剧集
+    const isMetacriticTop250 = (chart_name === 'Metacritic 史上最佳电影 Top 250' || chart_name === 'Metacritic 史上最佳剧集 Top 250') && MANUAL_ENTRY_CHARTS.includes(chart_name);
+    const effectiveMediaType = isMetacriticTop250 ? 'both' : media_type;
     setPickerContext({ platform, chart_name, media_type: effectiveMediaType });
     setPickerQuery('');
     setPickerSelected(null);
@@ -673,12 +674,12 @@ export default function AdminChartsPage() {
       const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
       const backendChartName = CHART_NAME_REVERSE_MAP[chart_name] || chart_name;
       
-      // 对于 Metacritic 史上最佳电影 Top 250，需要同时加载 movie 和 tv 数据
-      const isMetacriticMovieChart = chart_name === 'Metacritic 史上最佳电影 Top 250';
-      const shouldLoadBoth = media_type === 'both' || isMetacriticMovieChart;
+      // 对于 Metacritic Top 250 榜单，需要同时加载 movie 和 tv 数据
+      const isMetacriticTop250 = chart_name === 'Metacritic 史上最佳电影 Top 250' || chart_name === 'Metacritic 史上最佳剧集 Top 250';
+      const shouldLoadBoth = media_type === 'both' || isMetacriticTop250;
       
       if (shouldLoadBoth) {
-        // 对于both类型或 Metacritic 电影榜单，分别获取电影和剧集数据
+        // 对于both类型或 Metacritic Top 250 榜单，分别获取电影和剧集数据
         const [movieResponse, tvResponse] = await Promise.all([
           fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=movie`, { headers: authHeaders }),
           fetch(`/api/charts/entries?platform=${encodeURIComponent(backendPlatform)}&chart_name=${encodeURIComponent(backendChartName)}&media_type=tv`, { headers: authHeaders })
@@ -1103,8 +1104,9 @@ export default function AdminChartsPage() {
             </div>
             <div className="grid grid-cols-1 gap-4">
               {sections.map((sec) => {
-                // 对于 Metacritic 电影榜单，使用 'both' 作为 media_type，以便加载两种类型的数据
-                const effectiveMediaType = (sec.name === 'Metacritic 史上最佳电影 Top 250' && MANUAL_ENTRY_CHARTS.includes(sec.name)) ? 'both' : sec.media_type;
+                // 对于 Metacritic Top 250 榜单，使用 'both' 作为 media_type，以便加载两种类型的数据
+                const isMetacriticTop250 = (sec.name === 'Metacritic 史上最佳电影 Top 250' || sec.name === 'Metacritic 史上最佳剧集 Top 250') && MANUAL_ENTRY_CHARTS.includes(sec.name);
+                const effectiveMediaType = isMetacriticTop250 ? 'both' : sec.media_type;
                 const key = `${platform}:${sec.name}:${effectiveMediaType}`;
                 return (
                   <div key={key} className={`border rounded p-3 glass-card`}>
@@ -1191,9 +1193,9 @@ export default function AdminChartsPage() {
                               <tbody>
                                 {Array.from({ length: 250 }, (_, idx) => idx + 1).map(r => {
                                   const current = currentList.find(i => i.rank === r);
-                                  // 对于 Metacritic 电影榜单，需要检查两种类型
-                                  const isMetacriticMovieChart = sec.name === 'Metacritic 史上最佳电影 Top 250';
-                                  const locked = isMetacriticMovieChart 
+                                  // 对于 Metacritic Top 250 榜单，需要检查两种类型
+                                  const isMetacriticTop250 = sec.name === 'Metacritic 史上最佳电影 Top 250' || sec.name === 'Metacritic 史上最佳剧集 Top 250';
+                                  const locked = isMetacriticTop250 
                                     ? (currentListsByType.movie.some(i=> i.rank===r && i.locked) || currentListsByType.tv.some(i=> i.rank===r && i.locked))
                                     : (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
                                   return (
@@ -1225,10 +1227,10 @@ export default function AdminChartsPage() {
                                           {current && (
                                             <button
                                               onClick={async ()=>{
-                                                // 对于 Metacritic 电影榜单，需要确定是 movie 还是 tv
-                                                const isMetacriticMovieChart = sec.name === 'Metacritic 史上最佳电影 Top 250';
+                                                // 对于 Metacritic Top 250 榜单，需要确定是 movie 还是 tv
+                                                const isMetacriticTop250 = sec.name === 'Metacritic 史上最佳电影 Top 250' || sec.name === 'Metacritic 史上最佳剧集 Top 250';
                                                 let effectiveType = sec.media_type;
-                                                if (isMetacriticMovieChart) {
+                                                if (isMetacriticTop250) {
                                                   // 检查该排名是 movie 还是 tv
                                                   effectiveType = currentListsByType.movie.find(i=>i.rank===r) ? 'movie' : 'tv';
                                                 } else if (sec.media_type==='both') {
@@ -1256,10 +1258,10 @@ export default function AdminChartsPage() {
                                           {current && !locked && (
                                             <button
                                               onClick={async ()=>{
-                                                // 对于 Metacritic 电影榜单，需要确定是 movie 还是 tv
-                                                const isMetacriticMovieChart = sec.name === 'Metacritic 史上最佳电影 Top 250';
+                                                // 对于 Metacritic Top 250 榜单，需要确定是 movie 还是 tv
+                                                const isMetacriticTop250 = sec.name === 'Metacritic 史上最佳电影 Top 250' || sec.name === 'Metacritic 史上最佳剧集 Top 250';
                                                 let effectiveType = sec.media_type;
-                                                if (isMetacriticMovieChart) {
+                                                if (isMetacriticTop250) {
                                                   // 检查该排名是 movie 还是 tv
                                                   effectiveType = currentListsByType.movie.find(i=>i.rank===r) ? 'movie' : 'tv';
                                                 } else if (sec.media_type==='both') {
