@@ -2526,8 +2526,6 @@ async def get_douban_rating_via_api(douban_id: str, douban_cookie: str = None) -
     """
     try:
         import aiohttp
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         
         url = f"https://m.douban.com/rexxar/api/v2/movie/{douban_id}"
         headers = {
