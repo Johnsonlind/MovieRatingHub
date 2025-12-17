@@ -2537,47 +2537,98 @@ async def sync_charts(
 async def get_public_charts(db: Session = Depends(get_db)):
     """获取所有公开榜单数据（从PublicChartEntry读取，只有同步后的数据）"""
     try:
-        # 获取所有唯一的平台、榜单名称、媒体类型组合（从PublicChartEntry）
+        # Metacritic Top 250 榜单需要合并所有 media_type 的条目
+        metacritic_top250_charts = [
+            'Metacritic Best Movies of All Time',
+            'Metacritic Best TV Shows of All Time',
+        ]
+        
+        # 获取所有唯一的平台、榜单名称组合（从PublicChartEntry）
         distinct_charts = db.query(
             PublicChartEntry.platform,
-            PublicChartEntry.chart_name,
-            PublicChartEntry.media_type
+            PublicChartEntry.chart_name
         ).distinct().all()
         
         result = []
+        processed_charts = set()  # 用于跟踪已处理的榜单
         
-        for platform, chart_name, media_type in distinct_charts:
-            # 获取该榜单的所有条目
-            entries = db.query(PublicChartEntry).filter(
-                PublicChartEntry.platform == platform,
-                PublicChartEntry.chart_name == chart_name,
-                PublicChartEntry.media_type == media_type,
-            ).order_by(PublicChartEntry.rank.asc()).all()
-            
-            if entries:
-                # 处理poster路径
-                chart_entries = []
-                for e in entries:
-                    poster = e.poster or ""
-                    if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
-                        if not poster.startswith("/"):
-                            poster = "/" + poster
-                        poster = f"/tmdb-images{poster}"
-                    
-                    chart_entries.append({
-                        "tmdb_id": e.tmdb_id,
-                        "rank": e.rank,
-                        "title": e.title,
-                        "poster": poster,
-                        "media_type": e.media_type,
-                    })
+        for platform, chart_name in distinct_charts:
+            # 对于 Metacritic Top 250 榜单，合并所有 media_type 的条目
+            if chart_name in metacritic_top250_charts:
+                chart_key = (platform, chart_name)
+                if chart_key in processed_charts:
+                    continue
+                processed_charts.add(chart_key)
                 
-                result.append({
-                    "platform": platform,
-                    "chart_name": chart_name,
-                    "media_type": media_type,
-                    "entries": chart_entries
-                })
+                # 获取该榜单的所有条目（包括所有 media_type）
+                entries = db.query(PublicChartEntry).filter(
+                    PublicChartEntry.platform == platform,
+                    PublicChartEntry.chart_name == chart_name,
+                ).order_by(PublicChartEntry.rank.asc()).all()
+                
+                if entries:
+                    # 处理poster路径
+                    chart_entries = []
+                    for e in entries:
+                        poster = e.poster or ""
+                        if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
+                            if not poster.startswith("/"):
+                                poster = "/" + poster
+                            poster = f"/tmdb-images{poster}"
+                        
+                        chart_entries.append({
+                            "tmdb_id": e.tmdb_id,
+                            "rank": e.rank,
+                            "title": e.title,
+                            "poster": poster,
+                            "media_type": e.media_type,
+                        })
+                    
+                    result.append({
+                        "platform": platform,
+                        "chart_name": chart_name,
+                        "media_type": "both",  # Metacritic Top 250 榜单设置为 both
+                        "entries": chart_entries
+                    })
+            else:
+                # 对于其他榜单，按原来的逻辑处理（按 media_type 分组）
+                distinct_media_types = db.query(PublicChartEntry.media_type).filter(
+                    PublicChartEntry.platform == platform,
+                    PublicChartEntry.chart_name == chart_name,
+                ).distinct().all()
+                
+                for (media_type,) in distinct_media_types:
+                    # 获取该榜单的所有条目
+                    entries = db.query(PublicChartEntry).filter(
+                        PublicChartEntry.platform == platform,
+                        PublicChartEntry.chart_name == chart_name,
+                        PublicChartEntry.media_type == media_type,
+                    ).order_by(PublicChartEntry.rank.asc()).all()
+                    
+                    if entries:
+                        # 处理poster路径
+                        chart_entries = []
+                        for e in entries:
+                            poster = e.poster or ""
+                            if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
+                                if not poster.startswith("/"):
+                                    poster = "/" + poster
+                                poster = f"/tmdb-images{poster}"
+                            
+                            chart_entries.append({
+                                "tmdb_id": e.tmdb_id,
+                                "rank": e.rank,
+                                "title": e.title,
+                                "poster": poster,
+                                "media_type": e.media_type,
+                            })
+                        
+                        result.append({
+                            "platform": platform,
+                            "chart_name": chart_name,
+                            "media_type": media_type,
+                            "entries": chart_entries
+                        })
         
         return result
     except Exception as e:
@@ -2631,6 +2682,14 @@ async def get_chart_detail(
         # 处理poster路径和确定媒体类型
         chart_entries = []
         media_type = None
+        
+        # 对于 Metacritic Top 250 榜单，设置为 both 类型
+        metacritic_top250_charts = [
+            'Metacritic Best Movies of All Time',
+            'Metacritic Best TV Shows of All Time',
+        ]
+        is_metacritic_top250 = backend_chart_name in metacritic_top250_charts
+        
         for e in entries:
             poster = e.poster or ""
             if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
@@ -2651,8 +2710,11 @@ async def get_chart_detail(
                 "media_type": entry_media_type,
             })
         
-        # 如果没有找到媒体类型，默认为 movie
-        if not media_type:
+        # 对于 Metacritic Top 250 榜单，设置为 both 类型
+        if is_metacritic_top250:
+            media_type = 'both'
+        elif not media_type:
+            # 如果没有找到媒体类型，默认为 movie
             media_type = 'movie'
         
         return {
