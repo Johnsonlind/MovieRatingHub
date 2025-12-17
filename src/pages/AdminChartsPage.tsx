@@ -330,7 +330,9 @@ export default function AdminChartsPage() {
   function openPicker(platform:string, chart_name:string, media_type:SectionType, rank:number){
     setPickerOpen(true);
     setPickerRank(rank);
-    setPickerContext({ platform, chart_name, media_type });
+    // Metacritic 史上最佳电影 Top 250 在手动录入时允许搜索电影和剧集
+    const effectiveMediaType = (chart_name === 'Metacritic 史上最佳电影 Top 250' && MANUAL_ENTRY_CHARTS.includes(chart_name)) ? 'both' : media_type;
+    setPickerContext({ platform, chart_name, media_type: effectiveMediaType });
     setPickerQuery('');
     setPickerSelected(null);
   }
