@@ -216,11 +216,11 @@ export default function ChartsPage() {
     }
 
     // 对所有平台的榜单进行排序：Top 250 榜单放在最后
-    // 注意：Rotten Tomatoes 和 Metacritic 已经按 media_type 排序过了，这里只处理 Top 250 的顺序
+    // 注意：Rotten Tomatoes、Metacritic 和豆瓣已经按指定顺序排序过了，这里只处理 Top 250 的顺序
     Object.keys(result).forEach(platform => {
       if (result[platform]) {
-        // 对于已经排序过的平台（Rotten Tomatoes, Metacritic），只调整 Top 250 的位置
-        const alreadySorted = ['Rotten Tomatoes', 'Metacritic'].includes(platform);
+        // 对于已经排序过的平台（Rotten Tomatoes, Metacritic, 豆瓣），只调整 Top 250 的位置
+        const alreadySorted = ['Rotten Tomatoes', 'Metacritic', '豆瓣'].includes(platform);
         
         if (alreadySorted) {
           // 对于已排序的平台，只将 Top 250 榜单移到最后，保持其他顺序不变
