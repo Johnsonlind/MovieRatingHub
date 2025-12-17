@@ -11,19 +11,18 @@ import { MiniFavoriteButton } from '../utils/MiniFavoriteButton';
 import { exportToPng } from '../utils/export';
 import { Download } from 'lucide-react';
 import { ExportChartCard } from '../components/export/ExportChartCard';
-import { useGentleScroll } from '../hooks/useGentleScroll';
 import { useAggressiveImagePreload } from '../hooks/useAggressiveImagePreload';
 
 const downscaleTmdb = (url: string) => {
-  // 将 TMDB 原图或大图替换为 w185，减小解码与下载成本
+  // 使用 w342 获得更好的清晰度，适合榜单页面的网格布局
   const tmdbPattern = /https?:\/\/image\.tmdb\.org\/t\/p\/(original|w\d+)(\/.+)/;
   const match = url.match(tmdbPattern);
   if (match) {
-    return `https://image.tmdb.org/t/p/w185${match[2]}`;
+    return `https://image.tmdb.org/t/p/w342${match[2]}`;
   }
   if (url.startsWith('/tmdb-images/')) {
-    // /tmdb-images/w500/xxx  => /tmdb-images/w185/xxx
-    return url.replace(/\/tmdb-images\/(original|w\d+)\//, '/tmdb-images/w185/');
+    // 使用 w342 替代 w185，提升清晰度
+    return url.replace(/\/tmdb-images\/(original|w\d+)\//, '/tmdb-images/w342/');
   }
   return url;
 };
@@ -117,13 +116,6 @@ export default function ChartsPage() {
   }, []);
 
   const contentRef = useRef<HTMLDivElement>(null);
-  useGentleScroll(contentRef, {
-    enabled: true,
-    damping: 0.3,
-    maxOffset: 8,
-    stopEpsilon: 0.5,
-    scrollBurstThreshold: 12,
-  });
 
   // 获取所有同步的榜单数据
   const { data: chartsData, isLoading } = useQuery({
@@ -146,52 +138,7 @@ export default function ChartsPage() {
   // 激进图片预加载，确保滚动时无空白
   useAggressiveImagePreload(contentRef, !isLoading && !!chartsData);
 
-  // 激进预取：立即强制解码所有海报，确保滚动时无空白
-  useEffect(() => {
-    if (!chartsData || chartsData.length === 0) return;
-    
-    const urls: string[] = [];
-    chartsData.forEach(chart => {
-      chart.entries.forEach(entry => {
-        if (entry.poster) {
-          urls.push(resolvePosterUrl(entry.poster));
-        }
-      });
-    });
-
-    // 立即开始预加载所有图片，不分批
-    const loadedImages = new Map<string, HTMLImageElement>();
-    
-    urls.forEach((url) => {
-      const img = new Image();
-      img.decoding = 'async';
-      img.loading = 'eager';
-      img.crossOrigin = 'anonymous';
-      
-      img.onload = () => {
-        // 立即强制解码，不等待
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0);
-            loadedImages.set(url, img);
-          }
-        } catch (e) {
-          loadedImages.set(url, img);
-        }
-      };
-      
-      img.onerror = () => {
-        loadedImages.set(url, img);
-      };
-      
-      // 立即设置 src，开始加载
-      img.src = url;
-    });
-  }, [chartsData]);
+  // 图片预加载由 useAggressiveImagePreload hook 统一处理，避免重复加载
 
   // 按指定顺序排序 - 使用 useMemo 优化
   const sortedCharts = useMemo(() => {
@@ -420,7 +367,7 @@ export default function ChartsPage() {
       <ScrollToTopButton />
       <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4">
         <div ref={contentRef} className="gentle-scroll">
-          <div className="max-w-7xl mx-auto space-y-8">
+        <div className="max-w-7xl mx-auto space-y-8">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-gray-600 dark:text-gray-400">加载中...</div>
@@ -493,7 +440,7 @@ export default function ChartsPage() {
                           ) : (
                             <>
                               {/* 显示用的网格 */}
-                              <div className="grid grid-cols-5 sm:grid-cols-10 gap-3">
+                              <div className="grid grid-cols-5 sm:grid-cols-10 gap-3" style={{ contain: 'layout style' }}>
                                 {displayEntries.map((entry, idx) => {
                                     // 根据榜单类型确定媒体类型
                                     const mediaType = entry.media_type || 
@@ -503,63 +450,47 @@ export default function ChartsPage() {
                                       : `/tv/${entry.tmdb_id}`;
                                     
                                     return (
-                                      <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative">
+                                      <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative" style={{ contain: 'layout style' }}>
                                         <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                                          <div className="aspect-[2/3] rounded-lg overflow-hidden relative" style={{ backgroundColor: 'transparent' }}>
+                                          <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
                                             {entry.poster ? (
                                               <img
                                                 src={resolvePosterUrl(entry.poster)}
                                                 alt={entry.title}
-                                                className="w-full h-full object-cover"
+                                                className="w-full h-full object-cover transition-opacity duration-200"
                                                 loading="eager"
                                                 fetchPriority={idx < 20 ? 'high' : idx < 60 ? 'auto' : 'low'}
                                                 decoding="async"
                                                 sizes="(min-width:1280px) 10vw, (min-width:1024px) 14vw, (min-width:640px) 20vw, 33vw"
                                                 style={{ 
-                                                  backgroundColor: 'transparent',
                                                   minHeight: '100%',
                                                   display: 'block',
                                                   opacity: 0,
-                                                  transition: 'opacity 0.1s ease-in'
+                                                  transition: 'opacity 0.2s ease-in'
                                                 }}
                                                 onLoad={(e) => {
-                                                  // 图片完全加载并解码后才显示
+                                                  // 图片完全加载后淡入显示，避免布局抖动
                                                   const target = e.target as HTMLImageElement;
                                                   if (target && target.complete && target.naturalWidth > 0) {
-                                                    // 立即显示（优化快速滚动体验）
-                                                    target.style.opacity = '1';
-                                                    
-                                                    // 后台强制解码，确保后续渲染更快
-                                                    const decodeInBackground = () => {
-                                                      try {
-                                                        const canvas = document.createElement('canvas');
-                                                        canvas.width = target.naturalWidth;
-                                                        canvas.height = target.naturalHeight;
-                                                        const ctx = canvas.getContext('2d');
-                                                        if (ctx) {
-                                                          ctx.drawImage(target, 0, 0);
-                                                        }
-                                                      } catch (e) {
-                                                        // 解码失败忽略
-                                                      }
-                                                    };
-                                                    
-                                                    if (typeof (window as any).requestIdleCallback === 'function') {
-                                                      (window as any).requestIdleCallback(decodeInBackground, { timeout: 100 });
-                                                    } else {
-                                                      setTimeout(decodeInBackground, 0);
-                                                    }
+                                                    // 使用 requestAnimationFrame 确保在下一帧显示，避免布局抖动
+                                                    requestAnimationFrame(() => {
+                                                      target.style.opacity = '1';
+                                                    });
                                                   }
                                                 }}
                                                 onError={(e) => {
-                                                  // 加载失败时完全隐藏
+                                                  // 加载失败时显示占位符
                                                   const target = e.target as HTMLImageElement;
                                                   if (target) {
-                                                    target.style.display = 'none';
+                                                    target.style.opacity = '0';
                                                   }
                                                 }}
                                               />
-                                            ) : null}
+                                            ) : (
+                                              <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
+                                                <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
+                                              </div>
+                                            )}
                                             {/* 排名标签 - 红色丝带样式 */}
                                             <div className="absolute top-0 left-0 pointer-events-none" style={{ zIndex: 10 }}>
                                               <svg width="36" height="28" viewBox="0 0 36 28" className="drop-shadow-md" style={{ display: 'block' }}>
@@ -628,7 +559,7 @@ export default function ChartsPage() {
                 );
               })}
             </div>
-            )}
+          )}
           </div>
         </div>
       </div>
