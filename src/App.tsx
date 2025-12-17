@@ -7,6 +7,7 @@ import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './components/auth/AuthContext';
 import { Toaster } from "sonner";
+import { useLenis } from './hooks/useLenis';
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,9 @@ const ChartsPage = lazy(() => import('./pages/ChartsPage'));
 const ChartDetailPage = lazy(() => import('./pages/ChartDetailPage'));
 
 function App() {
+  // 启用 Lenis 平滑滚动
+  useLenis();
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
