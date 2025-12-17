@@ -2673,9 +2673,12 @@ class ChartScraper:
             logger.error("未能获取到 Metacritic Best Movies of All Time 数据")
             return 0
         
+        # 只保留前250条
+        items = items[:250]
+        
         matcher = TMDBMatcher(self.db)
         saved = 0
-        total = len(items[:250])
+        total = len(items)
         
         # 使用信号量控制并发数（最多同时处理10个）
         semaphore = asyncio.Semaphore(10)
@@ -2763,9 +2766,12 @@ class ChartScraper:
             logger.error("未能获取到 Metacritic Best TV Shows of All Time 数据")
             return 0
         
+        # 只保留前250条
+        items = items[:250]
+        
         matcher = TMDBMatcher(self.db)
         saved = 0
-        total = len(items[:250])
+        total = len(items)
         
         # 使用信号量控制并发数（最多同时处理10个）
         semaphore = asyncio.Semaphore(10)
