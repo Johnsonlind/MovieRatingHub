@@ -112,6 +112,9 @@ export default function ChartDetailPage() {
   const isMetacriticTop250 = data.chart_name === 'Metacritic 史上最佳电影 Top 250' || 
                              data.chart_name === 'Metacritic 史上最佳剧集 Top 250';
   
+  // 对于 Metacritic Top 250 榜单，只取前250个条目，否则使用全部条目
+  const displayedEntries = isMetacriticTop250 ? sortedEntries.slice(0, 250) : sortedEntries;
+  
   // 对于 Metacritic Top 250 榜单，显示 250，否则显示实际数量
   const displayCount = isMetacriticTop250 ? 250 : sortedEntries.length;
 
@@ -152,7 +155,7 @@ export default function ChartDetailPage() {
           </div>
 
           {/* 榜单内容 */}
-          {sortedEntries.length === 0 ? (
+          {displayedEntries.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-gray-500 dark:text-gray-400">
                 暂无数据
@@ -161,7 +164,7 @@ export default function ChartDetailPage() {
           ) : (
             <div className="glass-card rounded-2xl p-6">
               <div className="grid grid-cols-5 sm:grid-cols-10 gap-3">
-                {sortedEntries.map(entry => {
+                {displayedEntries.map(entry => {
                   const mediaType = entry.media_type || 
                     (data.media_type === 'both' ? 'movie' : data.media_type);
                   const linkPath = mediaType === 'movie' 
