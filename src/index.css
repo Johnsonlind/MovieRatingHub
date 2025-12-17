@@ -12,6 +12,28 @@
 @import 'tailwindcss/utilities';
 @import './styles/gentle-scroll.css';
 
+/* Lenis 平滑滚动必需的 CSS */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
 /* 自定义样式 */
 :root {
   --bg-color: #f0f9ff;
@@ -49,6 +71,13 @@
   --glass-border: rgba(255, 255, 255, 0.12);
   --glass-shadow: rgba(30, 58, 138, 0.2);
   --text-shadow: rgba(0, 0, 0, 0.7);
+}
+
+html, body {
+  /* Lenis 会处理平滑滚动，不需要 CSS scroll-behavior */
+  /* 确保可以滚动 */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 body {
