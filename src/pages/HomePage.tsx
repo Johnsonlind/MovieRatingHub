@@ -76,7 +76,7 @@ export default function HomePage() {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
                   <div key={`${item.type}-${item.id}`} className="group">
-                    <div className="w-full aspect-[2/3] overflow-hidden rounded-xl glass-card relative">
+                    <div className="w-full aspect-[2/3] overflow-hidden rounded-xl glass-card relative bg-gray-200 dark:bg-gray-800">
                       <Link to={linkPath} target="_blank" rel="noopener noreferrer">
                         <img
                           src={item.poster
@@ -113,7 +113,7 @@ export default function HomePage() {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
                   <div key={`${item.type}-${item.id}`} className="group">
-                    <div className="w-full aspect-[2/3] overflow-hidden rounded-xl glass-card relative">
+                    <div className="w-full aspect-[2/3] overflow-hidden rounded-xl glass-card relative bg-gray-200 dark:bg-gray-800">
                       <Link to={linkPath} target="_blank" rel="noopener noreferrer">
                         <img
                           src={item.poster
