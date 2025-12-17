@@ -9,17 +9,18 @@ import { NavBar } from '../utils/NavBar';
 import { ScrollToTopButton } from '../utils/ScrollToTopButton';
 import { MiniFavoriteButton } from '../utils/MiniFavoriteButton';
 import { ArrowLeft } from 'lucide-react';
-import { useGentleScroll } from '../hooks/useGentleScroll';
 import { useAggressiveImagePreload } from '../hooks/useAggressiveImagePreload';
 
 const downscaleTmdb = (url: string) => {
+  // 使用 w342 获得更好的清晰度，适合榜单页面的网格布局
   const tmdbPattern = /https?:\/\/image\.tmdb\.org\/t\/p\/(original|w\d+)(\/.+)/;
   const match = url.match(tmdbPattern);
   if (match) {
-    return `https://image.tmdb.org/t/p/w185${match[2]}`;
+    return `https://image.tmdb.org/t/p/w342${match[2]}`;
   }
   if (url.startsWith('/tmdb-images/')) {
-    return url.replace(/\/tmdb-images\/(original|w\d+)\//, '/tmdb-images/w185/');
+    // 使用 w342 替代 w185，提升清晰度
+    return url.replace(/\/tmdb-images\/(original|w\d+)\//, '/tmdb-images/w342/');
   }
   return url;
 };
@@ -83,60 +84,7 @@ export default function ChartDetailPage() {
     enabled: !!platform && !!chartName,
   });
 
-  // 激进预取：立即强制解码所有海报，确保滚动时无空白
-  useEffect(() => {
-    if (!data || !data.entries) return;
-    
-    const urls: string[] = [];
-    data.entries.forEach(entry => {
-      if (entry.poster) {
-        const url = /^(http|\/api|\/tmdb-images)/.test(entry.poster)
-          ? downscaleTmdb(entry.poster)
-          : `/api/image-proxy?url=${encodeURIComponent(downscaleTmdb(entry.poster))}`;
-        urls.push(url);
-      }
-    });
-
-    // 立即开始预加载所有图片，不分批
-    const loadedImages = new Map<string, HTMLImageElement>();
-    
-    urls.forEach((url) => {
-      const img = new Image();
-      img.decoding = 'async';
-      img.loading = 'eager';
-      img.crossOrigin = 'anonymous';
-      
-      img.onload = () => {
-        // 立即强制解码，不等待
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0);
-            loadedImages.set(url, img);
-          }
-        } catch (e) {
-          loadedImages.set(url, img);
-        }
-      };
-      
-      img.onerror = () => {
-        loadedImages.set(url, img);
-      };
-      
-      // 立即设置 src，开始加载
-      img.src = url;
-    });
-  }, [data]);
-
-  useGentleScroll(contentRef, {
-    enabled: !isLoading,
-    damping: 0.22,
-    maxOffset: 6,
-    stopEpsilon: 0.35,
-  });
+  // 图片预加载由 useAggressiveImagePreload hook 统一处理，避免重复加载
 
   // 激进图片预加载，确保滚动时无空白
   useAggressiveImagePreload(contentRef, !isLoading && !!data);
@@ -145,10 +93,10 @@ export default function ChartDetailPage() {
     return (
       <>
         <NavBar />
-        <ThemeToggle />
-        <ScrollToTopButton />
+          <ThemeToggle />
+          <ScrollToTopButton />
         <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4 flex items-center justify-center">
-          <div className="text-gray-600 dark:text-gray-400">加载中...</div>
+            <div className="text-gray-600 dark:text-gray-400">加载中...</div>
         </div>
       </>
     );
@@ -194,34 +142,34 @@ export default function ChartDetailPage() {
       <ScrollToTopButton />
       <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4">
         <div ref={contentRef} className="gentle-scroll">
-          <div className="max-w-7xl mx-auto space-y-6">
-            {/* 返回按钮和标题 */}
-            <div className="flex items-center gap-4 mb-6">
-              <button
-                onClick={() => navigate('/charts')}
-                className="glass-button p-2 flex items-center justify-center text-gray-800 dark:text-white hover:scale-105 transition-all"
-                aria-label="返回榜单页"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <div className="flex items-center gap-3">
-                {PLATFORM_LOGOS[data.platform] && (
-                  <img 
-                    src={PLATFORM_LOGOS[data.platform]} 
-                    alt={data.platform}
-                    className="w-8 h-8 object-contain"
-                  />
-                )}
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                    {data.chart_name}
-                  </h1>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    {data.platform} · 共 {displayedEntries.length} 部作品
-                  </p>
-                </div>
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* 返回按钮和标题 */}
+          <div className="flex items-center gap-4 mb-6">
+            <button
+              onClick={() => navigate('/charts')}
+              className="glass-button p-2 flex items-center justify-center text-gray-800 dark:text-white hover:scale-105 transition-all"
+              aria-label="返回榜单页"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-3">
+              {PLATFORM_LOGOS[data.platform] && (
+                <img 
+                  src={PLATFORM_LOGOS[data.platform]} 
+                  alt={data.platform}
+                  className="w-8 h-8 object-contain"
+                />
+              )}
+              <div>
+                <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
+                  {data.chart_name}
+                </h1>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  {data.platform} · 共 {displayedEntries.length} 部作品
+                </p>
               </div>
             </div>
+          </div>
 
           {/* 榜单内容 */}
           {displayedEntries.length === 0 ? (
@@ -232,7 +180,7 @@ export default function ChartDetailPage() {
             </div>
           ) : (
             <div className="glass-card rounded-2xl p-6">
-              <div className="grid grid-cols-5 sm:grid-cols-10 gap-3">
+              <div className="grid grid-cols-5 sm:grid-cols-10 gap-3" style={{ contain: 'layout style' }}>
                 {displayedEntries.map((entry, idx) => {
                   const mediaType = entry.media_type || 
                     (data.media_type === 'both' ? 'movie' : data.media_type);
@@ -241,9 +189,9 @@ export default function ChartDetailPage() {
                     : `/tv/${entry.tmdb_id}`;
                   
                   return (
-                    <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative">
+                    <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative" style={{ contain: 'layout style' }}>
                       <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                        <div className="aspect-[2/3] rounded-lg overflow-hidden relative" style={{ backgroundColor: 'transparent' }}>
+                        <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
                           {entry.poster ? (
                             <img
                               src={
@@ -252,57 +200,41 @@ export default function ChartDetailPage() {
                                   : `/api/image-proxy?url=${encodeURIComponent(downscaleTmdb(entry.poster))}`
                               }
                               alt={entry.title}
-                              className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                              className="w-full h-full object-cover transition-opacity duration-200 group-hover:scale-105"
                               loading="eager"
                               fetchPriority={idx < 32 ? 'high' : 'auto'}
                               style={{ 
                                 willChange: 'transform',
-                                backgroundColor: 'transparent',
                                 minHeight: '100%',
                                 display: 'block',
                                 opacity: 0,
-                                transition: 'opacity 0.1s ease-in'
+                                transition: 'opacity 0.2s ease-in, transform 0.2s ease-out'
                               }}
                               decoding="async"
                               sizes="(min-width:1280px) 10vw, (min-width:1024px) 14vw, (min-width:640px) 20vw, 33vw"
                               onLoad={(e) => {
-                                // 图片完全加载后立即显示（优化快速滚动体验）
+                                // 图片完全加载后淡入显示，避免布局抖动
                                 const target = e.target as HTMLImageElement;
                                 if (target && target.complete && target.naturalWidth > 0) {
-                                  // 立即显示
-                                  target.style.opacity = '1';
-                                  
-                                  // 后台强制解码，确保后续渲染更快
-                                  const decodeInBackground = () => {
-                                    try {
-                                      const canvas = document.createElement('canvas');
-                                      canvas.width = target.naturalWidth;
-                                      canvas.height = target.naturalHeight;
-                                      const ctx = canvas.getContext('2d');
-                                      if (ctx) {
-                                        ctx.drawImage(target, 0, 0);
-                                      }
-                                    } catch (e) {
-                                      // 解码失败忽略
-                                    }
-                                  };
-                                  
-                                  if (typeof (window as any).requestIdleCallback === 'function') {
-                                    (window as any).requestIdleCallback(decodeInBackground, { timeout: 100 });
-                                  } else {
-                                    setTimeout(decodeInBackground, 0);
-                                  }
+                                  // 使用 requestAnimationFrame 确保在下一帧显示，避免布局抖动
+                                  requestAnimationFrame(() => {
+                                    target.style.opacity = '1';
+                                  });
                                 }
                               }}
                               onError={(e) => {
-                                // 加载失败时完全隐藏
+                                // 加载失败时显示占位符
                                 const target = e.target as HTMLImageElement;
                                 if (target) {
-                                  target.style.display = 'none';
+                                  target.style.opacity = '0';
                                 }
                               }}
                             />
-                          ) : null}
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
+                              <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
+                            </div>
+                          )}
                           {/* 排名标签 - 红色丝带样式 */}
                           <div className="absolute top-0 left-0 pointer-events-none" style={{ zIndex: 10 }}>
                             <svg width="36" height="28" viewBox="0 0 36 28" className="drop-shadow-md" style={{ display: 'block' }}>
