@@ -50,17 +50,21 @@ export async function getBase64Image(input: string | File): Promise<string> {
         canvas.width = img.width;
         canvas.height = img.height;
         
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) {
           reject(new Error('Failed to get canvas context'));
           return;
         }
         
+        // 先清空canvas，确保透明背景
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 绘制图片
         ctx.drawImage(img, 0, 0);
         
-        // 使用最高质量进行转换
-        const base64 = canvas.toDataURL('image/jpeg', 1.0);
-        console.log('Base64 conversion successful');
+        // 使用PNG格式以保持透明度（避免logo黑边问题）
+        const base64 = canvas.toDataURL('image/png');
+        console.log('Base64 conversion successful (PNG format)');
         resolve(base64);
       } catch (error) {
         console.error('Error during base64 conversion:', error);
