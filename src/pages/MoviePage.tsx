@@ -1,81 +1,572 @@
 // ==========================================
-// 电影Hero组件 - 显示电影海报、标题和简介
+// 电影详情页 - 显示电影详情和多平台评分
 // ==========================================
-import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
-import type { Movie } from '../../types/media';
-import type { MovieRatingData } from '../../types/ratings';
-import { OverviewModal } from '../../utils/OverviewModal';
+import { useState, useEffect, useRef } from 'react';
+import { useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { MovieHero } from '../components/movie/MovieHero';
+import { Credits } from '../api/Credits';
+import { getMovie } from '../api/movies';
+import { messages } from '../utils/messages';
+import { exportToPng } from '../utils/export';
+import { ExportRatingCard } from '../components/export/ExportRatingCard';
+import { MovieMetadata } from '../components/movie/MovieMetadata';
+import { RatingSection } from '../components/ratings/RatingSection';
+import { preloadImages } from '../utils/export';
+import { fetchTMDBRating, fetchTraktRating } from '../api/ratings';
+import type { FetchStatus, BackendPlatformStatus } from '../types/status';
+import { TMDBRating, TraktRating, MovieRatingData } from '../types/ratings';
+import { Movie as MediaMovie } from '../types/media';
+import { ThemeToggle } from '../utils/ThemeToggle';
+import { NavBar } from '../utils/NavBar';
+import { getBase64Image } from '../api/image';
+import { ExportButton } from '../utils/ExportButton';
+import { FavoriteButton } from '../utils/FavoriteButton';
+import { ErrorMessage } from '../utils/ErrorMessage';
+import { ScrollToTopButton } from '../utils/ScrollToTopButton';
 
-interface MovieHeroProps {
-  movie: Movie;
-  backdropUrl: string;
-  ratingData: MovieRatingData;
+interface PlatformStatus {
+  status: FetchStatus;
+  data: any;
 }
 
-export function MovieHero({ movie, backdropUrl }: MovieHeroProps) {
-  const [showOverview, setShowOverview] = useState(false);
+interface PlatformStatuses {
+  [key: string]: PlatformStatus;
+}
+
+const PRELOAD_IMAGES = [
+  `/background.png`,
+  `/rating-template.png`,
+  `/logos/douban.png`, 
+  `/logos/imdb.png`,
+  `/logos/letterboxd.png`,
+  `/logos/rottentomatoes.png`,
+  `/logos/metacritic.png`,
+  `/logos/metacritic_audience.png`,
+  `/logos/tmdb.png`,
+  `/logos/trakt.png`
+];
+
+const formatQueryError = (error: unknown): { status: FetchStatus; detail: string } => {
+  return {
+    status: 'error',
+    detail: error instanceof Error ? error.message : String(error)
+  };
+};
+
+// 页脚组件
+const Footer = () => (
+  <div className="w-full py-6 mt-8 flex justify-center items-center gap-2">
+    <a 
+      href="https://weibo.com/u/2238200645" 
+      target="_blank" 
+      rel="noopener noreferrer"
+      className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+    >
+      <img src="/logos/weibo.png" alt="微博" className="w-5 h-5" />
+      <span>守望电影</span>
+    </a>
+  </div>
+);
+
+export default function MoviePage() {
+  const { id } = useParams();
+  const [isExporting, setIsExporting] = useState(false);
+  const [tmdbRating, setTmdbRating] = useState<TMDBRating | null>(null);
+  const [traktRating, setTraktRating] = useState<TraktRating | null>(null);
+  
+  const [tmdbStatus, setTmdbStatus] = useState<FetchStatus>('pending');
+  const [traktStatus, setTraktStatus] = useState<FetchStatus>('pending');
+  const [platformStatuses, setPlatformStatuses] = useState<PlatformStatuses>({
+    douban: { status: 'pending', data: null },
+    imdb: { status: 'pending', data: null },
+    letterboxd: { status: 'pending', data: null },
+    rottentomatoes: { status: 'pending', data: null },
+    metacritic: { status: 'pending', data: null }
+  });
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const { data: movie, isLoading, error: queryError } = useQuery({
+    queryKey: ['movie', id],
+    queryFn: () => getMovie(id!),
+    enabled: !!id,
+    staleTime: Infinity
+  });
+
+  // 设置页面标题
+  useEffect(() => {
+    if (movie) {
+      const title = movie.title || '电影详情';
+      const year = movie.releaseDate ? ` (${movie.releaseDate.slice(0, 4)})` : '';
+      document.title = `${title}${year} - RateFuse`;
+    } else {
+      document.title = '电影详情 - RateFuse';
+    }
+  }, [movie]);
+
+  const [posterBase64, setPosterBase64] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const fetchAllRatings = async () => {
+      // 如果存在之前的请求，先取消它
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      
+      // 创建新的 AbortController
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      // 设置所有平台为加载状态
+      const platforms = ['douban', 'imdb', 'letterboxd', 'rottentomatoes', 'metacritic'];
+      platforms.forEach(platform => {
+        setPlatformStatuses(prev => ({
+          ...prev,
+          [platform]: { ...prev[platform], status: 'loading' }
+        }));
+      });
+      setTmdbStatus('loading');
+      setTraktStatus('loading');
+
+      try {
+        // 创建所有后端平台的请求
+        const token = localStorage.getItem('token');
+        const backendPromises = platforms.map(async platform => {
+          try {
+            const response = await fetch(`/api/ratings/${platform}/movie/${id}`, {
+              ...(token && { headers: { 'Authorization': `Bearer ${token}` } })
+            });
+            if (!response.ok) throw new Error('获取评分失败');
+            const data = await response.json();
+            
+            // 获取到数据后立即更新状态
+            setPlatformStatuses(prev => ({
+              ...prev,
+              [platform]: {
+                status: data.status === 'Successful' ? 'successful' :  
+                        data.status === 'No Found' ? 'not_found' :
+                        data.status === 'No Rating' ? 'no_rating' :
+                        data.status === 'RateLimit' ? 'rate_limit' :
+                        data.status === 'Timeout' ? 'timeout' :
+                        data.status === 'Fail' ? 'fail' : 'error',
+                data
+              }
+            }));
+
+            return { platform, status: 'successful', data };
+          } catch (error) {
+            setPlatformStatuses(prev => ({
+              ...prev,
+              [platform]: { status: 'error', data: null }
+            }));
+            return { platform, status: 'error', data: null };
+          }
+        });
+
+        // TMDB 和 Trakt 的获取逻辑保持不变
+        const tmdbPromise = fetchTMDBRating('movie', id!)
+          .then(data => {
+            if (!data || !data.rating) {
+              setTmdbStatus('no_rating');
+              setTmdbRating(null);
+              return;
+            }
+            const tmdbData: TMDBRating = {
+              rating: Number(data.rating),
+              voteCount: Number(data.voteCount)
+            };
+            setTmdbRating(tmdbData);
+            setTmdbStatus('successful');
+          })
+          .catch(() => {
+            setTmdbStatus('error');
+            setTmdbRating(null);
+          });
+
+        const traktPromise = fetchTraktRating('movies', id!)
+          .then(data => {
+            if (!data || !data.rating) {
+              setTraktStatus('no_rating');
+              setTraktRating(null);
+              return;
+            }
+            setTraktRating({
+              rating: Number(data.rating),
+              votes: Number(data.votes || data.votes),
+              distribution: {
+                '1': Number(data.distribution?.['1'] || 0),
+                '2': Number(data.distribution?.['2'] || 0),
+                '3': Number(data.distribution?.['3'] || 0),
+                '4': Number(data.distribution?.['4'] || 0),
+                '5': Number(data.distribution?.['5'] || 0),
+                '6': Number(data.distribution?.['6'] || 0),
+                '7': Number(data.distribution?.['7'] || 0),
+                '8': Number(data.distribution?.['8'] || 0),
+                '9': Number(data.distribution?.['9'] || 0),
+                '10': Number(data.distribution?.['10'] || 0)
+              }
+            });
+            setTraktStatus('successful');
+          })
+          .catch(() => {
+            setTraktStatus('error');
+            setTraktRating(null);
+          });
+
+        // 等待所有请求完成，但状态已经在每个请求完成时更新了
+        await Promise.all([...backendPromises, tmdbPromise, traktPromise]);
+
+        // 组件卸载时关闭 EventSource
+        return () => {
+          if (controller.signal.aborted) {
+            return;
+          }
+        };
+
+      } catch (err: unknown) {
+        const error = err as Error;
+        if (error.name !== 'AbortError') {
+          console.error('获取评分失败:', error);
+        }
+      }
+    };
+
+    fetchAllRatings();
+
+    // 清理函数
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [id]);
+
+  useEffect(() => {
+    preloadImages({
+      cdnImages: PRELOAD_IMAGES
+    }).catch(error => {
+      console.warn('图片预加载失败:', error);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (movie) {
+      preloadImages({
+        poster: movie.poster,
+        cdnImages: [
+          `/background.png`,
+          `/rating-template.png`,
+          `/logos/douban.png`,
+          `/logos/imdb.png`,
+          `/logos/letterboxd.png`,
+          `/logos/rottentomatoes.png`,
+          `/logos/metacritic.png`,
+          `/logos/metacritic_audience.png`,
+          `/logos/tmdb.png`,
+          `/logos/trakt.png`
+        ]
+      }).catch(error => {
+        console.warn('图片预加载失败:', error);
+      });
+    }
+  }, [movie]);
+
+  useEffect(() => {
+    if (movie?.poster) {
+      getBase64Image(movie.poster)
+        .then(base64 => setPosterBase64(base64))
+        .catch(error => console.error('Failed to convert poster to base64:', error));
+    }
+  }, [movie]);
+
+  // 组合所有评分数据
+  const allRatings: MovieRatingData = {
+    type: 'movie',
+    douban: platformStatuses.douban?.data,
+    imdb: platformStatuses.imdb?.data,
+    letterboxd: platformStatuses.letterboxd?.data,
+    rottentomatoes: platformStatuses.rottentomatoes?.data,
+    metacritic: platformStatuses.metacritic?.data,
+    tmdb: tmdbRating,
+    trakt: traktRating
+  };
+
+  const backendPlatforms: BackendPlatformStatus[] = [
+    {
+      platform: 'douban',
+      logo: `/logos/douban.png`,
+      status: platformStatuses.douban.status
+    },
+    {
+      platform: 'imdb',
+      logo: `/logos/imdb.png`,
+      status: platformStatuses.imdb.status
+    },
+    {
+      platform: 'letterboxd',
+      logo: `/logos/letterboxd.png`,
+      status: platformStatuses.letterboxd.status
+    },
+    {
+      platform: 'rottentomatoes',
+      logo: `/logos/rottentomatoes.png`,
+      status: platformStatuses.rottentomatoes.status
+    },
+    {
+      platform: 'metacritic',
+      logo: `/logos/metacritic.png`,
+      status: platformStatuses.metacritic.status
+    }
+  ];
+
+  const handleRetry = async (platform: string) => {
+    // 更新重试次数
+    setRetryCount(prev => ({
+      ...prev,
+      [platform]: (prev[platform] || 0) + 1
+    }));
+
+    if (platform === 'tmdb') {
+      setTmdbStatus('loading');
+      try {
+        const data = await fetchTMDBRating('movie', id!);
+        setTmdbRating(data);
+        setTmdbStatus('successful');
+      } catch (error) {
+        setTmdbStatus('error');
+      }
+    } else if (platform === 'trakt') {
+      setTraktStatus('loading');
+      try {
+        const data = await fetchTraktRating('movies', id!);
+        if (!data || !data.rating) {
+          setTraktStatus('no_rating');
+          setTraktRating(null);
+          return;
+        }
+        setTraktRating({
+          rating: Number(data.rating),
+          votes: Number(data.votes || data.votes),
+          distribution: {
+            '1': Number(data.distribution?.['1'] || 0),
+            '2': Number(data.distribution?.['2'] || 0),
+            '3': Number(data.distribution?.['3'] || 0),
+            '4': Number(data.distribution?.['4'] || 0),
+            '5': Number(data.distribution?.['5'] || 0),
+            '6': Number(data.distribution?.['6'] || 0),
+            '7': Number(data.distribution?.['7'] || 0),
+            '8': Number(data.distribution?.['8'] || 0),
+            '9': Number(data.distribution?.['9'] || 0),
+            '10': Number(data.distribution?.['10'] || 0)
+          }
+        });
+        setTraktStatus('successful');
+      } catch (error) {
+        setTraktStatus('error');
+      }
+    } else {
+      setPlatformStatuses(prev => ({
+        ...prev,
+        [platform]: { ...prev[platform], status: 'loading' }
+      }));
+      
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`/api/ratings/${platform}/movie/${id}`, {
+          ...(token && { headers: { 'Authorization': `Bearer ${token}` } })
+        });
+        if (!response.ok) throw new Error('获取评分失败');
+        const data = await response.json();
+        
+        // 根据后端返回的状态设置前端状态
+        const frontendStatus = data.status === 'Successful' ? 'successful' :  
+                              data.status === 'No Found' ? 'not_found' :
+                              data.status === 'No Rating' ? 'no_rating' :
+                              data.status === 'RateLimit' ? 'rate_limit' :
+                              data.status === 'Timeout' ? 'timeout' :
+                              data.status === 'Fail' ? 'fail' : 'error';
+         
+        setPlatformStatuses(prev => ({
+          ...prev,
+          [platform]: { status: frontendStatus, data }
+        }));
+      } catch (error) {
+        setPlatformStatuses(prev => ({
+          ...prev,
+          [platform]: { status: 'error', data: null }
+        }));
+      }
+    }
+  };
+
+  const handleExport = async () => {
+    if (!movie || isExporting) return;
+    
+    // 验证是否有有效的评分数据
+    const hasValidRatings = Object.values(allRatings).some(rating => 
+      rating && typeof rating === 'object' && Object.keys(rating).length > 0
+    );
+    
+    if (!hasValidRatings) {
+      console.error('没有有效的评分数据可供导出');
+      return;
+    }
+    
+    setIsExporting(true);
+    
+    try {
+      const element = document.getElementById('export-content');
+      if (!element) throw new Error('导出元素不存在');
+      
+      // 构建文件名：标题+年份
+      const fileName = `${movie.title} (${movie.year})`.replace(/[/\\?%*:|"<>]/g, '-');
+      await exportToPng(element, `${fileName}.png`);
+    } catch (error) {
+      console.error('导出失败:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  if (queryError) {
+    return (
+      <>
+        <NavBar />
+        <div className="min-h-screen flex items-center justify-center pt-16" style={{ background: 'transparent' }}>
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">Error</h2>
+            <p className="text-gray-600 dark:text-gray-400">{messages.errors.loadMovieFailed}</p>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
-      <div className="relative min-h-[45vh] sm:min-h-[60vh]">
-        {/* 背景图片 */}
-        <div 
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat blur-sm -mt-16"
-          style={{ 
-            backgroundImage: `url(${backdropUrl || movie.poster})`,
-          }}
-        >
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <NavBar />
+      <div className="min-h-screen pt-16 safe-area-bottom" style={{ background: 'transparent' }}>
+        <ThemeToggle />
+        <ScrollToTopButton />
+        {movie && (
+          <>
+            <FavoriteButton 
+              mediaId={id || ''}
+              mediaType="movie"
+              title={movie.title}
+              poster={movie.poster}
+              year={String(movie.year || '')}
+              overview={movie.overview}
+            />
+            <ExportButton onExport={handleExport} isExporting={isExporting} />
+          </>
+        )}
+
+        <div className="movie-content">
+          {isLoading || !movie ? (
+            // 骨架屏 - 立即显示页面结构
+            <>
+              {/* Hero 骨架屏 */}
+              <div className="relative min-h-[45vh] sm:min-h-[60vh] bg-gray-200 dark:bg-gray-800 animate-pulse">
+                <div className="container mx-auto px-4 py-4 sm:py-8 relative">
+                  <div className="flex flex-col sm:flex-row gap-4 sm:gap-8 items-start">
+                    <div className="w-32 sm:w-48 lg:w-64 mx-auto sm:mx-0 flex-shrink-0">
+                      <div className="w-full aspect-[2/3] bg-gray-300 dark:bg-gray-700 rounded-lg"></div>
+                    </div>
+                    <div className="flex-1 space-y-4">
+                      <div className="h-8 bg-gray-300 dark:bg-gray-700 rounded w-3/4"></div>
+                      <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-full"></div>
+                      <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-5/6"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* 元数据骨架屏 */}
+              <div className="container mx-auto px-4 py-4">
+                <div className="flex gap-4 animate-pulse">
+                  <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-24"></div>
+                  <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-24"></div>
+                  <div className="h-6 bg-gray-300 dark:bg-gray-700 rounded w-32"></div>
+                </div>
+              </div>
+              
+              {/* 评分区域骨架屏 */}
+              <div className="container mx-auto px-4 py-8">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-pulse">
+                  {[1, 2, 3, 4, 5, 6, 7].map(i => (
+                    <div key={i} className="bg-white dark:bg-gray-800 rounded-lg p-4 h-32"></div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            // 实际内容
+            <>
+              <MovieHero 
+                movie={{
+                  ...movie,
+                  runtime: movie.runtime || 0
+                } as MediaMovie}
+                backdropUrl={movie.backdrop}
+                ratingData={allRatings}
+              />
+              <MovieMetadata
+                runtime={movie.runtime}
+                releaseDate={movie.releaseDate}
+                genres={movie.genres}
+              />
+              
+              <RatingSection 
+                media={movie as MediaMovie}
+                ratingData={allRatings}
+                isLoading={false}
+                error={undefined}
+                tmdbStatus={tmdbStatus}
+                traktStatus={traktStatus}
+                backendPlatforms={backendPlatforms}
+                onRetry={handleRetry}
+              />
+
+              <Credits
+                cast={movie.credits.cast}
+                crew={movie.credits.crew}
+              />
+            </>
+          )}
         </div>
 
-        {/* 内容 */}
-        <div className="container mx-auto px-4 py-4 sm:py-8 relative">
-          <div className="flex flex-col sm:flex-row gap-4 sm:gap-8 items-start">
-            {/* 海报 */}
-            <div className="w-32 sm:w-48 lg:w-64 mx-auto sm:mx-0 flex-shrink-0 relative z-10">
-              <img
-                src={movie.poster}
-                alt={movie.title}
-                className="w-full rounded-lg shadow-xl border border-white/10"
+        <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
+          <div id="export-content" className="bg-white">
+            {movie && (
+              <ExportRatingCard 
+                media={{
+                  title: movie.title,
+                  year: movie.year.toString(),
+                  poster: posterBase64 || movie.poster
+                }}
+                ratingData={allRatings}
               />
-            </div>
-
-            {/* 信息 */}
-            <div className="flex-1 relative z-10 text-center sm:text-left">
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-2 drop-shadow-lg">
-                {movie.title} <span className="text-gray-200">({movie.year})</span>
-              </h1>
-
-              {/* 移动端概览预览 */}
-              <div className="sm:hidden">
-                <p className="text-sm text-gray-200 leading-relaxed line-clamp-3">
-                  {movie.overview}
-                </p>
-                <button
-                  onClick={() => setShowOverview(true)}
-                  className="mt-2 text-blue-400 flex items-center gap-1 mx-auto"
-                >
-                  查看更多 <ChevronDown className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* 桌面概览 */}
-              <p className="hidden sm:block text-base lg:text-lg text-gray-200 leading-relaxed">
-                {movie.overview}
-              </p>
-            </div>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* 概览模态框 */}
-      <OverviewModal
-        isOpen={showOverview}
-        onClose={() => setShowOverview(false)}
-        overview={movie.overview}
-        title={movie.title}
-      />
+        <Footer />
+        
+        {queryError && (
+          <ErrorMessage
+            status={formatQueryError(queryError).status}
+            errorDetail={formatQueryError(queryError).detail}
+            onRetry={() => {
+              const platformToRetry = backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown';
+              handleRetry(platformToRetry);
+            }}
+            retryCount={retryCount[backendPlatforms.find(p => p.status === 'error')?.platform || 'unknown'] || 0}
+          />
+        )}
+      </div>
     </>
   );
 }
