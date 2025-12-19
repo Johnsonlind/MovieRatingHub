@@ -482,7 +482,7 @@ export default function TVShowPage() {
     return (
       <>
         <NavBar />
-        <div className="min-h-screen flex items-center justify-center pt-16" style={{ background: 'transparent' }}>
+        <div className="min-h-screen flex items-center justify-center pt-16">
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">Error</h2>
             <p className="text-gray-600 dark:text-gray-400">{messages.errors.loadMovieFailed}</p>
@@ -495,7 +495,7 @@ export default function TVShowPage() {
   return (
     <>
       <NavBar />
-      <div className="min-h-screen pt-16 safe-area-bottom" style={{ background: 'transparent' }}>
+      <div className="min-h-screen pt-16 safe-area-bottom">
         <ThemeToggle />
         <ScrollToTopButton />
         {tvShow && (
