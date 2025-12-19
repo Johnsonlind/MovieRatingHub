@@ -76,9 +76,20 @@ html.lenis body {
 html {
   /* 确保 html 也支持安全区域 */
   height: -webkit-fill-available;
-  /* 移除 padding，让背景可以完全覆盖 */
+  /* 移除 padding 和 margin，让背景可以完全覆盖 */
   padding: 0;
   margin: 0;
+  /* 强制移除默认背景色 */
+  background-color: transparent !important;
+  /* 直接在 html 上设置背景，确保完全覆盖 */
+  background: var(--page-bg) !important;
+  background-attachment: fixed !important;
+  background-size: 100% 100% !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  /* 确保背景延伸到安全区域 */
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
 }
 
 html, body {
@@ -86,14 +97,20 @@ html, body {
   /* 确保可以滚动 */
   overflow-y: auto;
   overflow-x: hidden;
-  /* 移除 padding，背景由 body::before 处理 */
+  /* 移除 padding，背景由 html 处理 */
   padding: 0;
   margin: 0;
 }
 
 body {
-  /* 移除背景，由 body::before 处理 */
-  background: transparent;
+  /* 强制移除默认背景色 */
+  background-color: transparent !important;
+  /* 设置背景作为后备，确保完全覆盖 */
+  background: var(--page-bg) !important;
+  background-attachment: fixed !important;
+  background-size: 100% 100% !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
   color: var(--text-color);
   transition: color 0.3s ease;
   overflow-x: hidden; /* 防止水平溢出 */
@@ -103,6 +120,7 @@ body {
   position: relative;
   /* 移除 padding，由页面容器处理安全区域 */
   padding: 0;
+  margin: 0;
 }
 
 /* 为body添加渐变背景支持 - 完全覆盖整个视口包括安全区域 */
@@ -110,16 +128,17 @@ body::before {
   content: '';
   position: fixed;
   /* 确保背景完全覆盖，包括安全区域 */
-  top: calc(-1 * env(safe-area-inset-top));
-  left: calc(-1 * env(safe-area-inset-left));
-  right: calc(-1 * env(safe-area-inset-right));
-  bottom: calc(-1 * env(safe-area-inset-bottom));
-  width: calc(100% + env(safe-area-inset-left) + env(safe-area-inset-right));
-  height: calc(100% + env(safe-area-inset-top) + env(safe-area-inset-bottom));
-  background: var(--page-bg);
-  background-attachment: fixed;
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
+  top: calc(-1 * env(safe-area-inset-top, 0px));
+  left: calc(-1 * env(safe-area-inset-left, 0px));
+  right: calc(-1 * env(safe-area-inset-right, 0px));
+  bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
+  width: calc(100vw + env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px));
+  height: calc(100vh + env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px));
+  background: var(--page-bg) !important;
+  background-attachment: fixed !important;
+  background-size: 100% 100% !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
   z-index: -1;
   pointer-events: none;
 }
