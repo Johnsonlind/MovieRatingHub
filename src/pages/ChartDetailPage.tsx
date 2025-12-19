@@ -95,7 +95,7 @@ export default function ChartDetailPage() {
         <NavBar />
           <ThemeToggle />
           <ScrollToTopButton />
-        <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4 flex items-center justify-center">
+        <div className="min-h-screen pt-16 p-4 flex items-center justify-center safe-area-bottom" style={{ background: 'transparent' }}>
             <div className="text-gray-600 dark:text-gray-400">加载中...</div>
         </div>
       </>
@@ -108,7 +108,7 @@ export default function ChartDetailPage() {
         <NavBar />
         <ThemeToggle />
         <ScrollToTopButton />
-        <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4">
+        <div className="min-h-screen pt-16 p-4 safe-area-bottom" style={{ background: 'transparent' }}>
           <div className="flex flex-col items-center justify-center py-12">
             <div className="text-gray-600 dark:text-gray-400 mb-4">
               加载失败，请稍后重试
@@ -140,7 +140,7 @@ export default function ChartDetailPage() {
       <NavBar />
       <ThemeToggle />
       <ScrollToTopButton />
-      <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4">
+      <div className="min-h-screen pt-16 p-4 safe-area-bottom" style={{ background: 'transparent' }}>
         <div ref={contentRef} className="gentle-scroll">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* 返回按钮和标题 */}
