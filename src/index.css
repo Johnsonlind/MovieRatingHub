@@ -346,6 +346,29 @@ body::before {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+/* 确保点击时边框保持可见 */
+.glass-card:active,
+.glass-card:focus-within,
+.glass-card:focus {
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: 
+    0 4px 20px 0 var(--glass-shadow),
+    0 1px 4px 0 rgba(0, 0, 0, 0.03),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+:root[data-theme='dark'] .glass-card:active,
+:root[data-theme='dark'] .glass-card:focus-within,
+:root[data-theme='dark'] .glass-card:focus {
+  border: 1px solid var(--glass-border) !important;
+  box-shadow: 
+    0 4px 20px 0 var(--glass-shadow),
+    0 1px 4px 0 rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.02) !important;
+}
+
 /* 导出卡片专用玻璃拟态样式 */
 .export-glass-container {
   background: var(--page-bg);
