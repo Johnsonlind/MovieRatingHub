@@ -277,18 +277,6 @@ body::before {
   overflow: hidden;
 }
 
-/* 确保边框在所有状态下都可见 */
-.glass-card,
-.glass-card:active,
-.glass-card:focus,
-.glass-card:focus-within,
-.glass-card:hover {
-  border-top: 1px solid var(--glass-border) !important;
-  border-left: 1px solid var(--glass-border) !important;
-  border-right: 1px solid var(--glass-border) !important;
-  border-bottom: 1px solid var(--glass-border) !important;
-}
-
 /* 添加精致磨砂纹理效果 */
 .glass-card::before {
   content: '';
@@ -342,7 +330,7 @@ body::before {
     0 12px 32px 0 var(--glass-shadow),
     0 2px 8px 0 rgba(0, 0, 0, 0.05),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.6),
-    inset 0 -1px 0 0 rgba(255, 255, 255, 0.12) !important;
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.12);
   transform: translateY(-3px);
   border-color: rgba(255, 255, 255, 0.8);
 }
@@ -354,31 +342,8 @@ body::before {
     0 12px 32px 0 var(--glass-shadow),
     0 2px 8px 0 rgba(0, 0, 0, 0.25),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.12),
-    inset 0 -1px 0 0 rgba(255, 255, 255, 0.03) !important;
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.2);
-}
-
-/* 确保点击时边框和上边框内阴影保持可见 */
-.glass-card:active,
-.glass-card:focus-within,
-.glass-card:focus {
-  box-shadow: 
-    0 4px 20px 0 var(--glass-shadow),
-    0 1px 4px 0 rgba(0, 0, 0, 0.03),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.4),
-    inset 0 -1px 0 0 rgba(255, 255, 255, 0.08) !important;
-  transform: none !important;
-}
-
-:root[data-theme='dark'] .glass-card:active,
-:root[data-theme='dark'] .glass-card:focus-within,
-:root[data-theme='dark'] .glass-card:focus {
-  box-shadow: 
-    0 4px 20px 0 var(--glass-shadow),
-    0 1px 4px 0 rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
-    inset 0 -1px 0 0 rgba(255, 255, 255, 0.02) !important;
-  transform: none !important;
 }
 
 /* 导出卡片专用玻璃拟态样式 */
