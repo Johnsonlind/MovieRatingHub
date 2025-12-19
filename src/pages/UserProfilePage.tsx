@@ -455,7 +455,7 @@ export default function UserProfilePage() {
     return (
       <>
         <NavBar />
-        <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4">
+        <div className="min-h-screen pt-16 p-4 safe-area-bottom" style={{ background: 'transparent' }}>
           <ThemeToggle />
           <ScrollToTopButton />
           
@@ -493,7 +493,7 @@ export default function UserProfilePage() {
   return (
     <>
       <NavBar />
-      <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 pt-16 p-4">
+      <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 pt-16 p-4 safe-area-bottom">
         <ThemeToggle />
         <ScrollToTopButton />
 
