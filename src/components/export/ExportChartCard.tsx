@@ -95,10 +95,10 @@ export function ExportChartCard({
   // 榜单内容容器样式 - 参考posterGlassStyle
   const chartContentContainerStyle = {
     width: '100%',
-    backgroundColor: isDark ? '#0a0e1a' : '#f0f9ff',
+    backgroundColor: isDark ? '#222B35' : '#c8e7f8',
     background: isDark 
-      ? `linear-gradient(135deg, #0a0e1a 0%, #0f172a 50%, #1e293b 100%)`
-      : `linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #bae6fd 100%)`,
+      ? `linear-gradient(135deg, #222B35 0%, #1C232B 50%, #161B22 100%)`
+      : `linear-gradient(180deg, #c2e9fb 0%, #b4d9fd 50%, #a1c4fd 100%)`,
     backdropFilter: 'blur(50px) saturate(200%)',
     WebkitBackdropFilter: 'blur(50px) saturate(200%)',
     border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(255, 255, 255, 0.6)',
