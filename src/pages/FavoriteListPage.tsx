@@ -587,7 +587,7 @@ export default function FavoriteListPage() {
         <ThemeToggle />
         <ScrollToTopButton />
 
-        <div className="max-w-5xl mx-auto space-y-6">
+        <div className="max-w-5xl mx-auto space-y-6 pt-3">
           {/* 列表标题和控制栏 */}
           {isLoading ? (
             // 显示骨架屏而不是简单的加载文本
