@@ -159,7 +159,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen safe-area-bottom" style={{ background: 'transparent' }}>
+    <div className="min-h-screen safe-area-bottom">
       <ThemeToggle />
       <div className="absolute top-2 sm:top-3 right-2 sm:right-2 z-30 flex items-center gap-2">
         <ChartsButton />
