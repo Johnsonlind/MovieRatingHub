@@ -583,7 +583,7 @@ export default function FavoriteListPage() {
   return (
     <>
       <NavBar />
-      <div ref={contentRef} className="min-h-screen pt-16 p-4 gentle-scroll safe-area-bottom" style={{ background: 'transparent' }}>
+      <div ref={contentRef} className="min-h-screen pt-16 p-4 gentle-scroll safe-area-bottom">
         <ThemeToggle />
         <ScrollToTopButton />
 
