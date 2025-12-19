@@ -63,93 +63,122 @@ export function ExportChartCard({
     rows.push(processedEntries.slice(i, i + 5));
   }
 
-  // 固定尺寸和样式 - 参考图1的布局
-  const containerStyle = {
+  // 检测主题
+  const isDark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark';
+  
+  // 卡片样式 - 包含原containerStyle的尺寸和padding
+  const cardStyle = {
     width: '1200px',
     minHeight: '902px',
-    backgroundColor: '#e0f2fe',
-    background: `
-      linear-gradient(135deg, #e0f2fe 0%, #bae6fd 50%, #7dd3fc 100%)
-    `,
-    position: 'relative' as const,
-    padding: '50px',
-    boxSizing: 'border-box' as const
-  };
-
-  const cardStyle = {
-    width: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: isDark ? '#0a0e1a' : '#e0f2fe',
+    background: isDark 
+      ? `linear-gradient(135deg, #0a0e1a 0%, #0f172a 50%, #1e293b 100%)`
+      : `linear-gradient(135deg, #e0f2fe 0%, #bae6fd 50%, #7dd3fc 100%)`,
     backdropFilter: 'blur(50px) saturate(200%)',
     WebkitBackdropFilter: 'blur(50px) saturate(200%)',
-    border: '1px solid rgba(255, 255, 255, 0.6)',
+    border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(255, 255, 255, 0.6)',
     borderRadius: '20px',
-    padding: '40px',
-    boxShadow: `
-      0 8px 32px rgba(0, 0, 0, 0.12),
-      0 2px 8px rgba(0, 0, 0, 0.06),
-      inset 0 1px 0 rgba(255, 255, 255, 0.6),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.15)
-    `,
+    padding: '50px',
+    boxShadow: isDark
+      ? `0 16px 48px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3),
+         inset 0 1px 0 rgba(255, 255, 255, 0.1),
+         inset 0 -1px 0 rgba(255, 255, 255, 0.05)`
+      : `0 16px 48px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1),
+         inset 0 1px 0 rgba(255, 255, 255, 0.6),
+         inset 0 -1px 0 rgba(255, 255, 255, 0.15)`,
     position: 'relative' as const,
     boxSizing: 'border-box' as const,
-    overflow: 'hidden' as const
+    overflow: 'hidden' as const,
+    fontFamily: "'ShangGuDengKuan', 'Onest', system-ui, -apple-system, sans-serif" as const
+  };
+
+  // 榜单内容容器样式 - 参考posterGlassStyle
+  const chartContentContainerStyle = {
+    width: '100%',
+    backgroundColor: isDark ? '#0a0e1a' : '#f0f9ff',
+    background: isDark 
+      ? `linear-gradient(135deg, #0a0e1a 0%, #0f172a 50%, #1e293b 100%)`
+      : `linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #bae6fd 100%)`,
+    backdropFilter: 'blur(50px) saturate(200%)',
+    WebkitBackdropFilter: 'blur(50px) saturate(200%)',
+    border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(255, 255, 255, 0.6)',
+    borderRadius: '16px',
+    padding: '24px',
+    boxShadow: isDark
+      ? `0 12px 40px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.2)`
+      : `0 12px 40px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.06)`,
+    position: 'relative' as const,
+    zIndex: 1
   };
 
   return (
-    <div style={containerStyle}>
-      <div style={cardStyle}>
-        {/* 毛玻璃磨砂纹理效果 */}
-        <div style={{
+    <div style={cardStyle}>
+      {/* 毛玻璃磨砂纹理效果 - 根据主题调整 */}
+      <div style={{
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
           bottom: 0,
-          background: `
-            radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.2) 0%, transparent 45%),
-            radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.15) 0%, transparent 45%),
-            radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
-            linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, transparent 50%),
-            repeating-linear-gradient(
-              0deg,
-              transparent,
-              transparent 2px,
-              rgba(255, 255, 255, 0.03) 2px,
-              rgba(255, 255, 255, 0.03) 4px
-            ),
-            repeating-linear-gradient(
-              90deg,
-              transparent,
-              transparent 2px,
-              rgba(255, 255, 255, 0.03) 2px,
-              rgba(255, 255, 255, 0.03) 4px
-            )
-          `,
+          background: isDark
+            ? `
+              radial-gradient(circle at 20% 30%, rgba(59, 130, 246, 0.1) 0%, transparent 45%),
+              radial-gradient(circle at 80% 70%, rgba(30, 58, 138, 0.08) 0%, transparent 45%),
+              radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 50%),
+              linear-gradient(135deg, rgba(59, 130, 246, 0.04) 0%, transparent 50%)
+            `
+            : `
+              radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.2) 0%, transparent 45%),
+              radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.15) 0%, transparent 45%),
+              radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+              linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, transparent 50%),
+              repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(255, 255, 255, 0.02) 2px,
+                rgba(255, 255, 255, 0.02) 4px
+              ),
+              repeating-linear-gradient(
+                90deg,
+                transparent,
+                transparent 2px,
+                rgba(255, 255, 255, 0.02) 2px,
+                rgba(255, 255, 255, 0.02) 4px
+              )
+            `,
           pointerEvents: 'none',
           zIndex: 0,
-          opacity: 0.9
+          opacity: isDark ? 0.6 : 0.9
         }} />
-        {/* 标题区域 */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '40px', position: 'relative', zIndex: 1 }}>
+      {/* 标题区域 */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '40px', position: 'relative', zIndex: 1 }}>
           {platformLogo && (
             <img 
               src={platformLogo} 
               alt={platform}
-              style={{ width: '40px', height: '40px', objectFit: 'contain', display: 'block', flexShrink: 0 }}
+              style={{ 
+                width: '40px', 
+                height: '40px', 
+                objectFit: 'contain', 
+                display: 'block',
+                imageRendering: 'auto'
+              }}
               crossOrigin="anonymous"
             />
           )}
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: '#111827', margin: 0, lineHeight: '1.3', marginBottom: '4px' }}>
+            <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: isDark ? '#e5e7eb' : '#111827', margin: 0, lineHeight: '1.3', marginBottom: '4px' }}>
               {platform}
             </h1>
-            <h2 style={{ fontSize: '18px', fontWeight: '500', color: '#374151', margin: 0, lineHeight: '1.4' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '500', color: isDark ? '#9ca3af' : '#374151', margin: 0, lineHeight: '1.4' }}>
               {chartName}
             </h2>
           </div>
-        </div>
+      </div>
 
-        {/* 榜单内容 - 网格布局 */}
+      {/* 榜单内容 - 网格布局 */}
+      <div style={chartContentContainerStyle}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative', zIndex: 1 }}>
           {rows.map((row, rowIdx) => (
             <div key={rowIdx} style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px' }}>
@@ -238,7 +267,7 @@ export function ExportChartCard({
                         marginTop: '8px', 
                         fontSize: '16px', 
                         textAlign: 'center', 
-                        color: '#111827', 
+                        color: isDark ? '#e5e7eb' : '#111827', 
                         fontWeight: '500',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -265,15 +294,26 @@ export function ExportChartCard({
       </div>
 
       {/* 首页Logo - 右下角 */}
-      <div style={{ position: 'absolute', bottom: '24px', right: '10px', zIndex: 100 }}>
-        <img
-          src="/logos/home.png"
-          alt="Home"
-          crossOrigin="anonymous"
-          style={{ display: 'block', width: '32px', height: '32px', objectFit: 'contain' }}
-        />
+      <div style={{ 
+          position: 'absolute', 
+          bottom: '24px', 
+          right: '10px', 
+          zIndex: 100
+        }}>
+          <img
+            src="/logos/home.png"
+            alt="Home"
+            crossOrigin="anonymous"
+            style={{ 
+              display: 'block', 
+              width: '32px', 
+              height: '32px', 
+              objectFit: 'contain',
+              imageRendering: 'auto'
+            }}
+          />
+        </div>
       </div>
-    </div>
   );
 }
 
