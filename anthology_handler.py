@@ -1,6 +1,5 @@
 # ==========================================
-# 选集剧处理模块 - 处理选集剧的特殊搜索和匹配逻辑
-# 功能: 识别选集剧、生成搜索变体、处理Trakt评分、IMDB ID获取
+# 选集剧处理模块
 # ==========================================
 import re
 import aiohttp
@@ -10,16 +9,16 @@ from fuzzywuzzy import fuzz
 
 logger = logging.getLogger(__name__)
 
-# 选集剧识别的标题模式（正则表达式）
+# 用于识别选集剧的标题模式
 ANTHOLOGY_TITLE_PATTERNS = [
     r'^(.+?):\s*(?:The\s+)?(.+?)\s+Story',  # "Monster: The Jeffrey Dahmer Story"
     r'^(.+?):\s*Season\s+\d+',               # "American Horror Story: Season 1"
     r'^(.+?)\s*[-–]\s*(.+?)$',               # "Dahmer - Monster: ..."
-    r'^(.+?):\s*(.+?)$',                     # 通用冒号分隔模式
+    r'^(.+?):\s*(.+?)$',                     # 通用冒号分隔
 ]
 
 class AnthologyHandler:
-    """选集剧处理器"""
+    """选集剧处理器 - 处理跨平台搜索和评分获取"""
     
     def __init__(self):
         self.tmdb_api_key = "4f681fa7b5ab7346a4e184bbf2d41715"
@@ -27,9 +26,8 @@ class AnthologyHandler:
     
     def is_anthology_series(self, tmdb_info: Dict[str, Any]) -> bool:
         """
-        判断是否可能为选集剧
-        注意：这是一个启发式判断，不一定100%准确
-        主要用于决定是否需要使用多策略搜索
+        启发式判断是否为选集剧
+        用于决定是否需要多策略搜索，不保证100%准确
         """
         if tmdb_info.get("type") != "tv":
             return False
@@ -37,7 +35,6 @@ class AnthologyHandler:
         title = tmdb_info.get("title", "")
         original_title = tmdb_info.get("original_title", "")
         
-        # 1. 检查标题模式
         for pattern in ANTHOLOGY_TITLE_PATTERNS:
             if re.search(pattern, title, re.IGNORECASE):
                 logger.info(f"通过标题模式识别为可能的选集剧: {title}")
@@ -46,10 +43,9 @@ class AnthologyHandler:
                 logger.info(f"通过原标题模式识别为可能的选集剧: {original_title}")
                 return True
         
-        # 2. 检查是否为单季剧集（可能是选集剧的一部分）
+        # 单季剧集含特定关键词时可能是选集剧的一部分
         number_of_seasons = tmdb_info.get("number_of_seasons", 0)
         if number_of_seasons == 1:
-            # 单季剧集中包含特定关键词，可能是选集剧
             keywords = ["story", "tale", "chapter", "anthology"]
             title_lower = title.lower()
             if any(keyword in title_lower for keyword in keywords):
@@ -59,15 +55,11 @@ class AnthologyHandler:
         return False
     
     def extract_main_series_info(self, tmdb_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """
-        动态提取选集剧的主系列信息
-        通过分析标题模式来提取，不依赖硬编码列表
-        """
+        """从标题动态提取主系列信息，避免硬编码维护成本"""
         title = tmdb_info.get("title", "")
         original_title = tmdb_info.get("original_title", "")
         year = tmdb_info.get("year", "")
         
-        # 尝试各种模式提取主系列标题
         for pattern in ANTHOLOGY_TITLE_PATTERNS:
             match = re.match(pattern, title, re.IGNORECASE)
             if match:
@@ -80,7 +72,6 @@ class AnthologyHandler:
                     "source": "title_pattern"
                 }
             
-            # 也尝试原标题
             if original_title:
                 match = re.match(pattern, original_title, re.IGNORECASE)
                 if match:
@@ -93,27 +84,20 @@ class AnthologyHandler:
                         "source": "original_title_pattern"
                     }
         
-        # 如果无法提取，返回None（将使用原标题搜索）
         return None
     
     def extract_subtitle_from_title(self, title: str) -> Optional[str]:
         """
-        从标题中提取完整的副标题部分
-        例如: "Monster: The Ed Gein Story" -> "The Ed Gein Story"
-        
-        特别注意：
-        - 要提取完整的副标题，不是部分词语
-        - "Monster: The Ed Gein Story" -> "The Ed Gein Story" (不是"Ed Gein")
+        提取完整副标题用于精确匹配
+        例: "Monster: The Ed Gein Story" -> "The Ed Gein Story"
         """
-        # 最简单可靠的方法：按冒号分割
         if ': ' in title:
-            parts = title.split(': ', 1)  # 只分割第一个冒号
+            parts = title.split(': ', 1)
             if len(parts) == 2:
                 subtitle = parts[1].strip()
                 logger.info(f"提取副标题: '{title}' -> '{subtitle}'")
                 return subtitle
         
-        # 回退：使用正则模式
         for pattern in ANTHOLOGY_TITLE_PATTERNS:
             match = re.match(pattern, title, re.IGNORECASE)
             if match and len(match.groups()) >= 2:
@@ -129,16 +113,13 @@ class AnthologyHandler:
         series_info: Optional[Dict[str, Any]] = None
     ) -> Optional[str]:
         """
-        从多个来源获取IMDB ID
-        尝试顺序：TMDB -> TMDB外部ID API -> 缓存 -> 搜索
+        多来源获取IMDB ID
+        优先使用TMDB外部ID API（最可靠），搜索作为兜底
         """
-        
-        # 1. 首先检查TMDB返回的IMDB ID
         if tmdb_info.get("imdb_id"):
             logger.info(f"✓ 从TMDB获取到IMDB ID: {tmdb_info['imdb_id']}")
             return tmdb_info["imdb_id"]
         
-        # 2. 尝试通过TMDB外部ID API获取（这是最可靠的方法）
         try:
             tmdb_id = tmdb_info.get("tmdb_id")
             media_type = tmdb_info.get("type", "tv")
@@ -151,18 +132,7 @@ class AnthologyHandler:
         except Exception as e:
             logger.error(f"✗ 从TMDB外部ID API获取IMDB ID失败: {e}")
         
-        # 3. 检查缓存/已知选集剧列表
-        # 注意：对于选集剧，这里的IMDB ID是整个系列的，不是单季的
-        # 我们不应该直接返回系列ID，而是让搜索流程来找到正确的条目
-        # 跳过这一步，继续搜索
-        # if series_info:
-        #     main_title = series_info.get("main_title")
-        #     if main_title and main_title in ANTHOLOGY_SERIES_CACHE:
-        #         cached_imdb = ANTHOLOGY_SERIES_CACHE[main_title].get("imdb_id")
-        #         # 这是系列ID，不返回，让搜索来处理
-        
-        # 4. 尝试通过标题搜索（兜底方案，不一定准确）
-        # 注意：这个方法可能返回不准确的结果，仅作为最后手段
+        # 搜索作为最后手段，结果可能不准确
         try:
             title = tmdb_info.get("title") or tmdb_info.get("original_title")
             year = tmdb_info.get("year")
@@ -197,16 +167,127 @@ class AnthologyHandler:
         
         return None
     
-    async def _search_imdb_id(self, title: str, year: Optional[str], media_type: str) -> Optional[str]:
+    async def get_main_series_info_from_first_episode(
+        self, 
+        tmdb_id: int, 
+        season_number: int = 1, 
+        episode_number: int = 1
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            episode_imdb_id = await self._get_episode_imdb_id(tmdb_id, season_number, episode_number)
+            if not episode_imdb_id:
+                logger.warning(f"无法获取第一集(Season {season_number}, Episode {episode_number})的IMDB ID")
+                return None
+            
+            logger.info(f"获取到第一集的IMDB ID: {episode_imdb_id}")
+            
+            main_series_info = await self._get_main_series_from_episode_imdb(episode_imdb_id)
+            if main_series_info:
+                logger.info(f"成功获取主系列信息: {main_series_info.get('title')} ({main_series_info.get('year')})")
+                return main_series_info
+            else:
+                logger.warning(f"无法通过第一集IMDB ID {episode_imdb_id} 获取主系列信息")
+                return None
+                
+        except Exception as e:
+            logger.error(f"获取主系列信息失败: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return None
+    
+    async def _get_episode_imdb_id(self, tmdb_id: int, season_number: int, episode_number: int) -> Optional[str]:
+        """从TMDB API获取指定集的IMDB ID"""
+        try:
+            url = f"https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}/episode/{episode_number}/external_ids"
+            params = {"api_key": self.tmdb_api_key}
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        imdb_id = data.get("imdb_id")
+                        if imdb_id:
+                            logger.info(f"从TMDB获取到第{season_number}季第{episode_number}集的IMDB ID: {imdb_id}")
+                            return imdb_id
+                    else:
+                        logger.warning(f"TMDB API返回状态码: {response.status}")
+        except Exception as e:
+            logger.error(f"从TMDB获取集IMDB ID失败: {e}")
+        
+        return None
+    
+    async def _get_main_series_from_episode_imdb(self, episode_imdb_id: str) -> Optional[Dict[str, Any]]:
         """
-        通过标题和年份搜索IMDB ID
-        使用IMDB的非官方API
+        通过第一集的IMDB ID获取主系列信息
+        从IMDB网页的__NEXT_DATA__中提取
+        """
+        return await self._get_main_series_from_episode_web(episode_imdb_id)
+    
+    async def _get_main_series_from_episode_web(self, episode_imdb_id: str) -> Optional[Dict[str, Any]]:
+        """
+        通过网页抓取方式从第一集的IMDB ID获取主系列信息
+        从IMDB网页的__NEXT_DATA__中提取aboveTheFoldData.series.series
         """
         try:
-            from urllib.parse import quote
+            import re
             import json
+            episode_url = f"https://www.imdb.com/title/{episode_imdb_id}/"
             
-            # 使用IMDB的搜索API
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                }
+                
+                async with session.get(episode_url, headers=headers, timeout=10) as response:
+                    if response.status == 200:
+                        html = await response.text()
+                        
+                        next_data_pattern = r'<script[^>]*id="__NEXT_DATA__"[^>]*>({.+?})</script>'
+                        next_data_match = re.search(next_data_pattern, html, re.DOTALL)
+                        if next_data_match:
+                            try:
+                                next_data = json.loads(next_data_match.group(1))
+                                props = next_data.get("props", {})
+                                page_props = props.get("pageProps", {})
+                                above_fold = page_props.get("aboveTheFoldData", {})
+                                
+                                series_obj = above_fold.get("series", {})
+                                if series_obj:
+                                    series_info = series_obj.get("series")
+                                    if series_info:
+                                        series_id = series_info.get("id")
+                                        series_title_obj = series_info.get("titleText", {})
+                                        series_title = series_title_obj.get("text") if series_title_obj else None
+                                        release_year_obj = series_info.get("releaseYear", {})
+                                        series_year = str(release_year_obj.get("year")) if release_year_obj and release_year_obj.get("year") else None
+                                        
+                                        if series_id and series_title:
+                                            logger.info(f"从IMDB获取到主系列: {series_title} ({series_year}) [ID: {series_id}]")
+                                            return {
+                                                "main_series_imdb_id": series_id,
+                                                "main_series_title": series_title,
+                                                "main_series_year": series_year
+                                            }
+                                
+                            except (json.JSONDecodeError, KeyError) as e:
+                                logger.debug(f"解析__NEXT_DATA__失败: {e}")
+            
+            logger.warning(f"无法从IMDB网页获取主系列信息")
+            return None
+                    
+        except Exception as e:
+            logger.error(f"通过网页抓取获取主系列信息失败: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return None
+    
+    async def _search_imdb_id(self, title: str, year: Optional[str], media_type: str) -> Optional[str]:
+        """通过IMDB非官方搜索API查找IMDB ID"""
+        try:
+            from urllib.parse import quote
+            
             search_url = f"https://v3.sg.media-imdb.com/suggestion/x/{quote(title)}.json"
             
             async with aiohttp.ClientSession() as session:
@@ -219,22 +300,18 @@ class AnthologyHandler:
                         data = await response.json()
                         suggestions = data.get("d", [])
                         
-                        # 查找最佳匹配
                         for item in suggestions:
                             item_title = item.get("l", "")
                             item_year = item.get("y")
                             item_id = item.get("id", "")
                             item_type = item.get("q", "")
                             
-                            # 确保是正确的媒体类型
                             if media_type == "tv" and item_type not in ["TV series", "TV mini-series"]:
                                 continue
                             elif media_type == "movie" and item_type != "feature":
                                 continue
                             
-                            # 标题匹配
                             if fuzz.ratio(title.lower(), item_title.lower()) > 80:
-                                # 年份匹配（如果提供）
                                 if year:
                                     if str(item_year) == str(year):
                                         return item_id
@@ -252,18 +329,15 @@ class AnthologyHandler:
         series_info: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        在Trakt中搜索并获取评分
-        不依赖IMDB ID，使用标题搜索
+        Trakt搜索入口
+        按准确度依次尝试: TMDB ID -> 主系列标题 -> 原始标题
         """
         try:
             title = tmdb_info.get("title") or tmdb_info.get("original_title")
             year = tmdb_info.get("year")
             media_type = tmdb_info.get("type", "tv")
-            
-            # 构建搜索参数
             search_type = "show" if media_type == "tv" else "movie"
             
-            # 1. 首先尝试使用TMDB ID搜索（最准确）
             tmdb_id = tmdb_info.get("tmdb_id")
             if tmdb_id:
                 trakt_data = await self._search_trakt_by_tmdb_id(tmdb_id, search_type, tmdb_info, series_info)
@@ -271,7 +345,6 @@ class AnthologyHandler:
                     logger.info(f"通过TMDB ID在Trakt找到匹配: {trakt_data.get('title')}")
                     return trakt_data
             
-            # 2. 如果是选集剧，尝试使用主系列标题搜索
             if series_info:
                 main_title = series_info.get("main_title")
                 if main_title:
@@ -280,7 +353,6 @@ class AnthologyHandler:
                         logger.info(f"通过主系列标题在Trakt找到匹配: {trakt_data.get('title')}")
                         return trakt_data
             
-            # 3. 使用原始标题搜索
             trakt_data = await self._search_trakt_by_title(title, year, search_type, tmdb_info, series_info)
             if trakt_data:
                 logger.info(f"通过标题在Trakt找到匹配: {trakt_data.get('title')}")
@@ -309,7 +381,6 @@ class AnthologyHandler:
                     if response.status == 200:
                         results = await response.json()
                         if results:
-                            # 获取第一个结果
                             item = results[0]
                             if media_type == "show":
                                 show_data = item.get("show", {})
@@ -323,7 +394,7 @@ class AnthologyHandler:
         return None
     
     async def _search_trakt_by_title(self, title: str, year: Optional[str], media_type: str, tmdb_info: Dict[str, Any] = None, series_info: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-        """通过标题在Trakt搜索"""
+        """通过标题在Trakt搜索，使用模糊匹配找最佳结果"""
         try:
             from urllib.parse import quote
             
@@ -343,11 +414,10 @@ class AnthologyHandler:
                     if response.status == 200:
                         results = await response.json()
                         if results:
-                            # 找到最佳匹配
                             best_match = None
                             best_score = 0
                             
-                            for item in results[:5]:  # 只检查前5个结果
+                            for item in results[:5]:
                                 if media_type == "show":
                                     data = item.get("show", {})
                                 else:
@@ -356,10 +426,8 @@ class AnthologyHandler:
                                 result_title = data.get("title", "")
                                 result_year = data.get("year")
                                 
-                                # 计算匹配度
                                 title_score = fuzz.ratio(title.lower(), result_title.lower())
                                 
-                                # 年份匹配加分
                                 if year and str(year) == str(result_year):
                                     title_score += 20
                                 
@@ -368,7 +436,6 @@ class AnthologyHandler:
                                     best_match = data
                             
                             if best_match and best_score >= 60:
-                                # 获取详细评分信息
                                 slug = best_match.get("ids", {}).get("slug")
                                 return await self._get_trakt_rating(slug, media_type, tmdb_info, series_info)
         except Exception as e:
@@ -378,22 +445,11 @@ class AnthologyHandler:
     
     async def _get_trakt_rating(self, slug: str, media_type: str, tmdb_info: Dict[str, Any] = None, series_info: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
-        获取Trakt的详细评分信息
+        获取Trakt评分
         
-        API调用：
-        1. 整体评分：https://api.trakt.tv/{media_type}s/{slug}/ratings
-        2. 分季评分：https://api.trakt.tv/shows/{slug}/seasons/{season_number}/ratings
-        
-        返回数据结构：
-        - rating: 整体评分（所有类型都返回）
-        - votes: 整体投票数
-        - distribution: 整体评分分布
-        - seasons: 分季评分数组
-        
-        分季评分获取逻辑：
-        - 选集剧：整体评分 + 第1季评分
-        - 单季剧：整体评分 + 第1季评分
-        - 多季剧：整体评分 + 所有季的评分
+        分季评分策略:
+        - 选集剧/单季剧: 整体评分 + 第1季（因为整体评分可能是混合多季的）
+        - 多季剧: 整体评分 + 所有季
         """
         try:
             headers = {
@@ -403,7 +459,6 @@ class AnthologyHandler:
             }
             
             async with aiohttp.ClientSession() as session:
-                # 1. 获取整体评分
                 url = f"https://api.trakt.tv/{media_type}s/{slug}/ratings"
                 async with session.get(url, headers=headers) as response:
                     if response.status != 200:
@@ -419,13 +474,11 @@ class AnthologyHandler:
                         "url": f"https://trakt.tv/{media_type}s/{slug}"
                     }
                     
-                    # 2. 如果是剧集，获取分季评分
                     if media_type == "show":
                         is_anthology = series_info is not None
                         tmdb_seasons = tmdb_info.get("number_of_seasons", 0) if tmdb_info else 0
                         
                         if is_anthology or tmdb_seasons == 1:
-                            # 选集剧 或 单季剧：只获取第1季评分
                             show_type = "选集剧" if is_anthology else "单季剧"
                             logger.info(f"[{show_type}] 获取整体评分 + 第1季评分")
                             season_rating = await self._get_single_season_rating(slug, 1, session, headers)
@@ -433,7 +486,7 @@ class AnthologyHandler:
                                 result["seasons"] = [season_rating]
                                 logger.info(f"[{show_type}] 成功获取第1季评分: {season_rating['rating']}/10")
                             else:
-                                # 兜底：获取失败时，将整体评分作为第1季
+                                # 兜底：用整体评分代替
                                 logger.warning(f"[{show_type}] 未能获取第1季评分，使用整体评分作为兜底")
                                 result["seasons"] = [{
                                     "season_number": 1,
@@ -443,7 +496,6 @@ class AnthologyHandler:
                                 }]
                         
                         else:
-                            # 多季剧：获取所有季的评分
                             logger.info(f"[多季剧] 获取整体评分 + 所有季评分")
                             seasons_ratings = await self._get_trakt_seasons_ratings(slug, session, headers)
                             if seasons_ratings:
@@ -451,7 +503,6 @@ class AnthologyHandler:
                                 logger.info(f"[多季剧] 成功获取 {len(seasons_ratings)} 季的评分")
                             else:
                                 logger.warning(f"[多季剧] 未能获取分季评分，尝试只获取第1季")
-                                # 兜底：尝试至少获取第1季
                                 season_rating = await self._get_single_season_rating(slug, 1, session, headers)
                                 if season_rating:
                                     result["seasons"] = [season_rating]
@@ -503,9 +554,8 @@ class AnthologyHandler:
         return None
     
     async def _get_trakt_seasons_ratings(self, slug: str, session: aiohttp.ClientSession, headers: Dict[str, str]) -> Optional[List[Dict[str, Any]]]:
-        """获取剧集每一季的评分"""
+        """获取剧集所有季的评分"""
         try:
-            # 首先获取剧集的所有季信息
             seasons_url = f"https://api.trakt.tv/shows/{slug}/seasons?extended=episodes"
             async with session.get(seasons_url, headers=headers) as response:
                 if response.status != 200:
@@ -514,7 +564,6 @@ class AnthologyHandler:
                 
                 seasons_info = await response.json()
                 
-                # 过滤掉特别篇（season 0）
                 regular_seasons = [s for s in seasons_info if s.get("number", 0) > 0]
                 
                 if not regular_seasons:
@@ -523,14 +572,12 @@ class AnthologyHandler:
                 
                 logger.info(f"找到 {len(regular_seasons)} 个常规季")
                 
-                # 为每一季获取评分
                 seasons_ratings = []
                 for season in regular_seasons:
                     season_number = season.get("number")
                     if season_number is None or season_number == 0:
                         continue
                     
-                    # 获取该季的评分
                     season_rating_url = f"https://api.trakt.tv/shows/{slug}/seasons/{season_number}/ratings"
                     try:
                         async with session.get(season_rating_url, headers=headers) as rating_response:
@@ -557,24 +604,19 @@ class AnthologyHandler:
     
     def generate_search_variants(self, tmdb_info: Dict[str, Any], series_info: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
         """
-        生成用于搜索的标题变体 - 多策略方案
+        生成多策略搜索变体
         
-        对于每个剧集，我们会生成多种可能的搜索变体：
-        1. 完整标题（适用于豆瓣、Letterboxd等将选集剧作为独立剧集的平台）
-        2. 主系列标题（适用于IMDB、烂番茄、Metacritic等将选集剧作为整体的平台）
-        3. 副标题（如果有）
-        
-        这样无论平台如何组织内容，我们都能找到匹配
+        不同平台组织内容方式不同：
+        - 豆瓣/Letterboxd: 完整标题搜索
+        - IMDB/烂番茄/Metacritic: 主系列标题搜索
+        - 烂番茄选集剧: 副标题搜索效果最好
         """
         variants = []
         
         title = tmdb_info.get("title", "")
         original_title = tmdb_info.get("original_title", "")
         year = tmdb_info.get("year", "")
-        first_air_date = tmdb_info.get("first_air_date", "")
         
-        # 策略1a: 使用副标题（如果有且是选集剧）
-        # 烂番茄选集剧优先使用副标题！
         subtitle = self.extract_subtitle_from_title(title)
         if subtitle and series_info:
             variants.append({
@@ -582,19 +624,17 @@ class AnthologyHandler:
                 "year": year,
                 "type": "subtitle_for_rt",
                 "strategy": "subtitle_only",
-                "priority": 1,  # 最高优先级！
+                "priority": 1,
                 "for_rottentomatoes": True
             })
         
-        # 策略1b: 使用完整标题
-        # 适用于：豆瓣、TMDB、Letterboxd、Trakt（当作独立剧集）
         if title:
             variants.append({
                 "title": title,
                 "year": year,
                 "type": "full_title",
                 "strategy": "standalone",
-                "priority": 2 if (subtitle and series_info) else 1  # 如果有副标题，降低优先级
+                "priority": 2 if (subtitle and series_info) else 1
             })
         
         if original_title and original_title != title:
@@ -606,42 +646,22 @@ class AnthologyHandler:
                 "priority": 2 if (subtitle and series_info) else 1
             })
         
-        # 策略2: 使用主系列标题（如果能提取）
-        # 适用于：IMDB、烂番茄、Metacritic（当作选集剧整体）
         if series_info:
             main_title = series_info.get("main_title")
             if main_title:
-                # 对于Monster这样的选集剧：
-                # - Monster (2022) 是整个系列的首播年份
-                # - 但我们查询的是2025年的季
-                # - IMDB等平台会用首播年份标记整个系列
-                
-                # 主系列 + 系列首播年份（最重要！）
-                # 从first_air_date提取（如果是单季剧，这是该季的播出日期）
-                # 我们需要猜测整个选集剧的首播年份
-                
-                # === 完全动态的年份策略（不依赖缓存）===
-                # 
-                # 策略：不需要知道准确的首播年份！
-                # 1. 先尝试不带年份的搜索（让平台返回所有相关结果）
-                # 2. 然后通过副标题和其他信息筛选正确的
-                
-                # 提取副标题作为匹配提示
                 subtitle_hint = self.extract_subtitle_from_title(tmdb_info.get("title", ""))
                 
-                # 变体1: 主系列标题（不带年份）- 最通用
-                # 这会返回整个系列，然后我们通过副标题等筛选
+                # 不带年份搜索更通用，因为选集剧首播年份难以确定
                 variants.append({
                     "title": main_title,
-                    "year": "",  # 不指定年份！
+                    "year": "",
                     "type": "main_series_no_year",
                     "strategy": "anthology_series",
                     "priority": 2,
                     "subtitle_hint": subtitle_hint,
-                    "match_by_subtitle": True  # 标记需要通过副标题匹配
+                    "match_by_subtitle": True
                 })
                 
-                # 变体2: 主系列 + 当前季的年份（可能有用）
                 if year:
                     variants.append({
                         "title": main_title,
@@ -652,7 +672,6 @@ class AnthologyHandler:
                         "subtitle_hint": subtitle_hint
                     })
         else:
-            # 即使没有series_info，也尝试提取主标题
             for pattern in ANTHOLOGY_TITLE_PATTERNS:
                 match = re.match(pattern, title, re.IGNORECASE)
                 if match:
@@ -666,8 +685,6 @@ class AnthologyHandler:
                     })
                     break
         
-        # 策略4: 移除年份后缀的标题变体
-        # 有些标题可能包含 "(2024)" 等年份后缀
         title_without_year = re.sub(r'\s*\(\d{4}\)\s*$', '', title)
         if title_without_year != title:
             variants.append({
@@ -678,7 +695,6 @@ class AnthologyHandler:
                 "priority": 1
             })
         
-        # 移除重复项
         unique_variants = []
         seen = set()
         for variant in variants:
@@ -687,7 +703,6 @@ class AnthologyHandler:
                 seen.add(key)
                 unique_variants.append(variant)
         
-        # 按优先级排序
         unique_variants.sort(key=lambda x: x['priority'])
         
         logger.info(f"生成了 {len(unique_variants)} 个搜索标题变体")
@@ -697,5 +712,4 @@ class AnthologyHandler:
         return unique_variants
 
 
-# 全局实例
 anthology_handler = AnthologyHandler()
