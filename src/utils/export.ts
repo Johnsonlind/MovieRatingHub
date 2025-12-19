@@ -154,26 +154,47 @@ function removeBackdropFilters(element: HTMLElement): void {
     const backdropFilter = computed.getPropertyValue('backdrop-filter');
     const webkitBackdropFilter = computed.getPropertyValue('-webkit-backdrop-filter');
     
-    // 如果有backdrop-filter，移除它并用纯色背景替代
+    // 如果有backdrop-filter，移除它
     if (backdropFilter !== 'none' || webkitBackdropFilter !== 'none') {
-      // 获取当前背景色
-      let bgColor = computed.backgroundColor;
-      if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
-        // 从CSS变量获取或使用默认值
-        const rootStyle = getComputedStyle(document.documentElement);
-        const glassBg = rootStyle.getPropertyValue('--glass-bg').trim();
-        if (glassBg) {
-          bgColor = glassBg;
-        } else {
-          bgColor = isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-        }
-      }
+      // 检查是否有渐变背景（通过检查background-image是否包含gradient）
+      const backgroundImage = computed.getPropertyValue('background-image');
+      const hasGradient = backgroundImage && backgroundImage.includes('gradient');
       
-      // 设置纯色背景，移除backdrop-filter
-      el.style.setProperty('backdrop-filter', 'none', 'important');
-      el.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
-      el.style.setProperty('background', bgColor, 'important');
-      el.style.setProperty('background-color', bgColor, 'important');
+      // 获取内联样式的background（如果有）
+      const inlineBackground = el.style.background || el.style.backgroundImage;
+      const hasInlineGradient = inlineBackground && (inlineBackground.includes('gradient') || inlineBackground.includes('linear-gradient'));
+      
+      if (hasGradient || hasInlineGradient) {
+        // 如果有渐变背景，只移除backdrop-filter，保留渐变
+        el.style.setProperty('backdrop-filter', 'none', 'important');
+        el.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
+        // 确保background属性保留（如果内联样式中有渐变，它会保留）
+        if (hasInlineGradient && el.style.background) {
+          // 内联样式中的渐变已经存在，不需要修改
+        } else if (hasGradient) {
+          // 从computed style获取渐变并设置到内联样式
+          el.style.setProperty('background', backgroundImage, 'important');
+        }
+      } else {
+        // 没有渐变，使用纯色背景
+        let bgColor = computed.backgroundColor;
+        if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+          // 从CSS变量获取或使用默认值
+          const rootStyle = getComputedStyle(document.documentElement);
+          const glassBg = rootStyle.getPropertyValue('--glass-bg').trim();
+          if (glassBg) {
+            bgColor = glassBg;
+          } else {
+            bgColor = isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+          }
+        }
+        
+        // 设置纯色背景，移除backdrop-filter
+        el.style.setProperty('backdrop-filter', 'none', 'important');
+        el.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
+        el.style.setProperty('background', bgColor, 'important');
+        el.style.setProperty('background-color', bgColor, 'important');
+      }
     }
     
     // 处理所有子元素（包括SVG）
@@ -184,16 +205,34 @@ function removeBackdropFilters(element: HTMLElement): void {
         const childBackdropFilter = childComputed.getPropertyValue('backdrop-filter');
         const childWebkitBackdropFilter = childComputed.getPropertyValue('-webkit-backdrop-filter');
         if (childBackdropFilter !== 'none' || childWebkitBackdropFilter !== 'none') {
-          let childBgColor = childComputed.backgroundColor;
-          if (!childBgColor || childBgColor === 'rgba(0, 0, 0, 0)' || childBgColor === 'transparent') {
-            const rootStyle = getComputedStyle(document.documentElement);
-            const glassBg = rootStyle.getPropertyValue('--glass-bg').trim();
-            childBgColor = glassBg || (isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)');
+          // 检查子元素是否有渐变背景
+          const childBackgroundImage = childComputed.getPropertyValue('background-image');
+          const childHasGradient = childBackgroundImage && childBackgroundImage.includes('gradient');
+          const childInlineBackground = child.style.background || child.style.backgroundImage;
+          const childHasInlineGradient = childInlineBackground && (childInlineBackground.includes('gradient') || childInlineBackground.includes('linear-gradient'));
+          
+          if (childHasGradient || childHasInlineGradient) {
+            // 保留渐变，只移除backdrop-filter
+            child.style.setProperty('backdrop-filter', 'none', 'important');
+            child.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
+            if (childHasInlineGradient && child.style.background) {
+              // 内联样式中的渐变已经存在
+            } else if (childHasGradient) {
+              child.style.setProperty('background', childBackgroundImage, 'important');
+            }
+          } else {
+            // 没有渐变，使用纯色
+            let childBgColor = childComputed.backgroundColor;
+            if (!childBgColor || childBgColor === 'rgba(0, 0, 0, 0)' || childBgColor === 'transparent') {
+              const rootStyle = getComputedStyle(document.documentElement);
+              const glassBg = rootStyle.getPropertyValue('--glass-bg').trim();
+              childBgColor = glassBg || (isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)');
+            }
+            child.style.setProperty('backdrop-filter', 'none', 'important');
+            child.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
+            child.style.setProperty('background', childBgColor, 'important');
+            child.style.setProperty('background-color', childBgColor, 'important');
           }
-          child.style.setProperty('backdrop-filter', 'none', 'important');
-          child.style.setProperty('-webkit-backdrop-filter', 'none', 'important');
-          child.style.setProperty('background', childBgColor, 'important');
-          child.style.setProperty('background-color', childBgColor, 'important');
         }
       }
     });
@@ -212,6 +251,94 @@ function forceRepaint(element: HTMLElement): void {
   element.offsetHeight; // 触发重排
   element.style.display = '';
   element.offsetHeight; // 再次触发重排
+}
+
+// 压缩图片以控制文件大小（目标：10MB左右）
+async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // 先估算当前文件大小（base64编码后的大小约为原始大小的4/3）
+    const base64Size = dataUrl.length;
+    const estimatedSize = (base64Size * 3) / 4;
+    const targetSizeBytes = targetSizeMB * 1024 * 1024;
+    
+    // 如果估算大小已经小于目标大小，直接返回
+    if (estimatedSize <= targetSizeBytes * 1.1) {
+      console.log('文件大小已合适，无需压缩');
+      resolve(dataUrl);
+      return;
+    }
+    
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: false });
+      if (!ctx) {
+        reject(new Error('无法创建canvas上下文'));
+        return;
+      }
+      
+      let width = img.width;
+      let height = img.height;
+      const originalWidth = width;
+      const originalHeight = height;
+      
+      // 先检查当前大小
+      const checkSize = (w: number, h: number): Promise<string> => {
+        return new Promise((resolveCheck) => {
+          canvas.width = w;
+          canvas.height = h;
+          ctx.clearRect(0, 0, w, h);
+          // 使用高质量图像缩放
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, w, h);
+          
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              resolveCheck(canvas.toDataURL('image/png'));
+              return;
+            }
+            
+            const size = blob.size;
+            console.log(`压缩检查: ${w}x${h}, 文件大小: ${(size / 1024 / 1024).toFixed(2)}MB`);
+            
+            if (size <= targetSizeBytes * 1.1) {
+              // 文件大小合适（允许10%的误差），返回
+              const reader = new FileReader();
+              reader.onloadend = () => resolveCheck(reader.result as string);
+              reader.onerror = () => resolveCheck(canvas.toDataURL('image/png'));
+              reader.readAsDataURL(blob);
+            } else {
+              // 文件太大，降低分辨率
+              const ratio = Math.sqrt((targetSizeBytes * 1.1) / size);
+              const newWidth = Math.floor(w * ratio);
+              const newHeight = Math.floor(h * ratio);
+              
+              // 确保不会降低太多（至少保留原始尺寸的60%）
+              const minWidth = Math.floor(originalWidth * 0.6);
+              const minHeight = Math.floor(originalHeight * 0.6);
+              
+              if (newWidth < minWidth || newHeight < minHeight) {
+                // 如果降低太多，使用最小尺寸
+                const finalWidth = Math.max(newWidth, minWidth);
+                const finalHeight = Math.max(newHeight, minHeight);
+                console.log(`达到最小尺寸限制，使用: ${finalWidth}x${finalHeight}`);
+                checkSize(finalWidth, finalHeight).then(resolveCheck);
+              } else {
+                // 递归降低分辨率
+                checkSize(newWidth, newHeight).then(resolveCheck);
+              }
+            }
+          }, 'image/png');
+        });
+      };
+      
+      checkSize(width, height).then(resolve).catch(reject);
+    };
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = dataUrl;
+  });
 }
 
 // 对图片应用圆角和透明背景
@@ -405,6 +532,11 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   console.log('Safari: 应用圆角，半径:', scaledBorderRadius);
   dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
   
+  // 压缩图片以控制文件大小
+  console.log('Safari: 开始压缩图片...');
+  dataUrl = await compressImage(dataUrl, 10);
+  console.log('Safari: 图片压缩完成');
+  
   // 下载
   const link = document.createElement('a');
   link.download = filename;
@@ -463,6 +595,11 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   const scaledBorderRadius = borderRadius * pixelRatio;
   console.log('Chrome: 应用圆角，半径:', scaledBorderRadius);
   dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
+  
+  // 压缩图片以控制文件大小
+  console.log('Chrome: 开始压缩图片...');
+  dataUrl = await compressImage(dataUrl, 10);
+  console.log('Chrome: 图片压缩完成');
   
   // 下载
   const link = document.createElement('a');
