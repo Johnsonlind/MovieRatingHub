@@ -40,7 +40,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter {...routerOptions}>
-          <div className="min-h-screen" style={{ background: 'transparent' }}>
+          <div className="min-h-screen">
             <Suspense fallback={<div className="flex items-center justify-center min-h-screen">加载中...</div>}>
               <Routes>
                 <Route path="/" element={<HomePage />} />
