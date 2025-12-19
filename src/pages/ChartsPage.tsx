@@ -352,7 +352,7 @@ export default function ChartsPage() {
       await new Promise(resolve => setTimeout(resolve, 300));
 
       const fileName = `${platform}-${chartName}`.replace(/[/\\?%*:|"<>]/g, '-');
-      await exportToPng(element, `${fileName}.png`);
+      await exportToPng(element, `${fileName}.png`, { isChart: true });
     } catch (error) {
       console.error('导出失败:', error);
     } finally {
@@ -367,7 +367,7 @@ export default function ChartsPage() {
       <ScrollToTopButton />
       <div className="min-h-screen pt-16 p-4 safe-area-bottom">
         <div ref={contentRef} className="gentle-scroll">
-        <div className="max-w-7xl mx-auto space-y-8">
+        <div className="max-w-7xl mx-auto space-y-8 pt-3">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-gray-600 dark:text-gray-400">加载中...</div>
