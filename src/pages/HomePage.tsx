@@ -1,7 +1,7 @@
 // ==========================================
 // 首页 - 搜索功能和热门榜单展示
 // ==========================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { SearchBar } from '../utils/SearchBar';
 import { SearchResults } from '../utils/SearchResults';
@@ -27,6 +27,165 @@ const Footer = () => (
     </a>
   </div>
 );
+
+// Top板块组件 - 提取到外部避免每次HomePage重新渲染时重新创建
+function TopSectionsFromBackend() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['aggregate-charts'],
+    queryFn: () => fetch('/api/charts/aggregate').then(r => r.json()),
+  });
+
+  const resolvePosterUrl = (poster: string) => {
+    if (!poster) return '';
+    if (poster.startsWith('/api/') || poster.startsWith('/tmdb-images/')) {
+      return poster;
+    }
+    return `/api/image-proxy?url=${encodeURIComponent(poster)}`;
+  };
+
+  const Section = ({ title, items }:{ title: string; items?: Array<{ id: number; type: 'movie' | 'tv'; title: string; poster: string }> }) => (
+    <div className="mb-8 glass p-5 sm:p-6">
+      <h2 className="text-lg sm:text-xl lg:text-2xl font-bold mb-5 text-center text-gray-800 dark:text-gray-100">{title}</h2>
+      {!items || isLoading ? (
+        <div className="flex items-center justify-center py-8 text-gray-600 dark:text-gray-400">加载中...</div>
+      ) : (
+        <>
+          {/* 第一行：前5个 */}
+          <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4 mb-2 sm:mb-3">
+            {items.slice(0, 5).map((item, idx) => {
+              const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
+              return (
+                <div key={`${item.type}-${item.id}`} className="group relative">
+                  <Link to={linkPath} target="_blank" rel="noopener noreferrer">
+                    <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
+                      {item.poster ? (
+                        <img
+                          src={resolvePosterUrl(item.poster)}
+                          alt={item.title}
+                          className="w-full h-full object-cover transition-opacity duration-200"
+                          loading="eager"
+                          fetchPriority={idx < 5 ? 'high' : 'auto'}
+                          decoding="async"
+                          sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
+                          style={{ 
+                            minHeight: '100%',
+                            display: 'block',
+                            opacity: 0,
+                            transition: 'opacity 0.2s ease-in'
+                          }}
+                          onLoad={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            if (target && target.complete && target.naturalWidth > 0) {
+                              requestAnimationFrame(() => {
+                                target.style.opacity = '1';
+                              });
+                            }
+                          }}
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            if (target) {
+                              target.style.opacity = '0';
+                            }
+                          }}
+                          crossOrigin="anonymous"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
+                          <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
+                        </div>
+                      )}
+                      <div className="absolute top-1 right-1 z-20">
+                        <MiniFavoriteButton
+                          mediaId={item.id.toString()}
+                          mediaType={item.type}
+                          title={item.title}
+                          poster={item.poster}
+                          className="p-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100 font-medium">{item.title}</div>
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+          {/* 第二行：后5个 */}
+          <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
+            {items.slice(5, 10).map((item, idx) => {
+              const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
+              return (
+                <div key={`${item.type}-${item.id}`} className="group relative">
+                  <Link to={linkPath} target="_blank" rel="noopener noreferrer">
+                    <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
+                      {item.poster ? (
+                        <img
+                          src={resolvePosterUrl(item.poster)}
+                          alt={item.title}
+                          className="w-full h-full object-cover transition-opacity duration-200"
+                          loading="eager"
+                          fetchPriority={idx < 5 ? 'high' : 'auto'}
+                          decoding="async"
+                          sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
+                          style={{ 
+                            minHeight: '100%',
+                            display: 'block',
+                            opacity: 0,
+                            transition: 'opacity 0.2s ease-in'
+                          }}
+                          onLoad={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            if (target && target.complete && target.naturalWidth > 0) {
+                              requestAnimationFrame(() => {
+                                target.style.opacity = '1';
+                              });
+                            }
+                          }}
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            if (target) {
+                              target.style.opacity = '0';
+                            }
+                          }}
+                          crossOrigin="anonymous"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
+                          <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
+                        </div>
+                      )}
+                      <div className="absolute top-1 right-1 z-20">
+                        <MiniFavoriteButton
+                          mediaId={item.id.toString()}
+                          mediaType={item.type}
+                          title={item.title}
+                          poster={item.poster}
+                          className="p-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100 font-medium">{item.title}</div>
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <Section title="本周Top10 热门电影" items={data?.top_movies} />
+      <Section title="本周Top10 热门剧集" items={data?.top_tv} />
+      <Section title="本周Top10 华语剧集" items={data?.top_chinese_tv} />
+    </div>
+  );
+}
+
+// 使用memo优化，避免不必要的重新渲染
+const MemoizedTopSectionsFromBackend = memo(TopSectionsFromBackend);
 
 export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,161 +215,6 @@ export default function HomePage() {
       navigate('/', { replace: true });
     }
   }, [searchFromState]);
-
-  function TopSectionsFromBackend() {
-    const { data, isLoading } = useQuery({
-      queryKey: ['aggregate-charts'],
-      queryFn: () => fetch('/api/charts/aggregate').then(r => r.json()),
-    });
-
-    const resolvePosterUrl = (poster: string) => {
-      if (!poster) return '';
-      if (poster.startsWith('/api/') || poster.startsWith('/tmdb-images/')) {
-        return poster;
-      }
-      return `/api/image-proxy?url=${encodeURIComponent(poster)}`;
-    };
-
-    const Section = ({ title, items }:{ title: string; items?: Array<{ id: number; type: 'movie' | 'tv'; title: string; poster: string }> }) => (
-      <div className="mb-8 glass p-5 sm:p-6">
-        <h2 className="text-lg sm:text-xl lg:text-2xl font-bold mb-5 text-center text-gray-800 dark:text-gray-100">{title}</h2>
-        {!items || isLoading ? (
-          <div className="flex items-center justify-center py-8 text-gray-600 dark:text-gray-400">加载中...</div>
-        ) : (
-          <>
-            {/* 第一行：前5个 */}
-            <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4 mb-2 sm:mb-3">
-              {items.slice(0, 5).map((item, idx) => {
-                const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
-                return (
-                  <div key={`${item.type}-${item.id}`} className="group relative">
-                    <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                      <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
-                        {item.poster ? (
-                          <img
-                            src={resolvePosterUrl(item.poster)}
-                            alt={item.title}
-                            className="w-full h-full object-cover transition-opacity duration-200"
-                            loading="eager"
-                            fetchPriority={idx < 5 ? 'high' : 'auto'}
-                            decoding="async"
-                            sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
-                            style={{ 
-                              minHeight: '100%',
-                              display: 'block',
-                              opacity: 0,
-                              transition: 'opacity 0.2s ease-in'
-                            }}
-                            onLoad={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              if (target && target.complete && target.naturalWidth > 0) {
-                                requestAnimationFrame(() => {
-                                  target.style.opacity = '1';
-                                });
-                              }
-                            }}
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              if (target) {
-                                target.style.opacity = '0';
-                              }
-                            }}
-                            crossOrigin="anonymous"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
-                            <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
-                          </div>
-                        )}
-                        <div className="absolute top-1 right-1 z-20">
-                          <MiniFavoriteButton
-                            mediaId={item.id.toString()}
-                            mediaType={item.type}
-                            title={item.title}
-                            poster={item.poster}
-                            className="p-1"
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100 font-medium">{item.title}</div>
-                    </Link>
-                  </div>
-                );
-              })}
-            </div>
-            {/* 第二行：后5个 */}
-            <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
-              {items.slice(5, 10).map((item, idx) => {
-                const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
-                return (
-                  <div key={`${item.type}-${item.id}`} className="group relative">
-                    <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                      <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
-                        {item.poster ? (
-                          <img
-                            src={resolvePosterUrl(item.poster)}
-                            alt={item.title}
-                            className="w-full h-full object-cover transition-opacity duration-200"
-                            loading="eager"
-                            fetchPriority={idx < 5 ? 'high' : 'auto'}
-                            decoding="async"
-                            sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
-                            style={{ 
-                              minHeight: '100%',
-                              display: 'block',
-                              opacity: 0,
-                              transition: 'opacity 0.2s ease-in'
-                            }}
-                            onLoad={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              if (target && target.complete && target.naturalWidth > 0) {
-                                requestAnimationFrame(() => {
-                                  target.style.opacity = '1';
-                                });
-                              }
-                            }}
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              if (target) {
-                                target.style.opacity = '0';
-                              }
-                            }}
-                            crossOrigin="anonymous"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
-                            <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
-                          </div>
-                        )}
-                        <div className="absolute top-1 right-1 z-20">
-                          <MiniFavoriteButton
-                            mediaId={item.id.toString()}
-                            mediaType={item.type}
-                            title={item.title}
-                            poster={item.poster}
-                            className="p-1"
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100 font-medium">{item.title}</div>
-                    </Link>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
-    );
-
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Section title="本周Top10 热门电影" items={data?.top_movies} />
-        <Section title="本周Top10 热门剧集" items={data?.top_tv} />
-        <Section title="本周Top10 华语剧集" items={data?.top_chinese_tv} />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen safe-area-bottom">
@@ -286,7 +290,7 @@ export default function HomePage() {
         </div>
 
         {/* 无搜索时显示Top10板块（聚合） */}
-        {!searchQuery && <TopSectionsFromBackend />}
+        {!searchQuery && <MemoizedTopSectionsFromBackend />}
 
         {/* 搜索结果 */}
         {isLoading ? (
