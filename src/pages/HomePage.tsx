@@ -63,6 +63,14 @@ export default function HomePage() {
       queryFn: () => fetch('/api/charts/aggregate').then(r => r.json()),
     });
 
+    const resolvePosterUrl = (poster: string) => {
+      if (!poster) return '';
+      if (poster.startsWith('/api/') || poster.startsWith('/tmdb-images/')) {
+        return poster;
+      }
+      return `/api/image-proxy?url=${encodeURIComponent(poster)}`;
+    };
+
     const Section = ({ title, items }:{ title: string; items?: Array<{ id: number; type: 'movie' | 'tv'; title: string; poster: string }> }) => (
       <div className="mb-8 glass p-5 sm:p-6">
         <h2 className="text-lg sm:text-xl lg:text-2xl font-bold mb-5 text-center text-gray-800 dark:text-gray-100">{title}</h2>
@@ -72,74 +80,120 @@ export default function HomePage() {
           <>
             {/* 第一行：前5个 */}
             <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4 mb-2 sm:mb-3">
-              {items.slice(0, 5).map((item) => {
+              {items.slice(0, 5).map((item, idx) => {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
-                  <div key={`${item.type}-${item.id}`} className="group">
-                    <div className="w-full aspect-[2/3] overflow-hidden rounded-xl glass-card relative bg-gray-200 dark:bg-gray-800">
-                      <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                        <img
-                          src={item.poster
-                            ? (
-                                item.poster.startsWith('/api/')
-                                  ? item.poster
-                                  : `/api/image-proxy?url=${encodeURIComponent(item.poster)}`
-                              )
-                            : '/placeholder-poster.png'}
-                          alt={item.title}
-                          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-                          loading="lazy"
-                          crossOrigin="anonymous"
-                        />
-                      </Link>
-                      <div className="absolute top-1 right-1 z-20">
-                        <MiniFavoriteButton
-                          mediaId={item.id.toString()}
-                          mediaType={item.type}
-                          title={item.title}
-                          poster={item.poster}
-                          className="p-1"
-                        />
+                  <div key={`${item.type}-${item.id}`} className="group relative">
+                    <Link to={linkPath} target="_blank" rel="noopener noreferrer">
+                      <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
+                        {item.poster ? (
+                          <img
+                            src={resolvePosterUrl(item.poster)}
+                            alt={item.title}
+                            className="w-full h-full object-cover transition-opacity duration-200"
+                            loading="eager"
+                            fetchPriority={idx < 5 ? 'high' : 'auto'}
+                            decoding="async"
+                            sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
+                            style={{ 
+                              minHeight: '100%',
+                              display: 'block',
+                              opacity: 0,
+                              transition: 'opacity 0.2s ease-in'
+                            }}
+                            onLoad={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target && target.complete && target.naturalWidth > 0) {
+                                requestAnimationFrame(() => {
+                                  target.style.opacity = '1';
+                                });
+                              }
+                            }}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target) {
+                                target.style.opacity = '0';
+                              }
+                            }}
+                            crossOrigin="anonymous"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
+                            <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
+                          </div>
+                        )}
+                        <div className="absolute top-1 right-1 z-20">
+                          <MiniFavoriteButton
+                            mediaId={item.id.toString()}
+                            mediaType={item.type}
+                            title={item.title}
+                            poster={item.poster}
+                            className="p-1"
+                          />
+                        </div>
                       </div>
-                    </div>
-                    <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100 font-medium">{item.title}</div>
+                      <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100 font-medium">{item.title}</div>
+                    </Link>
                   </div>
                 );
               })}
             </div>
             {/* 第二行：后5个 */}
             <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
-              {items.slice(5, 10).map((item) => {
+              {items.slice(5, 10).map((item, idx) => {
                 const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
                 return (
-                  <div key={`${item.type}-${item.id}`} className="group">
-                    <div className="w-full aspect-[2/3] overflow-hidden rounded-xl glass-card relative bg-gray-200 dark:bg-gray-800">
-                      <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                        <img
-                          src={item.poster
-                            ? (
-                                item.poster.startsWith('/api/')
-                                  ? item.poster
-                                  : `/api/image-proxy?url=${encodeURIComponent(item.poster)}`
-                              )
-                            : '/placeholder-poster.png'}
-                          alt={item.title}
-                          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-                          loading="lazy"
-                          crossOrigin="anonymous"
-                        />
-                      </Link>
-                      <div className="absolute top-1 right-1 z-20">
-                        <MiniFavoriteButton
-                          mediaId={item.id.toString()}
-                          mediaType={item.type}
-                          title={item.title}
-                          poster={item.poster}
-                          className="p-1"
-                        />
+                  <div key={`${item.type}-${item.id}`} className="group relative">
+                    <Link to={linkPath} target="_blank" rel="noopener noreferrer">
+                      <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
+                        {item.poster ? (
+                          <img
+                            src={resolvePosterUrl(item.poster)}
+                            alt={item.title}
+                            className="w-full h-full object-cover transition-opacity duration-200"
+                            loading="eager"
+                            fetchPriority={idx < 5 ? 'high' : 'auto'}
+                            decoding="async"
+                            sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
+                            style={{ 
+                              minHeight: '100%',
+                              display: 'block',
+                              opacity: 0,
+                              transition: 'opacity 0.2s ease-in'
+                            }}
+                            onLoad={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target && target.complete && target.naturalWidth > 0) {
+                                requestAnimationFrame(() => {
+                                  target.style.opacity = '1';
+                                });
+                              }
+                            }}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target) {
+                                target.style.opacity = '0';
+                              }
+                            }}
+                            crossOrigin="anonymous"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
+                            <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
+                          </div>
+                        )}
+                        <div className="absolute top-1 right-1 z-20">
+                          <MiniFavoriteButton
+                            mediaId={item.id.toString()}
+                            mediaType={item.type}
+                            title={item.title}
+                            poster={item.poster}
+                            className="p-1"
+                          />
+                        </div>
                       </div>
-                    </div>
-                    <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100 font-medium">{item.title}</div>
+                      <div className="mt-1 sm:mt-2 text-xs sm:text-sm line-clamp-2 text-center dark:text-gray-100 font-medium">{item.title}</div>
+                    </Link>
                   </div>
                 );
               })}
