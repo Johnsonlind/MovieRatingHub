@@ -365,7 +365,7 @@ export default function ChartsPage() {
       <NavBar />
       <ThemeToggle />
       <ScrollToTopButton />
-      <div className="min-h-screen bg-[var(--page-bg)] pt-16 p-4">
+      <div className="min-h-screen pt-16 p-4 safe-area-bottom" style={{ background: 'transparent' }}>
         <div ref={contentRef} className="gentle-scroll">
         <div className="max-w-7xl mx-auto space-y-8">
           {isLoading ? (
