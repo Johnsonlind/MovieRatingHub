@@ -165,6 +165,19 @@ body::before {
   overflow: visible;
 }
 
+/* 确保导航栏固定在顶部，不受父容器影响 */
+nav,
+[class*="NavBar"],
+[class*="navbar"] {
+  position: fixed !important;
+  top: calc(0.5rem + env(safe-area-inset-top)) !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 50 !important;
+  transform: none !important;
+  will-change: auto !important;
+}
+
 /* 添加精致磨砂纹理效果 */
 .glass::before {
   content: '';
