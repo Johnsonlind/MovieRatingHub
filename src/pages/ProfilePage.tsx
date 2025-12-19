@@ -690,7 +690,7 @@ export default function ProfilePage() {
   return (
     <>
       <NavBar />
-      <div className="min-h-screen pt-16 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]" style={{ background: 'transparent' }}>
+      <div className="min-h-screen pt-16 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <ThemeToggle />
         <ScrollToTopButton />
         
