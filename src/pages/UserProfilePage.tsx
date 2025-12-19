@@ -455,7 +455,7 @@ export default function UserProfilePage() {
     return (
       <>
         <NavBar />
-        <div className="min-h-screen pt-16 p-4 safe-area-bottom" style={{ background: 'transparent' }}>
+        <div className="min-h-screen pt-16 p-4 safe-area-bottom">
           <ThemeToggle />
           <ScrollToTopButton />
           
