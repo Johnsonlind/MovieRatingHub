@@ -1,6 +1,5 @@
 # ==========================================
-# 主程序 - FastAPI后端服务
-# 功能: 用户认证、收藏管理、评分代理、榜单管理
+# 主程序
 # ==========================================
 import asyncio
 import os
@@ -10,12 +9,10 @@ import ssl
 from typing import Optional
 import hashlib
 import httpx
-from fastapi.responses import JSONResponse
 import logging
 
 load_dotenv()
 
-# 设置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -38,13 +35,9 @@ import secrets
 import aiohttp
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
-from sqlalchemy import func
-from sqlalchemy import or_, not_
-from sqlalchemy import and_
-from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from sqlalchemy import func, or_, not_, and_, create_engine
 from sqlalchemy.pool import QueuePool
-from sqlalchemy import create_engine
+from fastapi.middleware.gzip import GZipMiddleware
 from browser_pool import browser_pool
 import traceback
 
@@ -63,10 +56,8 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 REMEMBER_ME_TOKEN_EXPIRE_DAYS = 30
 
-# 添加环境变量配置
 FRONTEND_URL = "http://localhost:5173" if os.getenv("ENV") == "development" else "https://ratefuse.cn"
 
-# 创建应用实例
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -82,10 +73,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 添加响应压缩
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# 数据库连接
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     poolclass=QueuePool,
@@ -99,7 +88,6 @@ engine = create_engine(
 # 2. 辅助类和函数
 # ==========================================
 
-# 定义 OAuth2PasswordBearerOptional 类
 class OAuth2PasswordBearerOptional(OAuth2):
     def __init__(
         self,
@@ -128,7 +116,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 oauth2_scheme_optional = OAuth2PasswordBearerOptional(tokenUrl="token", auto_error=False)
 
-# 数据库依赖
 def get_db():
     db = SessionLocal()
     try:
@@ -136,7 +123,6 @@ def get_db():
     finally:
         db.close()
 
-# 用户认证相关函数
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
@@ -153,7 +139,6 @@ def create_access_token(data: dict, remember_me: bool = False):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-# 获取当前用户
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
@@ -199,7 +184,6 @@ async def get_current_user_optional(
     except JWTError:
         return None
 
-# 缓存辅助函数
 async def get_cache(key: str):
     """从 Redis 获取缓存数据"""
     if not redis:
@@ -227,11 +211,9 @@ async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
     except Exception as e:
         logger.error(f"设置缓存出错: {e}")
 
-# 生成重置密码 token
 def generate_reset_token():
     return secrets.token_urlsafe(32)
 
-# 修改后端的 check_following_status 函数
 def check_following_status(db: Session, follower_id: Optional[int], following_id: int) -> bool:
     if not follower_id:
         return False
@@ -256,21 +238,19 @@ async def register(
     email = data.get("email")
     username = data.get("username")
     password = data.get("password")
-    # 检查邮箱是否已存在
+    
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(
             status_code=400,
             detail="该邮箱已被注册"
         )
     
-    # 检查用户名是否已存在
     if db.query(User).filter(User.username == username).first():
         raise HTTPException(
             status_code=400,
             detail="该用户名已被使用"
         )
     
-    # 创建新用户
     hashed_password = get_password_hash(password)
     user = User(
         email=email,
@@ -282,7 +262,6 @@ async def register(
     db.commit()
     db.refresh(user)
     
-    # 生成 token
     access_token = create_access_token(
         data={"sub": user.email},
         remember_me=False
@@ -313,8 +292,7 @@ async def login(request: Request, db: Session = Depends(get_db)):
                 status_code=401,
                 detail="此邮箱未注册"
             )
-            
-        # 再检查密码是否正确
+        
         if not verify_password(password, user.hashed_password):
             raise HTTPException(
                 status_code=401,
@@ -355,7 +333,6 @@ async def forgot_password(
         data = await request.json()
         email = data.get("email")
         
-        # 查找用户
         user = db.query(User).filter(User.email == email).first()
         if not user:
             raise HTTPException(
@@ -363,11 +340,9 @@ async def forgot_password(
                 detail="未找到该邮箱对应的用户"
             )
         
-        # 生成重置 token
         token = generate_reset_token()
         expires_at = datetime.utcnow() + timedelta(hours=24)
         
-        # 保存重置记录
         reset_record = PasswordReset(
             email=email,
             token=token,
@@ -376,10 +351,7 @@ async def forgot_password(
         db.add(reset_record)
         db.commit()
         
-        # 根据环境生成重置链接
         reset_link = f"{FRONTEND_URL}/reset-password?token={token}"
-        
-        # 发送邮件
         sender_email = "ratefuseteam@gmail.com"
         app_password = "ukhtkvzexnzgeibw"
         
@@ -439,7 +411,6 @@ async def reset_password(
     token = data.get("token")
     new_password = data.get("password")
     
-    # 验证 token
     reset_record = db.query(PasswordReset).filter(
         PasswordReset.token == token,
         PasswordReset.used == False,
@@ -499,7 +470,6 @@ async def update_douban_cookie(
         if cookie:
             current_user.douban_cookie = cookie
         else:
-            # 如果传入空字符串，则清除Cookie
             current_user.douban_cookie = None
         
         db.commit()
@@ -531,14 +501,12 @@ async def update_profile(
     try:
         data = await request.json()
         
-        # 验证头像数据
         if data.get("avatar"):
             if not data["avatar"].startswith('data:image/'):
                 raise HTTPException(
                     status_code=400,
                     detail="无效的图片格式"
                 )
-            # 限制图片大小为 2MB
             avatar_data = data["avatar"].split(',')[1]
             if len(avatar_data) > 2 * 1024 * 1024:  # 2MB
                 raise HTTPException(
@@ -547,7 +515,6 @@ async def update_profile(
                 )
             current_user.avatar = data["avatar"]
         
-        # 检查用户名是否已被使用
         if data.get("username"):
             existing_user = db.query(User).filter(
                 User.username == data["username"],
@@ -560,7 +527,6 @@ async def update_profile(
                 )
             current_user.username = data["username"]
         
-        # 更新密码
         if data.get("password"):
             current_user.hashed_password = get_password_hash(data["password"])
         
@@ -593,7 +559,6 @@ async def add_favorite(
     try:
         data = await request.json()
         
-        # 验证必要字段
         required_fields = ["media_id", "media_type", "title", "poster", "list_id"]
         for field in required_fields:
             if field not in data:
@@ -602,7 +567,6 @@ async def add_favorite(
                     detail=f"缺少必要字段: {field}"
                 )
         
-        # 验证收藏列表存在且属于当前用户
         favorite_list = db.query(FavoriteList).filter(
             FavoriteList.id == data["list_id"],
             FavoriteList.user_id == current_user.id
@@ -614,12 +578,10 @@ async def add_favorite(
                 detail="收藏列表不存在或无权限访问"
             )
         
-        # 获取当前列表中最大的 sort_order
         max_sort_order = db.query(func.max(Favorite.sort_order)).filter(
             Favorite.list_id == data["list_id"]
         ).scalar()
         
-        # 创建新收藏
         favorite = Favorite(
             user_id=current_user.id,
             list_id=data["list_id"],
@@ -783,7 +745,6 @@ async def get_favorite_lists(
                 Favorite.id
             ).all()
             
-            # 如果是收藏的列表，获取原创者信息
             original_creator = None
             if list.original_list_id:
                 original_list = db.query(FavoriteList).filter(
@@ -800,7 +761,6 @@ async def get_favorite_lists(
                             "avatar": original_creator_user.avatar
                         }
             
-            # 获取创建者信息（当前列表的创建者）
             creator = {
                 "id": current_user.id,
                 "username": current_user.username,
@@ -843,14 +803,12 @@ async def create_favorite_list(
     try:
         data = await request.json()
         
-        # 验证必要字段
         if not data.get("name"):
             raise HTTPException(
                 status_code=400,
                 detail="列表名称不能为空"
             )
-            
-        # 检查是否已存在同名列表
+        
         existing_list = db.query(FavoriteList).filter(
             FavoriteList.user_id == current_user.id,
             FavoriteList.name == data["name"]
@@ -862,7 +820,6 @@ async def create_favorite_list(
                 detail="已存在同名收藏列表"
             )
         
-        # 创建新列表
         new_list = FavoriteList(
             user_id=current_user.id,
             name=data["name"],
@@ -1156,7 +1113,6 @@ async def reorder_favorites(
         if not favorite_list:
             raise HTTPException(status_code=404, detail="收藏列表不存在或无权限")
         
-        # 批量更新排序
         for item in favorite_orders:
             favorite = db.query(Favorite).filter(
                 Favorite.id == item['id'],
@@ -1168,7 +1124,6 @@ async def reorder_favorites(
         
         db.commit()
         
-        # 返回更新后的列表数据，使用 MySQL 兼容的排序语法
         updated_favorites = db.query(Favorite).filter(
             Favorite.list_id == list_id
         ).order_by(
@@ -1278,10 +1233,8 @@ async def get_user_favorite_lists(
     db: Session = Depends(get_db)
 ):
     try:
-        # 获取用户的收藏列表
         query = db.query(FavoriteList).filter(FavoriteList.user_id == user_id)
         
-        # 如果不是本人，只返回公开列表
         if not current_user or current_user.id != user_id:
             query = query.filter(FavoriteList.is_public == True)
             
@@ -1298,7 +1251,6 @@ async def get_user_favorite_lists(
                 Favorite.id
             ).all()
             
-            # 检查当前用户是否已收藏该列表
             is_collected = False
             if current_user:
                 is_collected = db.query(FavoriteList).filter(
@@ -1375,7 +1327,6 @@ async def unfollow_user(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # 检查关注关系是否存在
     follow = db.query(Follow).filter(
         Follow.follower_id == current_user.id,
         Follow.following_id == user_id
@@ -1466,7 +1417,6 @@ async def debug_follows(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # 获取当前用户的所有关注
     follows = db.query(Follow).filter(
         Follow.follower_id == current_user.id
     ).all()
@@ -1535,10 +1485,8 @@ async def get_batch_ratings(
         
         logger.info(f"\n{'='*60}\n  批量获取评分 | 数量: {len(items)} | 并发: {max_concurrent}\n{'='*60}")
         
-        # 获取用户的豆瓣Cookie（如果已登录）
         douban_cookie = None
         if current_user:
-            # 刷新数据库会话以获取最新的Cookie值
             db.refresh(current_user)
             if current_user.douban_cookie:
                 douban_cookie = current_user.douban_cookie
@@ -1548,18 +1496,15 @@ async def get_batch_ratings(
         else:
             print("⚠️ 未登录用户，无法使用豆瓣Cookie")
         
-        # 步骤1：并行检查缓存和获取TMDB信息
         async def get_item_info(item):
             media_id = item['id']
             media_type = item['type']
             
-            # 检查缓存
             cache_key = f"ratings:all:{media_type}:{media_id}"
             cached = await get_cache(cache_key)
             if cached:
                 return media_id, {'cached': True, 'data': cached}
             
-            # 获取TMDB信息
             try:
                 tmdb_info = await get_tmdb_info(media_id, media_type, request)
                 if not tmdb_info:
@@ -1569,11 +1514,9 @@ async def get_batch_ratings(
             except Exception as e:
                 return media_id, {'error': str(e)}
         
-        # 并行获取所有TMDB信息
         tmdb_tasks = [get_item_info(item) for item in items]
         tmdb_results = await asyncio.gather(*tmdb_tasks, return_exceptions=True)
         
-        # 分离缓存命中和需要爬取的
         cached_results = {}
         to_fetch = []
         errors = {}
@@ -1591,7 +1534,6 @@ async def get_batch_ratings(
         
         logger.info(f"📊 缓存: {len(cached_results)} | 爬取: {len(to_fetch)} | 错误: {len(errors)}")
         
-        # 步骤2：并行获取所有需要爬取的评分（严格控制并发）
         sem = asyncio.Semaphore(max_concurrent)
         
         async def fetch_one_item(media_id, tmdb_info, media_type):
@@ -1603,7 +1545,6 @@ async def get_batch_ratings(
                     
                     from ratings import parallel_extract_ratings
                     
-                    # 单个影视超时控制（20秒）
                     ratings = await asyncio.wait_for(
                         parallel_extract_ratings(tmdb_info, media_type, request, douban_cookie),
                         timeout=20.0
@@ -1626,7 +1567,6 @@ async def get_batch_ratings(
                     logger.error(f"  ✗ {media_id}: {str(e)[:30]}")
                     return media_id, {'status': 'error', 'error': str(e)}
         
-        # 并行爬取（控制并发数）
         if to_fetch:
             fetch_tasks = [
                 fetch_one_item(media_id, tmdb_info, media_type)
@@ -1636,10 +1576,8 @@ async def get_batch_ratings(
         else:
             fetch_results = []
         
-        # 步骤3：合并所有结果
         final_results = {}
         
-        # 添加缓存结果
         for media_id, data in cached_results.items():
             final_results[media_id] = {
                 'ratings': data,
@@ -1647,14 +1585,12 @@ async def get_batch_ratings(
                 'from_cache': True
             }
         
-        # 添加爬取结果
         for result in fetch_results:
             if isinstance(result, Exception):
                 continue
             media_id, data = result
             final_results[media_id] = data
         
-        # 添加错误结果
         for media_id, error in errors.items():
             final_results[media_id] = {
                 'status': 'error',
@@ -1699,15 +1635,12 @@ async def get_all_platform_ratings(
     """并行获取所有平台的评分信息（性能优化版）"""
     start_time = time.time()
     try:
-        # 检查请求是否已被取消
         if await request.is_disconnected():
             print("请求已在开始时被取消")
             return None
         
-        # 获取用户的豆瓣Cookie（如果已登录）
         douban_cookie = None
         if current_user:
-            # 刷新数据库会话以获取最新的Cookie值
             db.refresh(current_user)
             if current_user.douban_cookie:
                 douban_cookie = current_user.douban_cookie
@@ -1717,16 +1650,12 @@ async def get_all_platform_ratings(
         else:
             print("⚠️ 未登录用户，无法使用豆瓣Cookie")
         
-        # 生成整体缓存键
         cache_key = f"ratings:all:{type}:{id}"
-        
-        # 尝试从缓存获取所有平台数据
         cached_data = await get_cache(cache_key)
         if cached_data:
             print(f"从缓存获取所有平台评分数据，耗时: {time.time() - start_time:.2f}秒")
             return cached_data
         
-        # 获取TMDB信息
         tmdb_info = await get_tmdb_info(id, type, request)
         if not tmdb_info:
             if await request.is_disconnected():
@@ -1734,16 +1663,13 @@ async def get_all_platform_ratings(
                 return None
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
         
-        # 检查请求是否已被取消
         if await request.is_disconnected():
             print("请求在获取TMDB信息后被取消")
             return None
         
-        # 使用 parallel_extract_ratings 并行获取所有平台评分（设置超时）
         from ratings import parallel_extract_ratings
         
         try:
-            # 单个影视的超时控制（最多20秒）
             all_ratings = await asyncio.wait_for(
                 parallel_extract_ratings(tmdb_info, tmdb_info["type"], request, douban_cookie),
                 timeout=20.0
@@ -1752,18 +1678,14 @@ async def get_all_platform_ratings(
             logger.error("获取评分超时（>20秒）")
             raise HTTPException(status_code=504, detail="获取评分超时")
         
-        # 检查请求是否已被取消
         if await request.is_disconnected():
             return None
         
-        # 记录总耗时（在parallel_extract_ratings中已打印详细信息）
         total_time = time.time() - start_time
         
-        # 缓存结果（24小时）
         if all_ratings:
             await set_cache(cache_key, all_ratings, expire=CACHE_EXPIRE_TIME)
         
-        # 添加性能指标
         result = {
             "ratings": all_ratings,
             "_performance": {
@@ -1796,16 +1718,13 @@ async def get_platform_rating(
     """获取指定平台的评分信息，优化缓存和错误处理"""
     start_time = time.time()
     try:
-        # 检查请求是否已被取消
         if await request.is_disconnected():
             print(f"{platform} 请求已在开始时被取消")
             return None
         
-        # 获取用户的豆瓣Cookie（如果已登录且是豆瓣平台）
         douban_cookie = None
         if platform == "douban":
             if current_user:
-                # 刷新数据库会话以获取最新的Cookie值
                 db.refresh(current_user)
                 if current_user.douban_cookie:
                     douban_cookie = current_user.douban_cookie
@@ -1814,17 +1733,13 @@ async def get_platform_rating(
                     print(f"⚠️ 用户 {current_user.id} 未设置豆瓣Cookie")
             else:
                 print("⚠️ 未登录用户，无法使用豆瓣Cookie")
-            
-        # 生成缓存键
-        cache_key = f"rating:{platform}:{type}:{id}"
         
-        # 尝试从缓存获取数据
+        cache_key = f"rating:{platform}:{type}:{id}"
         cached_data = await get_cache(cache_key)
         if cached_data:
             print(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
             return cached_data
 
-        # 获取TMDB信息
         tmdb_info = await get_tmdb_info(id, type, request)
         if not tmdb_info:
             if await request.is_disconnected():
@@ -1832,58 +1747,46 @@ async def get_platform_rating(
                 return None
             raise HTTPException(status_code=404, detail="无法获取 TMDB 信息")
 
-        # 检查请求是否已被取消
         if await request.is_disconnected():
             print(f"{platform} 请求在获取TMDB信息后被取消")
             return None
 
-        # 搜索平台
         search_start_time = time.time()
         search_results = await search_platform(platform, tmdb_info, request, douban_cookie)
 
-        # 检查请求是否已被取消
         if await request.is_disconnected():
             print(f"{platform} 请求在搜索平台后被取消")
             return None
 
-        # 检查搜索结果
         if isinstance(search_results, dict) and search_results.get("status") == "cancelled":
             print(f"{platform} 搜索被取消")
             return None
 
-        # 提取评分信息
         extract_start_time = time.time()
         rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request, douban_cookie)
 
-        # 检查请求是否已被取消
         if await request.is_disconnected():
             print(f"{platform} 请求在获取评分信息后被取消")
             return None
 
-        # 检查评分信息
         if not rating_info:
             if await request.is_disconnected():
                 print(f"{platform} 请求在处理评分信息时被取消")
                 return None
             raise HTTPException(status_code=404, detail=f"未找到 {platform} 的评分信息")
 
-        # 检查评分状态
         if isinstance(rating_info, dict) and rating_info.get("status") == "cancelled":
             print(f"{platform} 评分提取被取消")
             return None
 
-        # 缓存评分信息
-        # 只缓存成功获取的评分信息
         if isinstance(rating_info, dict) and rating_info.get("status") == RATING_STATUS["SUCCESSFUL"]:
             await set_cache(cache_key, rating_info)
             print(f"已缓存 {platform} 评分数据")
         else:
             print(f"不缓存 {platform} 评分数据，状态: {rating_info.get('status')}")
 
-        # 记录总耗时
         total_time = time.time() - start_time
         
-        # 添加性能指标到响应
         if isinstance(rating_info, dict):
             rating_info["_performance"] = {
                 "total_time": round(total_time, 2),
@@ -1895,27 +1798,20 @@ async def get_platform_rating(
         return rating_info
 
     except HTTPException:
-        # 直接重新抛出HTTP异常
         raise
     except Exception as e:
-        # 检查请求是否已被取消
         if await request.is_disconnected():
             print(f"{platform} 请求在发生错误时被取消")
             return None
-            
-        # 记录错误
+        
         print(f"获取 {platform} 评分时出错: {str(e)}")
         print(traceback.format_exc())
-        
-        # 返回HTTP异常
         raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
     finally:
-        # 记录请求完成
         print(f"{platform} 请求处理完成，总耗时: {time.time() - start_time:.2f}秒")
 
 router = APIRouter()
 
-# 创建全局 httpx 客户端用于 TMDB API（复用连接）
 _tmdb_client = None
 
 async def get_tmdb_client():
@@ -1942,21 +1838,13 @@ async def get_tmdb_client():
 async def tmdb_proxy(path: str, request: Request):
     """代理 TMDB API 请求并缓存结果（优化版：HTTP/2 + 连接池 + Bearer Token）"""
     try:
-        # 构建缓存键
         cache_key = f"tmdb:{path}:{request.query_params}"
-        
-        # 尝试从缓存获取
         cached_data = await get_cache(cache_key)
         if cached_data:
             return cached_data
-            
-        # 获取原始查询参数（不需要 api_key，使用 Bearer Token）
+        
         params = dict(request.query_params)
-        
-        # 构建完整的 TMDB URL
         tmdb_url = f"https://api.themoviedb.org/3/{path}"
-        
-        # 使用连接池客户端
         client = await get_tmdb_client()
         
         try:
@@ -1973,10 +1861,7 @@ async def tmdb_proxy(path: str, request: Request):
                     "body": err_json
                 })
             
-            # 解析 JSON
             data = response.json()
-            
-            # 缓存结果
             await set_cache(cache_key, data)
             
             return data
@@ -1995,35 +1880,28 @@ async def tmdb_proxy(path: str, request: Request):
 async def image_proxy(url: str, response: Response):
     """代理图片请求并添加缓存控制"""
     try:
-        # 检查URL格式，如果是相对路径，添加TMDB基础URL
         if url.startswith('/tmdb-images/'):
             url = f"https://image.tmdb.org/t/p{url[12:]}"
         
-        # 添加缓存键
         cache_key = f"img:{url}"
         
-        # 检查Redis缓存
         if redis:
             try:
                 cached_url = await redis.get(cache_key)
                 if cached_url:
-                    # 重定向到缓存的URL
                     response.headers["Location"] = cached_url.decode('utf-8')
                     response.status_code = 302
                     return
             except Exception as redis_error:
                 print(f"Redis缓存错误: {str(redis_error)}")
-                # 继续执行，不依赖缓存
         
-        # 简易 ETag，基于 URL
         etag = 'W/"' + hashlib.md5(url.encode('utf-8')).hexdigest() + '"'
         inm = None
         try:
-            inm = response.headers.get('If-None-Match')  # 注意：Response无请求头；从request无法直接拿，这里简单返回ETag供浏览器缓存
+            inm = response.headers.get('If-None-Match')
         except Exception:
             pass
 
-        # 尝试从 Redis 缓存图片二进制
         cached_item = None
         if redis:
             try:
@@ -2050,13 +1928,9 @@ async def image_proxy(url: str, response: Response):
                         print(f"图片获取失败，状态码: {img_response.status}, URL: {url}")
                         raise HTTPException(status_code=img_response.status, detail="图片获取失败")
                     
-                    # 获取内容类型
                     content_type = img_response.headers.get("Content-Type", "image/jpeg")
-                    
-                    # 读取图片数据
                     image_data = await img_response.read()
                     
-                    # 写入 Redis 二进制缓存
                     if redis:
                         try:
                             await redis.setex(
@@ -2070,7 +1944,6 @@ async def image_proxy(url: str, response: Response):
                         except Exception:
                             pass
 
-                    # 返回并携带缓存头
                     headers = {
                         "Cache-Control": "public, max-age=604800, immutable",
                         "ETag": etag,
@@ -2092,37 +1965,25 @@ async def image_proxy(url: str, response: Response):
 async def trakt_proxy(path: str, request: Request):
     """代理 Trakt API 请求并缓存结果"""
     try:
-        # 构建缓存键
         cache_key = f"trakt:{path}:{request.query_params}"
-        
-        # 尝试从缓存获取
         cached_data = await get_cache(cache_key)
         if cached_data:
             return cached_data
-            
-        # 构建完整的 Trakt URL
+        
         trakt_url = f"https://api.trakt.tv/{path}"
-        
-        # 获取原始查询参数
         params = dict(request.query_params)
-        
-        # 准备请求头
         headers = {
             'Content-Type': 'application/json',
             'trakt-api-version': '2',
             'trakt-api-key': '859d1ad30074136a934c47ba2083cda83620b17b0db8f2d0ec554922116c60a8'
         }
         
-        # 发送请求
         async with aiohttp.ClientSession() as session:
             async with session.get(trakt_url, params=params, headers=headers) as response:
                 if response.status != 200:
                     return HTTPException(status_code=response.status, detail="Trakt API 请求失败")
                 
-                # 获取响应数据
                 data = await response.json()
-                
-                # 缓存结果 
                 await set_cache(cache_key, data)
                 
                 return data
@@ -2130,7 +1991,6 @@ async def trakt_proxy(path: str, request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
 
-# 在主应用中添加路由
 app.include_router(router)
 # ==========================================
 # 6.1 手工榜单录入与聚合（管理员）
@@ -2738,13 +2598,9 @@ async def auto_update_charts(
     require_admin(current_user)
     
     try:
-        # 导入榜单抓取器
         from chart_scrapers import ChartScraper
         
-        # 创建抓取器实例
         scraper = ChartScraper(db)
-        
-        # 执行所有平台的更新
         results = {}
         results['烂番茄电影'] = await scraper.update_rotten_movies()
         results['烂番茄TV'] = await scraper.update_rotten_tv()
@@ -2760,7 +2616,6 @@ async def auto_update_charts(
         results['豆瓣华语剧集'] = await scraper.update_douban_weekly_chinese_tv()
         results['豆瓣全球剧集'] = await scraper.update_douban_weekly_global_tv()
         
-        # 更新调度器的last_update（手动更新也应该记录更新时间）
         from datetime import timezone
         beijing_tz = timezone(timedelta(hours=8))
         update_time = datetime.now(beijing_tz)
@@ -2771,7 +2626,6 @@ async def auto_update_charts(
             scheduler_instance.last_update = update_time
             logger.info(f"手动更新后，更新调度器实例的last_update: {update_time}")
         
-        # 更新数据库中的last_update
         try:
             db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
             if db_status:
@@ -2802,13 +2656,9 @@ async def auto_update_platform_charts(
     require_admin(current_user)
     
     try:
-        # 导入榜单抓取器
         from chart_scrapers import ChartScraper
         
-        # 创建抓取器实例
         scraper = ChartScraper(db)
-        
-        # 定义平台更新方法映射
         platform_updaters = {
             "豆瓣": [
                 scraper.update_douban_weekly_movie,
@@ -2826,7 +2676,6 @@ async def auto_update_platform_charts(
         if platform not in platform_updaters:
             raise HTTPException(status_code=400, detail=f"不支持的平台: {platform}")
         
-        # 执行该平台的所有更新方法
         results = {}
         for i, updater in enumerate(platform_updaters[platform]):
             count = await updater()
@@ -2861,13 +2710,9 @@ async def update_top250_chart(
         if not platform or not chart_name:
             raise HTTPException(status_code=400, detail="缺少必要参数：platform 和 chart_name")
         
-        # 导入榜单抓取器
         from chart_scrapers import ChartScraper
         
-        # 创建抓取器实例
         scraper = ChartScraper(db)
-        
-        # 定义 Top 250 榜单更新方法映射（只包含已实现的方法）
         top250_updaters = {
             "TMDB": {
                 "TMDB Top 250 Movies": scraper.update_tmdb_top250_movies,
@@ -2900,10 +2745,8 @@ async def update_top250_chart(
         if chart_name not in top250_updaters[platform]:
             raise HTTPException(status_code=400, detail=f"平台 {platform} 不支持榜单: {chart_name}")
         
-        # 执行更新
         updater = top250_updaters[platform][chart_name]
         
-        # 如果是豆瓣 Top 250，传递用户的豆瓣 cookie 和 request
         if platform == "豆瓣" and chart_name == "豆瓣 Top 250":
             douban_cookie = current_user.douban_cookie if current_user.douban_cookie else None
             count = await updater(douban_cookie=douban_cookie, request=request)
@@ -2923,7 +2766,6 @@ async def update_top250_chart(
         raise
     except Exception as e:
         error_msg = str(e)
-        # 检查是否是反爬虫检测异常
         if "ANTI_SCRAPING_DETECTED" in error_msg:
             logger.warning(f"更新 Top 250 榜单遇到反爬虫机制: {e}")
             raise HTTPException(
@@ -2967,12 +2809,10 @@ async def test_notification(
 async def get_charts_status(db: Session = Depends(get_db)):
     """获取榜单数据状态"""
     try:
-        # 获取各平台最新的榜单数据统计
         platforms = ["豆瓣", "IMDb", "Letterboxd", "烂番茄", "MTC"]
         status = {}
         
         for platform in platforms:
-            # 获取该平台下所有榜单的最新更新时间
             latest_entries = db.query(
                 ChartEntry.platform,
                 ChartEntry.chart_name,
@@ -2988,7 +2828,6 @@ async def get_charts_status(db: Session = Depends(get_db)):
             
             platform_status = []
             for entry in latest_entries:
-                # 获取该榜单的条目数量
                 count = db.query(ChartEntry).filter(
                     ChartEntry.platform == entry.platform,
                     ChartEntry.chart_name == entry.chart_name,
@@ -3026,12 +2865,10 @@ async def start_scheduler_endpoint(
         from chart_scrapers import start_auto_scheduler
         logger.info(f"用户 {current_user.email} 尝试启动调度器")
         
-        # 启动调度器，传入数据库会话以恢复last_update
         scheduler = await start_auto_scheduler(db_session=db)
         scheduler_status = scheduler.get_status()
         logger.info(f"调度器启动成功，状态: {scheduler_status}")
         
-        # 更新数据库状态
         db_status = SchedulerStatus(
             running=True,
             next_update=datetime.fromisoformat(scheduler_status['next_update'].replace('+08:00', '')),
@@ -3065,7 +2902,6 @@ async def stop_scheduler_endpoint(
         from chart_scrapers import stop_auto_scheduler
         stop_auto_scheduler()
         
-        # 更新数据库状态
         db_status = SchedulerStatus(
             running=False,
             next_update=None,
@@ -3092,10 +2928,8 @@ def calculate_next_update():
     today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
     
     if now_beijing >= today_2130:
-        # 如果已经过了今天的21:30，下次更新是明天21:30
         next_update = today_2130 + timedelta(days=1)
     else:
-        # 如果还没到今天的21:30，下次更新是今天21:30
         next_update = today_2130
     
     return next_update
@@ -3104,7 +2938,6 @@ def calculate_next_update():
 async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
     """获取调度器状态"""
     try:
-        # 优先使用内存中的调度器实例状态（如果存在且运行中）
         from chart_scrapers import scheduler_instance
         if scheduler_instance and scheduler_instance.running:
             status = scheduler_instance.get_status()
@@ -3115,12 +2948,10 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
                 "timestamp": datetime.utcnow().isoformat()
             }
         
-        # 其次尝试从数据库获取状态
         db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
         
         if db_status:
             logger.debug(f"从数据库获取调度器状态: running={db_status.running}")
-            # 动态计算next_update，而不是使用数据库中的旧值
             next_update = calculate_next_update()
             return {
                 "status": "success",
@@ -3172,7 +3003,6 @@ async def startup_event():
     """应用启动时初始化"""
     global redis
     try:
-        # 初始化Redis
         redis = await aioredis.from_url(
             REDIS_URL,
             encoding='utf-8',
@@ -3182,10 +3012,8 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Redis 连接初始化失败: {e}")
         redis = None
-        
-    # 初始化浏览器池
+    
     try:
-        # 使用环境变量配置浏览器池（默认值已优化）
         BROWSER_POOL_SIZE = int(os.getenv("BROWSER_POOL_SIZE", "5"))
         BROWSER_POOL_CONTEXTS = int(os.getenv("BROWSER_POOL_CONTEXTS", "3"))
         BROWSER_POOL_PAGES = int(os.getenv("BROWSER_POOL_PAGES", "5"))
@@ -3199,7 +3027,6 @@ async def startup_event():
     except Exception as e:
         logger.error(f"浏览器池初始化失败: {e}")
     
-    # 生产环境自动启动调度器（可选）
     if os.getenv("ENV") != "development":
         try:
             from chart_scrapers import start_auto_scheduler
@@ -3218,7 +3045,6 @@ async def clear_platform_charts(
     require_admin(current_user)
     
     try:
-        # Top 250 榜单列表（后端存储名称）
         top250_chart_names = [
             "IMDb Top 250 Movies",
             "IMDb Top 250 TV Shows",
@@ -3230,7 +3056,6 @@ async def clear_platform_charts(
             "TMDB Top 250 TV Shows",
         ]
         
-        # 删除指定平台的所有榜单条目（排除 Top 250 榜单）
         deleted_count = db.query(ChartEntry).filter(
             ChartEntry.platform == platform,
             ~ChartEntry.chart_name.in_(top250_chart_names)
@@ -3264,7 +3089,6 @@ async def clear_top250_chart(
         if not platform or not chart_name:
             raise HTTPException(status_code=400, detail="缺少必要参数：platform 和 chart_name")
         
-        # 删除指定平台和榜单名称的所有条目
         deleted_count = db.query(ChartEntry).filter(
             ChartEntry.platform == platform,
             ChartEntry.chart_name == chart_name
@@ -3306,7 +3130,6 @@ async def clear_all_charts(
             "TMDB Top 250 TV Shows",
         ]
         
-        # 删除所有榜单条目（排除 Top 250 榜单）
         deleted_count = db.query(ChartEntry).filter(
             ~ChartEntry.chart_name.in_(top250_chart_names)
         ).delete()
@@ -3325,14 +3148,12 @@ async def clear_all_charts(
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭时清理资源"""
-    # 清理浏览器池
     try:
         await browser_pool.cleanup()
         print("浏览器池已清理")
     except Exception as e:
         print(f"浏览器池清理失败: {e}")
     
-    # 清理 TMDB 客户端连接池
     global _tmdb_client
     if _tmdb_client and not _tmdb_client.is_closed:
         try:
@@ -3340,3 +3161,4 @@ async def shutdown_event():
             print("TMDB 客户端连接池已关闭")
         except Exception as e:
             print(f"TMDB 客户端清理失败: {e}")
+            
