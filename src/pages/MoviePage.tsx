@@ -161,6 +161,14 @@ export default function MoviePage() {
 
     setIsExporting(true);
 
+    await new Promise(resolve => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTimeout(() => resolve(null), 0);
+        });
+      });
+    });
+
     try {
       const element = document.getElementById('export-content');
       if (!element) throw new Error('导出元素不存在');
