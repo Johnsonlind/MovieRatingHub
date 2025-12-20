@@ -1,14 +1,11 @@
 # ==========================================
-# 数据库模型 - SQLAlchemy ORM模型定义
-# 包含: 用户、收藏、收藏列表、关注、榜单条目、密码重置、调度器状态
+# 数据库模型
 # ==========================================
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, text
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.mysql import LONGTEXT
 from datetime import datetime
-from sqlalchemy.sql import text
 
-# 数据库连接配置
 SQLALCHEMY_DATABASE_URL = "mysql+pymysql://ratefuse_user:L1994z0912x.@localhost/ratefuse"
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
@@ -139,9 +136,9 @@ class SchedulerStatus(Base):
     next_update = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
 
-# 创建数据库表
 def init_db():
     Base.metadata.create_all(bind=engine)
 
 if __name__ == "__main__":
     init_db()
+    
