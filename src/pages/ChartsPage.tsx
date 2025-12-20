@@ -254,48 +254,86 @@ export default function ChartsPage() {
     if (!element || exportingChart) return;
 
     setExportingChart(chartKey);
+
+    await new Promise(resolve => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTimeout(() => resolve(null), 0);
+        });
+      });
+    });
+    
     try {
       const chart = sortedCharts?.find(c => 
         c.platform === platform && c.chart_name === chartName
       );
       
       if (chart && element) {
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                        (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
+
+        const maxConcurrent = isMobile ? 3 : 8;
+        const timeout = isMobile ? 3000 : 5000;
+        
         const { getBase64Image } = await import('../api/image');
         
-        const posterPromises = chart.entries
+        const entriesToConvert = chart.entries
           .sort((a, b) => a.rank - b.rank)
-          .map(async (entry) => {
-            if (entry.poster && entry.poster.trim() !== '') {
-              try {
-                const base64 = await getBase64Image(entry.poster);
-                
-                const images = element.getElementsByTagName('img');
-                for (let i = 0; i < images.length; i++) {
-                  const img = images[i];
-                  if (img.getAttribute('alt') === entry.title) {
-                    img.src = base64;
-                    await new Promise<void>((resolve) => {
-                      if (img.complete && img.naturalWidth > 0) {
-                        resolve();
-                      } else {
-                        img.onload = () => resolve();
-                        img.onerror = () => resolve();
-                        setTimeout(() => resolve(), 5000);
-                      }
-                    });
-                    break;
-                  }
+          .filter(entry => entry.poster && entry.poster.trim() !== '');
+
+        for (let i = 0; i < entriesToConvert.length; i += maxConcurrent) {
+          const batch = entriesToConvert.slice(i, i + maxConcurrent);
+          
+          const batchPromises = batch.map(async (entry) => {
+            try {
+              const base64 = await getBase64Image(entry.poster!);
+              
+              const images = element.getElementsByTagName('img');
+              for (let j = 0; j < images.length; j++) {
+                const img = images[j];
+                if (img.getAttribute('alt') === entry.title) {
+                  img.src = base64;
+                  await new Promise<void>((resolve) => {
+                    if (img.complete && img.naturalWidth > 0) {
+                      resolve();
+                    } else {
+                      img.onload = () => resolve();
+                      img.onerror = () => resolve();
+                      setTimeout(() => resolve(), timeout);
+                    }
+                  });
+                  break;
                 }
-              } catch (error) {
-                console.warn(`海报转换失败 (${entry.title}):`, error);
               }
+            } catch (error) {
+              console.warn(`海报转换失败 (${entry.title}):`, error);
             }
           });
-        
-        await Promise.all(posterPromises);
+          
+          await Promise.all(batchPromises);
+
+          if (isMobile && i + maxConcurrent < entriesToConvert.length) {
+            await new Promise(resolve => {
+              requestAnimationFrame(() => {
+                setTimeout(() => resolve(null), 0);
+              });
+            });
+            await new Promise(resolve => setTimeout(resolve, 30));
+          }
+        }
       }
-      
+
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          setTimeout(() => resolve(null), 0);
+        });
+      });
+
       const images = element.getElementsByTagName('img');
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                      (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
+      const timeout = isMobile ? 3000 : 5000;
+      
       const imagePromises = Array.from(images).map(img => {
         if (img.complete && img.naturalWidth > 0) {
           return Promise.resolve();
@@ -303,12 +341,12 @@ export default function ChartsPage() {
         return new Promise<void>((resolve) => {
           img.onload = () => resolve();
           img.onerror = () => resolve();
-          setTimeout(() => resolve(), 5000);
+          setTimeout(() => resolve(), timeout);
         });
       });
       
       await Promise.all(imagePromises);
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, isMobile ? 100 : 200));
 
       const fileName = `${platform}-${chartName}`.replace(/[/\\?%*:|"<>]/g, '-');
       await exportToPng(element, `${fileName}.png`, { isChart: true });
