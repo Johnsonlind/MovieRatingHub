@@ -1,28 +1,21 @@
 # ==========================================
-# 榜单抓取器 - 多平台榜单数据抓取和TMDB匹配
-# 功能: 抓取各平台榜单、匹配TMDB ID、定时自动更新、Telegram通知
-# 支持平台: 豆瓣、IMDB、Letterboxd、烂番茄、Metacritic、TMDB、Trakt
+# 榜单抓取器
 # ==========================================
-
 import asyncio
 import re
 import time
 import logging
-import os
 import httpx
-from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import List, Dict, Optional, TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
-from playwright.async_api import Page
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, not_, func
 
 from browser_pool import browser_pool
-from models import ChartEntry, engine, SessionLocal
+from models import ChartEntry, SessionLocal
 
 if TYPE_CHECKING:
     from starlette.requests import Request
 
-# 设置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -53,9 +46,7 @@ class ChartScraper:
         tmdb_title = (info.get('title') or '').strip()
         tmdb_name = (info.get('name') or '').strip()
         return zh_title or tmdb_title or tmdb_name or fallback_title
-        
-        # 豆瓣榜单抓取
-            
+
     async def scrape_douban_weekly_movie_chart(self) -> List[Dict]:
         """抓取豆瓣一周口碑榜（电影）"""
         async def scrape_with_browser(browser):
@@ -64,19 +55,15 @@ class ChartScraper:
                 await page.goto("https://movie.douban.com/", wait_until="domcontentloaded")
                 await asyncio.sleep(3)
                 
-                # 等待页面完全加载
                 await page.wait_for_load_state("networkidle")
                 
-                # 额外等待，确保所有内容都加载完成
                 await asyncio.sleep(3)
                 
-                # 等待特定元素出现
                 try:
                     await page.wait_for_selector('#billboard .billboard-bd table tr', timeout=10000)
                 except:
                     pass
                 
-                # 查找一周口碑榜 - 考虑tbody标签
                 chart_items = await page.query_selector_all('#billboard .billboard-bd table tbody tr')
                 results = []
                 
@@ -85,17 +72,14 @@ class ChartScraper:
                     await asyncio.sleep(2)
                     chart_items = await page.query_selector_all('#billboard .billboard-bd table tr')
                 
-                # 使用CSS选择器直接获取数据
                 logger.info("使用CSS选择器获取豆瓣一周口碑榜数据...")
                 logger.info(f"找到 {len(chart_items)} 个表格行")
-                for i, item in enumerate(chart_items, 1):  # 不跳过任何行
+                for i, item in enumerate(chart_items, 1):
                     try:
                         title_elem = await item.query_selector('.title a')
                         if title_elem:
                             title = await title_elem.inner_text()
                             url = await title_elem.get_attribute('href')
-                            
-                            # 提取豆瓣ID
                             douban_id = re.search(r'/subject/(\d+)/', url)
                             if douban_id and title.strip():
                                 results.append({
@@ -109,17 +93,13 @@ class ChartScraper:
                         logger.error(f"处理豆瓣电影榜单项时出错: {e}")
                         continue
                 
-                # 如果CSS选择器没有获取到数据，尝试JavaScript
                 if not results:
-                    # 使用找到的选择器解析数据
                     for i, item in enumerate(chart_items[1:], 1):  # 跳过表头
                         try:
                             title_elem = await item.query_selector('.title a')
                             if title_elem:
                                 title = await title_elem.inner_text()
                                 url = await title_elem.get_attribute('href')
-                                
-                                # 提取豆瓣ID
                                 douban_id = re.search(r'/subject/(\d+)/', url)
                                 if douban_id and title.strip():
                                     results.append({
@@ -138,7 +118,7 @@ class ChartScraper:
                 await page.close()
                 
         return await browser_pool.execute_in_browser(scrape_with_browser)
-    
+
     async def scrape_douban_weekly_global_tv_chart(self) -> List[Dict]:
         """抓取豆瓣一周全球剧集口碑榜 - 使用 requests 并统一返回字段"""
         try:
@@ -165,7 +145,6 @@ class ChartScraper:
             except Exception:
                 data = json.loads(resp.text)
 
-            # 取实际列表
             if isinstance(data, dict) and 'subject_collection_items' in data:
                 items = data['subject_collection_items']
             elif isinstance(data, list):
@@ -179,7 +158,6 @@ class ChartScraper:
                 douban_id = item.get('id') or ''
                 if not douban_id:
                     uri = item.get('uri') or ''
-                    # 兜底从 uri 提取
                     if '/subject/' in uri:
                         douban_id = uri.split('/subject/')[-1].split('/')[0]
                 results.append({
@@ -215,12 +193,10 @@ class ChartScraper:
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 
-                # 查找IMDb链接
                 imdb_links = soup.find_all('a', href=lambda x: x and 'imdb.com' in x)
                 for link in imdb_links:
                     href = link.get('href', '')
                     if '/title/tt' in href:
-                        # 提取IMDb ID (tt开头)
                         imdb_id = href.split('/title/')[-1].rstrip('/')
                         if imdb_id.startswith('tt'):
                             logger.info(f"从豆瓣详情页获取到IMDb ID: {imdb_id}")
@@ -230,7 +206,6 @@ class ChartScraper:
                 imdb_spans = soup.find_all('span', class_='pl')
                 for span in imdb_spans:
                     if span.get_text().strip() == 'IMDb:':
-                        # 1) 尝试紧邻文本兄弟节点（非标签）
                         sibling_text = getattr(span.next_sibling, 'strip', lambda: str(span.next_sibling))()
                         if sibling_text:
                             import re as _re
@@ -240,7 +215,6 @@ class ChartScraper:
                                 logger.info(f"从豆瓣详情页文本兄弟节点获取到IMDb ID: {imdb_text}")
                                 return imdb_text
 
-                        # 2) 尝试下一个span兄弟节点
                         next_span = span.find_next_sibling('span')
                         if next_span:
                             imdb_text = next_span.get_text().strip()
@@ -248,7 +222,6 @@ class ChartScraper:
                                 logger.info(f"从豆瓣详情页相邻span中获取到IMDb ID: {imdb_text}")
                                 return imdb_text
 
-                        # 3) 兜底：在整页HTML中用正则提取
                         import re as _re2
                         m2 = _re2.search(r'<span class="pl">IMDb:</span>\s*([tT]{2}\d+)<br>', response.text)
                         if m2:
@@ -256,16 +229,15 @@ class ChartScraper:
                             logger.info(f"从豆瓣详情页HTML中获取到IMDb ID: {imdb_text}")
                             return imdb_text
                 
-                logger.warning(f"豆瓣详情页 {url} 中未找到IMDb ID")
-                return None
+                        logger.warning(f"豆瓣详情页 {url} 中未找到IMDb ID")
+                        return None
             else:
                 logger.error(f"访问豆瓣详情页失败，状态码: {response.status_code}")
                 return None
-                
         except Exception as e:
             logger.error(f"获取豆瓣IMDb ID失败: {e}")
             return None
-    
+
     async def scrape_douban_weekly_chinese_tv_chart(self) -> List[Dict]:
         """抓取豆瓣一周华语剧集口碑榜 - 使用 requests 并统一返回字段"""
         try:
@@ -322,8 +294,6 @@ class ChartScraper:
             logger.error(f"抓取豆瓣华语剧集榜失败: {e}")
             return []
 
-        # IMDb榜单抓取
-        
     async def scrape_imdb_top_10(self) -> List[Dict]:
         """抓取IMDB Top 10 this week - 使用GraphQL API"""
         try:
@@ -333,17 +303,14 @@ class ChartScraper:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             
-            # IMDB GraphQL API URL
             api_url = "https://api.graphql.imdb.com/"
             
-            # 请求参数 - 使用用户提供的正确参数
             params = {
                 "operationName": "BatchPage_HomeMain",
                 "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
                 "extensions": '{"persistedQuery":{"sha256Hash":"03e004c2a40a23d81397d93eb497f2728ab23a5e02edfb4d7b89ac8b23b6dd1f","version":1}}'
             }
             
-            # 设置请求头
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'application/json, text/plain, */*',
@@ -359,14 +326,11 @@ class ChartScraper:
                 'Origin': 'https://www.imdb.com'
             }
             
-            # 使用requests发送请求
             response = requests.get(api_url, params=params, headers=headers, timeout=30, verify=False)
             logger.info(f"IMDb API响应状态: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
-
-                # 解析Top 10数据（优先 data.topMeterTitles，其次 batch.responseList[*].data.topMeterTitles）
                 results = []
                 top_edges = (data.get("data", {}).get("topMeterTitles", {}) or {}).get("edges", [])
                 if not top_edges:
@@ -400,13 +364,12 @@ class ChartScraper:
                                 "url": f"https://www.imdb.com/title/{imdb_id}/"
                             })
 
-                # 排序并只取前10
                 results.sort(key=lambda x: x["rank"])
                 results = results[:10]
 
                 logger.info(f"IMDb Top 10 获取到 {len(results)} 条（GraphQL）")
-                return results   
-            else: 
+                return results
+            else:
                 logger.error(f"IMDB API请求失败: {response.status_code}")
                 error_text = response.text
                 logger.error(f"错误响应: {error_text[:500]}")
@@ -417,9 +380,7 @@ class ChartScraper:
             import traceback
             logger.error(traceback.format_exc())
             return []
-            
-        # Letterboxd榜单抓取
-        
+
     async def scrape_letterboxd_popular(self) -> List[Dict]:
         """抓取Letterboxd Popular films this week"""
         async def scrape_with_browser(browser):
@@ -428,19 +389,15 @@ class ChartScraper:
                 await page.goto("https://letterboxd.com/films/", wait_until="domcontentloaded")
                 await asyncio.sleep(2)
                 
-                # 查找Popular films this week
                 popular_items = await page.query_selector_all('#popular-films .poster-list li')
                 results = []
                 
                 for i, item in enumerate(popular_items[:10], 1):
                     try:
-                        # 获取标题和链接
                         title_elem = await item.query_selector('[data-item-name]')
                         if title_elem:
                             title = await title_elem.get_attribute('data-item-name')
                             link = await title_elem.get_attribute('data-item-link')
-                            
-                            # 获取Letterboxd ID
                             film_id = await title_elem.get_attribute('data-film-id')
                             
                             if title and link and film_id:
@@ -460,9 +417,6 @@ class ChartScraper:
                 
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
-        # 烂番茄榜单抓取
-        
-
     async def _rt_extract_itemlist(self, url: str, item_type: str) -> List[Dict]:
         """使用浏览器读取 JSON-LD ItemList，并返回标准化的条目数组
         item_type: 'Movie' | 'TVSeries'
@@ -471,20 +425,12 @@ class ChartScraper:
         async def scrape(browser):
             page = await browser.new_page()
             try:
-                # 设置更长的超时时间，特别是针对烂番茄网站
-                page.set_default_timeout(120000)  # 2分钟超时
-                
-                # 使用更宽松的加载策略
+                page.set_default_timeout(120000)
                 await page.goto(url, wait_until="domcontentloaded", timeout=120000)
-                
-                # 等待页面完全加载，但设置合理的超时时间
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=60000)  # 1分钟网络空闲等待
+                    await page.wait_for_load_state("networkidle", timeout=60000)
                 except Exception:
-                    # 如果网络空闲等待超时，继续执行，可能数据已经加载完成
                     logger.warning("网络空闲等待超时，继续执行")
-                
-                # 额外等待一段时间确保动态内容加载完成
                 await asyncio.sleep(3)
                 
                 handles = await page.query_selector_all('script[type="application/ld+json"]')
@@ -543,13 +489,11 @@ class ChartScraper:
                 return []
             finally:
                 await page.close()
-        # 延迟导入以避免顶部循环依赖
-        import json  # noqa
+        import json
         return await browser_pool.execute_in_browser(scrape)
 
     async def update_rotten_movies(self) -> int:
         """烂番茄 Popular Streaming Movies：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='烂番茄',
             ChartEntry.chart_name=='Popular Streaming Movies'
@@ -558,8 +502,6 @@ class ChartScraper:
         
         matcher = TMDBMatcher(self.db)
         url = 'https://www.rottentomatoes.com/browse/movies_at_home/sort:popular'
-        
-        # 添加重试机制
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -573,7 +515,7 @@ class ChartScraper:
                 if attempt == max_retries - 1:
                     logger.error("烂番茄电影榜单抓取最终失败")
                     return 0
-                await asyncio.sleep(5 * (attempt + 1))  # 递增等待时间
+                await asyncio.sleep(5 * (attempt + 1))
         
         saved = 0
         rank = 1
@@ -604,7 +546,6 @@ class ChartScraper:
                 rank += 1
                 continue
             
-            # 直接插入新数据（已清空旧数据）
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
             self.db.add(ChartEntry(
                 platform='烂番茄',
@@ -623,7 +564,6 @@ class ChartScraper:
 
     async def update_letterboxd_popular(self) -> int:
         """Letterboxd Popular films this week：进入详情解析 data-tmdb-id，匹配 TMDB 并入库"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='Letterboxd',
             ChartEntry.chart_name=='Popular films this week'
@@ -655,7 +595,6 @@ class ChartScraper:
             match = None
             actual_media_type = 'movie'
             if tmdb_id:
-                # 先尝试作为 movie
                 info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                 if info:
                     match = {
@@ -665,7 +604,6 @@ class ChartScraper:
                         'media_type': 'movie'
                     }
                 else:
-                    # 如果 movie 查询失败，尝试作为 tv
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if info:
                         match = {
@@ -676,7 +614,6 @@ class ChartScraper:
                         }
                         actual_media_type = 'tv'
             if not match:
-                # fallback by title - 先尝试 movie
                 for attempt in range(3):
                     try:
                         mid = await matcher.match_by_title_and_year(title, 'movie')
@@ -695,7 +632,6 @@ class ChartScraper:
                     except Exception:
                         if attempt < 2:
                             await asyncio.sleep(2 ** attempt)
-                # 如果 movie 匹配失败，尝试 tv
                 if not match:
                     for attempt in range(3):
                         try:
@@ -721,7 +657,6 @@ class ChartScraper:
                 rank += 1
                 continue
             
-            # 直接插入新数据（已清空旧数据）
             self.db.add(ChartEntry(
                 platform='Letterboxd',
                 chart_name='Popular films this week',
@@ -756,7 +691,6 @@ class ChartScraper:
             return None
 
     async def update_metacritic_movies(self) -> int:
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='MTC',
             ChartEntry.chart_name=='Trending Movies This Week'
@@ -778,7 +712,6 @@ class ChartScraper:
             if imdb_id:
                 match = await matcher.match_imdb_with_tmdb(imdb_id, title, 'movie')
             if not match:
-                # fallback by title
                 mid = await matcher.match_by_title_and_year(title, 'movie')
                 if mid:
                     info = await matcher.get_tmdb_info(mid, 'movie')
@@ -789,7 +722,6 @@ class ChartScraper:
                 rank += 1
                 continue
             
-            # 直接插入新数据（已清空旧数据）
             self.db.add(ChartEntry(
                 platform='MTC',
                 chart_name='Trending Movies This Week',
@@ -806,7 +738,6 @@ class ChartScraper:
         return saved
 
     async def update_metacritic_shows(self) -> int:
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='MTC',
             ChartEntry.chart_name=='Trending Shows This Week'
@@ -828,7 +759,6 @@ class ChartScraper:
             if imdb_id:
                 match = await matcher.match_imdb_with_tmdb(imdb_id, title, 'tv')
             if not match:
-                # fallback by title
                 mid = await matcher.match_by_title_and_year(title, 'tv')
                 if mid:
                     info = await matcher.get_tmdb_info(mid, 'tv')
@@ -839,7 +769,6 @@ class ChartScraper:
                 rank += 1
                 continue
             
-            # 直接插入新数据（已清空旧数据）
             self.db.add(ChartEntry(
                 platform='MTC',
                 chart_name='Trending Shows This Week',
@@ -863,7 +792,6 @@ class ChartScraper:
 
         def fetch_from_remote_panel() -> list[dict]:
             try:
-                # 与网页一致的数据源（顺序即为展示顺序）
                 panel_url = "https://www.themoviedb.org/remote/panel?panel=trending_scroller&group=this-week"
                 headers_html = {
                     'User-Agent': 'Mozilla/5.0',
@@ -878,8 +806,6 @@ class ChartScraper:
                 soup = BeautifulSoup(html, 'html.parser')
                 items: list[dict] = []
                 seen: set[tuple[str,int]] = set()
-
-                # 链接通常形如 /movie/123 | /tv/456
                 for a in soup.select('a[href^="/movie/"] , a[href^="/tv/"]'):
                     href = a.get('href') or ''
                     m = re.match(r'^/(movie|tv)/(\d+)', href)
@@ -889,7 +815,6 @@ class ChartScraper:
                     key = (media_type, sid)
                     if key in seen:
                         continue
-                    # 标题可从 a 的 title 或文本获取（若无则留空，后续 TMDB 补齐）
                     title = (a.get('title') or a.get_text(strip=True) or '').strip()
                     items.append({'media_type': media_type, 'tmdb_id': sid, 'title': title})
                     seen.add(key)
@@ -900,7 +825,6 @@ class ChartScraper:
                 return []
 
         def fetch_from_official_api() -> list[dict]:
-            # 回退：官方 API（顺序为趋势排序）
             tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
             headers_api = {
                 'Authorization': f'Bearer {tmdb_token}',
@@ -923,22 +847,18 @@ class ChartScraper:
             except Exception:
                 return []
 
-        # 先用页面顺序数据源
         items = fetch_from_remote_panel()
         if not items:
-            # 回退API
             items = fetch_from_official_api()
         if not items:
             logger.error("TMDB 趋势本周：页面与API均无结果")
             return 0
 
-        # 清空现有数据
         self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'TMDB',
             ChartEntry.chart_name == '趋势本周'
         ).delete()
 
-        # 入库（按 items 顺序赋 rank），补齐标题与海报
         saved = 0
         matcher = TMDBMatcher(self.db)
         for idx, item in enumerate(items[:10], 1):
@@ -973,15 +893,11 @@ class ChartScraper:
         import requests
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'TMDB',
             ChartEntry.chart_name == 'TMDB Top 250 Movies'
         ).delete()
         logger.info(f"TMDB Top 250 Movies: 清空旧数据 {deleted} 条")
-        
-        # TMDB API Token
         tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
         headers = {
             'Authorization': f'Bearer {tmdb_token}',
@@ -991,8 +907,7 @@ class ChartScraper:
         matcher = TMDBMatcher(self.db)
         all_items = []
         
-        # TMDB API 每页返回 20 条，需要获取 250 条，所以需要 13 页（250/20 = 12.5，向上取整）
-        for page in range(1, 14):  # 1-13 页
+        for page in range(1, 14):
             try:
                 url = f"https://api.themoviedb.org/3/movie/top_rated?page={page}"
                 response = requests.get(url, headers=headers, timeout=20, verify=False)
@@ -1016,35 +931,28 @@ class ChartScraper:
                             'poster_path': item.get('poster_path', '')
                         })
                 
-                # 如果已经获取了 250 条，停止
                 if len(all_items) >= 250:
                     break
                     
-                # 避免请求过快
                 await asyncio.sleep(0.3)
                 
             except Exception as e:
                 logger.error(f"TMDB Top 250 Movies 获取第 {page} 页失败: {e}")
                 continue
         
-        # 限制为 250 条
         all_items = all_items[:250]
         
-        # 入库
         saved = 0
         for rank, item in enumerate(all_items, 1):
             tmdb_id = item['tmdb_id']
             title = item.get('title', '')
             poster_path = item.get('poster_path', '')
-            
             try:
-                # 获取详细信息以获取中文标题和完整海报URL
                 info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                 if info:
                     title = self._safe_get_title(info, title)
                     poster = info.get('poster_url', '')
                 else:
-                    # 如果获取详细信息失败，使用API返回的数据
                     poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
             except Exception as e:
                 logger.warning(f"TMDB Top 250 Movies 获取详细信息失败 (rank {rank}, tmdb_id {tmdb_id}): {e}")
@@ -1070,15 +978,11 @@ class ChartScraper:
         import requests
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'TMDB',
             ChartEntry.chart_name == 'TMDB Top 250 TV Shows'
         ).delete()
         logger.info(f"TMDB Top 250 TV Shows: 清空旧数据 {deleted} 条")
-        
-        # TMDB API Token
         tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
         headers = {
             'Authorization': f'Bearer {tmdb_token}',
@@ -1088,8 +992,7 @@ class ChartScraper:
         matcher = TMDBMatcher(self.db)
         all_items = []
         
-        # TMDB API 每页返回 20 条，需要获取 250 条，所以需要 13 页（250/20 = 12.5，向上取整）
-        for page in range(1, 14):  # 1-13 页
+        for page in range(1, 14):
             try:
                 url = f"https://api.themoviedb.org/3/tv/top_rated?page={page}"
                 response = requests.get(url, headers=headers, timeout=20, verify=False)
@@ -1113,35 +1016,28 @@ class ChartScraper:
                             'poster_path': item.get('poster_path', '')
                         })
                 
-                # 如果已经获取了 250 条，停止
                 if len(all_items) >= 250:
                     break
                     
-                # 避免请求过快
                 await asyncio.sleep(0.3)
                 
             except Exception as e:
                 logger.error(f"TMDB Top 250 TV Shows 获取第 {page} 页失败: {e}")
                 continue
         
-        # 限制为 250 条
         all_items = all_items[:250]
         
-        # 入库
         saved = 0
         for rank, item in enumerate(all_items, 1):
             tmdb_id = item['tmdb_id']
             title = item.get('title', '')
             poster_path = item.get('poster_path', '')
-            
             try:
-                # 获取详细信息以获取中文标题和完整海报URL
                 info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                 if info:
                     title = self._safe_get_title(info, title)
                     poster = info.get('poster_url', '')
                 else:
-                    # 如果获取详细信息失败，使用API返回的数据
                     poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
             except Exception as e:
                 logger.warning(f"TMDB Top 250 TV Shows 获取详细信息失败 (rank {rank}, tmdb_id {tmdb_id}): {e}")
@@ -1168,7 +1064,6 @@ class ChartScraper:
             context = None
             page = None
             try:
-                # 创建浏览器上下文，设置真实的 User-Agent 和 headers（避免被识别为自动化工具）
                 context_options = {
                     'viewport': {'width': 1920, 'height': 1080},
                     'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -1193,17 +1088,13 @@ class ChartScraper:
                         'Cache-Control': 'max-age=0'
                     }
                 }
-                
                 context = await browser.new_context(**context_options)
                 page = await context.new_page()
                 page.set_default_timeout(60000)
-                
-                # 先访问 IMDb 首页，建立会话（降低被识别为爬虫的概率）
                 logger.info("访问 IMDb 首页建立会话...")
                 try:
                     await page.goto("https://www.imdb.com/", wait_until="domcontentloaded", timeout=30000)
                     await asyncio.sleep(2)
-                    # 模拟人类行为：随机滚动
                     await page.evaluate("window.scrollTo(0, Math.random() * 500)")
                     await asyncio.sleep(1)
                 except Exception as e:
@@ -1211,36 +1102,29 @@ class ChartScraper:
                 
                 logger.info(f"访问 IMDb Top 250 页面: {chart_url}")
                 await page.goto(chart_url, wait_until="networkidle", timeout=60000)
-                await asyncio.sleep(5)  # 增加等待时间，让 JavaScript 完全加载
+                await asyncio.sleep(5)
                 
-                # 滚动页面以触发懒加载，确保所有内容都加载
                 logger.info("滚动页面以加载所有内容...")
                 import re
                 last_json_count = 0
                 scroll_attempts = 0
-                max_scroll_attempts = 15  # 最多滚动15次，确保加载所有250个项目
+                max_scroll_attempts = 15
                 
                 while scroll_attempts < max_scroll_attempts:
-                    # 滚动到底部
                     await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                     await asyncio.sleep(2)  # 等待懒加载
                     
-                    # 检查页面源代码中的 JSON 数据数量
                     page_content = await page.content()
-                    # 统计 currentRank 的数量
                     rank_count = len(re.findall(r'"currentRank":\d+', page_content))
                     
                     logger.debug(f"滚动尝试 {scroll_attempts + 1}: 找到 {rank_count} 个排名数据")
                     
-                    # 如果找到250个或更多，说明加载完成
                     if rank_count >= 250:
                         logger.info(f"已加载所有内容，找到 {rank_count} 个排名数据")
                         break
                     
-                    # 如果数量不再增长，可能已经加载完成
                     if rank_count == last_json_count and rank_count > 0:
                         logger.debug(f"排名数据数量未增加，可能已加载完成（{rank_count} 个）")
-                        # 再等待一下，确保没有更多内容加载
                         await asyncio.sleep(2)
                         page_content = await page.content()
                         new_count = len(re.findall(r'"currentRank":\d+', page_content))
@@ -1251,42 +1135,28 @@ class ChartScraper:
                     last_json_count = rank_count
                     scroll_attempts += 1
                 
-                # 滚动回顶部
                 await page.evaluate("window.scrollTo(0, 0)")
                 await asyncio.sleep(1)
                 
-                # 从页面源代码中提取 JSON 数据
                 chart_data = []
                 logger.info("从页面源代码提取 JSON 数据")
                 try:
-                    # 获取页面源代码
                     page_content = await page.content()
                     import re
                     import json
                     
-                    # 匹配模式：查找包含 currentRank 和 id 的 JSON 对象
-                    # Movies 格式: {"currentRank":250,"node":{"id":"tt8108198","titleText":{"text":"Andhadhun"
-                    # TV Shows 格式: {"currentRank":250,"node":{"episodes":...},"id":"tt3895150","titleText":{"text":"Shigatsu wa kimi no uso"
-                    # 使用分段匹配：先找到 currentRank，然后在后续内容中查找 id 和 titleText
-                    # 这样可以处理 node 对象中可能包含的任意字段（如 episodes）
-                    
-                    # 查找所有 currentRank 的位置
                     rank_matches = list(re.finditer(r'"currentRank":(\d+)', page_content))
                     logger.info(f"在页面源代码中找到 {len(rank_matches)} 个 currentRank")
                     
                     for rank_match in rank_matches:
                         rank = int(rank_match.group(1))
                         start_pos = rank_match.start()
-                        # 在 currentRank 后面的合理范围内查找 id 和 titleText（最多5000字符）
                         segment = page_content[start_pos:start_pos + 5000]
                         
-                        # 查找 id（必须在 node 对象内，格式："id":"tt1234567"）
                         id_match = re.search(r'"id":"(tt\d+)"', segment)
                         if not id_match:
                             continue
                         
-                        # 查找 titleText（必须在 node 对象内，且在 id 之后）
-                        # titleText 格式: "titleText":{"text":"Title Name"
                         title_match = re.search(r'"titleText":\s*\{[^}]*"text":\s*"([^"]+)"', segment)
                         if not title_match:
                             continue
@@ -1294,9 +1164,7 @@ class ChartScraper:
                         imdb_id = id_match.group(1)
                         title = title_match.group(1)
                         
-                        # 检查是否已经添加过（避免重复）
                         if not any(m.get("currentRank") == rank and m.get("node", {}).get("id") == imdb_id for m in chart_data):
-                            # 解码转义字符
                             title = title.replace('\\"', '"').replace('\\n', ' ').replace('\\/', '/').replace('\\\\', '\\')
                             chart_data.append({
                                 "currentRank": rank,
@@ -1307,14 +1175,12 @@ class ChartScraper:
                             })
                     
                     if chart_data:
-                        # 按排名排序
                         chart_data.sort(key=lambda x: x.get("currentRank", 0))
                         logger.info(f"从页面源代码提取到 {len(chart_data)} 条数据")
                         matches = []  # 清空 matches，避免重复处理
                     else:
                         matches = []
                     
-                    # 如果还是没找到，尝试从 DOM 提取（作为后备方案）
                     if not chart_data:
                         logger.warning("JSON 提取失败，尝试从 DOM 提取数据（后备方案）...")
                         items = await page.query_selector_all('a[href*="/title/tt"]')
@@ -1322,7 +1188,6 @@ class ChartScraper:
                         
                         for item in items[:250]:
                             try:
-                                # 获取链接元素
                                 if item.tag_name == 'a':
                                     link = item
                                 else:
@@ -1333,40 +1198,30 @@ class ChartScraper:
                                     if not href:
                                         continue
                                     
-                                    # 提取 IMDb ID
                                     imdb_match = re.search(r'/title/(tt\d+)/', href)
                                     if not imdb_match:
                                         continue
                                     
                                     imdb_id = imdb_match.group(1)
                                     
-                                    # 从 ref 参数中提取排名
-                                    # Movies: chttp_t_1 或 chttp_t_1
-                                    # TV Shows: chttvtp_t_1
                                     rank = None
-                                    # 尝试 TV Shows 格式：chttvtp_t_1
                                     rank_match = re.search(r'chttvtp_t_(\d+)', href)
                                     if rank_match:
                                         rank = int(rank_match.group(1))
                                     else:
-                                        # 尝试 Movies 格式：chttp_t_1
                                         rank_match = re.search(r'chttp_t[^_]*_(\d+)', href)
                                         if rank_match:
                                             rank = int(rank_match.group(1))
                                         else:
-                                            # 尝试其他格式：chttp_tv_1
                                             rank_match = re.search(r'chttp_tv?_(\d+)', href)
                                             if rank_match:
                                                 rank = int(rank_match.group(1))
                                     
-                                    # 如果还没有找到排名，尝试从父元素查找排名元素
                                     if not rank:
                                         try:
-                                            # 查找排名元素（可能在父容器中）
                                             if item.tag_name != 'a':
                                                 rank_elem = await item.query_selector('.ipc-title-link-number, [class*="rank"], [class*="position"], span[class*="rank"]')
                                             else:
-                                                # 如果是 a 标签，查找父元素
                                                 parent = await link.evaluate_handle('el => el.closest("li, div, tr")')
                                                 if parent:
                                                     rank_elem = await parent.query_selector('.ipc-title-link-number, [class*="rank"], [class*="position"], span[class*="rank"]')
@@ -1381,17 +1236,14 @@ class ChartScraper:
                                         except Exception as e:
                                             logger.debug(f"查找排名元素失败: {e}")
                                     
-                                    # 如果没有找到排名，使用索引（作为后备方案）
                                     if not rank:
                                         rank = len(chart_data) + 1
                                     
-                                    # 获取标题
                                     title_elem = await link.query_selector('h3.ipc-title__text, .ipc-title__text, h3')
                                     title = ""
                                     if title_elem:
                                         title = await title_elem.inner_text()
                                     else:
-                                        # 如果找不到标题元素，尝试从链接文本获取
                                         title = await link.inner_text()
                                     title = title.strip()
                                     
@@ -1417,9 +1269,7 @@ class ChartScraper:
                     logger.error(traceback.format_exc())
                 
                 if not chart_data:
-                    # 保存页面截图用于调试
                     import os
-                    from datetime import datetime
                     screenshot_dir = "screenshots"
                     os.makedirs(screenshot_dir, exist_ok=True)
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1430,34 +1280,25 @@ class ChartScraper:
                     except Exception as screenshot_error:
                         logger.warning(f"保存截图失败: {screenshot_error}")
                     
-                    # 检查是否是 403 错误
                     try:
                         page_title = await page.title()
                         page_content = await page.content()
                         logger.error(f"页面标题: {page_title}")
                         
-                        # 检查是否是 403 或反爬虫页面（只在页面标题或内容明确包含时才报错）
-                        # 注意：如果页面标题正常（如 "IMDb Top 250 movies"），说明页面加载成功，不应该报 403
                         if ("403" in page_title or "Forbidden" in page_title) and "Top 250" not in page_title:
                             raise Exception("遇到反爬虫机制（403 Forbidden），请稍后重试或检查网络连接")
-                        # 检查页面内容中是否有明确的 403 错误信息
                         if "403" in page_content[:1000] and "Forbidden" in page_content[:1000] and "Top 250" not in page_title:
                             raise Exception("遇到反爬虫机制（403 Forbidden），请稍后重试或检查网络连接")
                         elif "error" in page_title.lower() or "not found" in page_title.lower():
                             raise Exception(f"页面错误: {page_title}")
                         
-                        # 如果页面标题正常，说明页面加载了，但选择器可能不对
-                        # 尝试打印页面内容的一部分用于调试
                         if "Top 250" in page_title:
                             logger.warning("页面加载成功，但未能提取数据。可能是选择器不匹配。")
-                            # 尝试查找任何包含 IMDb ID 的元素
                             all_elements = await page.query_selector_all('*')
                             logger.warning(f"页面共有 {len(all_elements)} 个元素")
-                            # 查找所有包含 /title/ 的链接
                             all_title_links = await page.query_selector_all('a[href*="/title/"]')
                             logger.warning(f"找到 {len(all_title_links)} 个包含 /title/ 的链接")
                             if all_title_links:
-                                # 打印前几个链接的 href
                                 for i, link in enumerate(all_title_links[:5]):
                                     try:
                                         href = await link.get_attribute('href')
@@ -1465,7 +1306,6 @@ class ChartScraper:
                                     except:
                                         pass
                             
-                            # 保存页面 HTML 用于调试
                             html_path = os.path.join(screenshot_dir, f"imdb_top250_{media_type}_{timestamp}.html")
                             try:
                                 with open(html_path, 'w', encoding='utf-8') as f:
@@ -1479,7 +1319,6 @@ class ChartScraper:
                         pass
                     raise Exception("未能获取到 IMDb Top 250 数据")
                 
-                # 解析数据
                 results = []
                 for edge in chart_data:
                     try:
@@ -1488,7 +1327,6 @@ class ChartScraper:
                             node = edge.get("node", {})
                             
                             if not rank and not node:
-                                # 可能是直接从 DOM 提取的数据，已经包含 rank 和 node
                                 rank = edge.get("currentRank")
                                 node = edge.get("node", {})
                             
@@ -1506,7 +1344,6 @@ class ChartScraper:
                         logger.warning(f"解析数据项失败: {e}")
                         continue
                 
-                # 按排名排序
                 results.sort(key=lambda x: x["rank"])
                 
                 logger.info(f"IMDb Top 250 ({media_type}) 获取到 {len(results)} 条数据")
@@ -1523,7 +1360,6 @@ class ChartScraper:
                 if context:
                     await context.close()
         
-        # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
         try:
             return await browser_pool.execute_in_browser(scrape_with_browser)
         except Exception as e:
@@ -1532,7 +1368,6 @@ class ChartScraper:
 
     async def update_imdb_top250_movies(self) -> int:
         """IMDb Top 250 Movies → 'IMDb / IMDb Top 250 Movies'"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'IMDb',
             ChartEntry.chart_name == 'IMDb Top 250 Movies'
@@ -1549,7 +1384,6 @@ class ChartScraper:
         saved = 0
         total = len(items[:250])
         
-        # 使用信号量控制并发数（最多同时处理10个，因为IMDb匹配是API调用，速度较快）
         semaphore = asyncio.Semaphore(10)
         
         async def process_item(item: Dict) -> Optional[Dict]:
@@ -1578,13 +1412,11 @@ class ChartScraper:
                     logger.warning(f"IMDb Top 250 Movies rank {rank} ({title}): 匹配失败: {e}")
                     return None
         
-        # 批量并发处理（每批30个）
         batch_size = 30
         for batch_start in range(0, total, batch_size):
             batch = items[batch_start:batch_start + batch_size]
             results = await asyncio.gather(*[process_item(item) for item in batch], return_exceptions=True)
             
-            # 处理结果并入库
             for result in results:
                 if isinstance(result, Exception):
                     continue
@@ -1607,11 +1439,9 @@ class ChartScraper:
                 ))
                 saved += 1
             
-            # 每批提交一次数据库
             self.db.commit()
             logger.info(f"IMDb Top 250 Movies 处理进度: {saved}/{total} 条已入库")
             
-            # 批次之间稍作休息
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.3)
         
@@ -1620,7 +1450,6 @@ class ChartScraper:
 
     async def update_imdb_top250_tv(self) -> int:
         """IMDb Top 250 TV Shows → 'IMDb / IMDb Top 250 TV Shows'"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'IMDb',
             ChartEntry.chart_name == 'IMDb Top 250 TV Shows'
@@ -1637,7 +1466,6 @@ class ChartScraper:
         saved = 0
         total = len(items[:250])
         
-        # 使用信号量控制并发数（最多同时处理10个）
         semaphore = asyncio.Semaphore(10)
         
         async def process_item(item: Dict) -> Optional[Dict]:
@@ -1666,13 +1494,11 @@ class ChartScraper:
                     logger.warning(f"IMDb Top 250 TV Shows rank {rank} ({title}): 匹配失败: {e}")
                     return None
         
-        # 批量并发处理（每批30个）
         batch_size = 30
         for batch_start in range(0, total, batch_size):
             batch = items[batch_start:batch_start + batch_size]
             results = await asyncio.gather(*[process_item(item) for item in batch], return_exceptions=True)
             
-            # 处理结果并入库
             for result in results:
                 if isinstance(result, Exception):
                     continue
@@ -1695,11 +1521,9 @@ class ChartScraper:
                 ))
                 saved += 1
             
-            # 每批提交一次数据库
             self.db.commit()
             logger.info(f"IMDb Top 250 TV Shows 处理进度: {saved}/{total} 条已入库")
             
-            # 批次之间稍作休息
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.3)
         
@@ -1741,9 +1565,7 @@ class ChartScraper:
                 page = await context.new_page()
                 page.set_default_timeout(60000)
                 
-                # 如果提供了 cookie，设置 cookie（在创建上下文后设置）
                 if douban_cookie:
-                    # 将 cookie 字符串转换为字典列表
                     cookies = []
                     for cookie_pair in douban_cookie.split(';'):
                         cookie_pair = cookie_pair.strip()
@@ -1759,18 +1581,15 @@ class ChartScraper:
                         await context.add_cookies(cookies)
                         logger.info(f"已设置豆瓣 Cookie")
                 
-                # 先访问豆瓣首页，建立会话（降低被识别为爬虫的概率）
                 logger.info("访问豆瓣首页建立会话...")
                 try:
                     await page.goto("https://www.douban.com/", wait_until="domcontentloaded", timeout=30000)
                     await asyncio.sleep(2)
-                    # 模拟人类行为：随机滚动
                     await page.evaluate("window.scrollTo(0, Math.random() * 500)")
                     await asyncio.sleep(1)
                 except Exception as e:
                     logger.warning(f"访问豆瓣首页失败: {e}")
                 
-                # 访问豆瓣 Top 250 页面（共 10 页，每页 25 条）
                 all_movies = []
                 import random
                 
@@ -1779,7 +1598,6 @@ class ChartScraper:
                     url = f"https://movie.douban.com/top250?start={start}"
                     logger.info(f"访问豆瓣 Top 250 第 {page_num + 1} 页: {url}")
                     
-                    # 随机延迟，模拟人类行为（3-8秒）
                     if page_num > 0:
                         delay = random.uniform(3, 8)
                         logger.debug(f"随机延迟 {delay:.2f} 秒")
@@ -1787,71 +1605,54 @@ class ChartScraper:
                     
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                     
-                    # 模拟人类行为：随机滚动
                     await page.evaluate("window.scrollTo(0, Math.random() * 300)")
                     await asyncio.sleep(random.uniform(1, 3))
                     
-                    # 等待页面加载完成
                     try:
                         await page.wait_for_load_state("networkidle", timeout=30000)
                     except Exception:
                         await asyncio.sleep(3)
                     
-                    # 获取页面标题用于调试
                     page_title = await page.title()
                     logger.debug(f"第 {page_num + 1} 页页面标题: {page_title}")
                     
-                    # 检查是否返回"禁止访问"页面
                     if '禁止访问' in page_title or '禁止' in page_title:
                         logger.error(f"第 {page_num + 1} 页返回禁止访问页面，需要验证")
-                        # 抛出特殊异常，通知前端需要验证
                         raise Exception("ANTI_SCRAPING_DETECTED")
                     
-                    # 检查页面内容是否包含"禁止访问"
                     page_content = await page.content()
                     if '禁止访问' in page_content or '<title>禁止访问</title>' in page_content:
                         logger.error(f"第 {page_num + 1} 页检测到禁止访问，需要验证")
-                        # 抛出特殊异常，通知前端需要验证
                         raise Exception("ANTI_SCRAPING_DETECTED")
                     
-                    # 等待关键元素出现（优化等待策略）
                     try:
                         await page.wait_for_selector('div.item', timeout=10000)
                     except Exception as e:
                         logger.warning(f"第 {page_num + 1} 页等待 div.item 超时: {e}")
-                        # 如果等待超时，检查页面内容
                         content_preview = page_content[:500] if len(page_content) > 500 else page_content
                         logger.warning(f"第 {page_num + 1} 页内容预览: {content_preview}")
                         
-                        # 检查是否包含验证码或反爬虫相关文本
                         if any(keyword in page_content.lower() for keyword in ['验证', 'captcha', 'robot', '机器人', '访问异常', 'unusual traffic', '禁止访问']):
                             logger.error(f"第 {page_num + 1} 页可能触发了反爬虫检测，停止抓取")
                             break
-                        
-                        # 继续尝试解析，即使等待超时
                     
-                    # 解析页面，获取电影列表
                     items = await page.query_selector_all('div.item')
                     logger.info(f"第 {page_num + 1} 页找到 {len(items)} 个电影项")
                     
-                    # 如果找到 0 个元素，记录调试信息
                     if len(items) == 0:
                         content_preview = page_content[:500] if len(page_content) > 500 else page_content
                         logger.warning(f"第 {page_num + 1} 页未找到电影项，页面内容预览: {content_preview}")
                         
-                        # 检查是否包含验证码或反爬虫相关文本
                         if any(keyword in page_content.lower() for keyword in ['验证', 'captcha', 'robot', '机器人', '访问异常', 'unusual traffic', '禁止访问']):
                             logger.error(f"第 {page_num + 1} 页可能触发了反爬虫检测，停止抓取")
                             break
                     
                     for item in items:
                         try:
-                            # 获取排名
                             rank_elem = await item.query_selector('div.pic em')
                             rank_text = await rank_elem.inner_text() if rank_elem else ""
                             rank = int(rank_text) if rank_text.isdigit() else None
                             
-                            # 获取电影链接
                             link_elem = await item.query_selector('div.pic a')
                             if not link_elem:
                                 continue
@@ -1860,14 +1661,12 @@ class ChartScraper:
                             if not href:
                                 continue
                             
-                            # 从链接中提取豆瓣 ID
                             douban_id_match = re.search(r'/subject/(\d+)/', href)
                             if not douban_id_match:
                                 continue
                             
                             douban_id = douban_id_match.group(1)
                             
-                            # 获取电影标题
                             title_elem = await item.query_selector('div.info span.title')
                             title = await title_elem.inner_text() if title_elem else ""
                             title = title.strip()
@@ -1882,7 +1681,6 @@ class ChartScraper:
                             logger.warning(f"解析电影项失败: {e}")
                             continue
                 
-                # 按排名排序
                 all_movies.sort(key=lambda x: x['rank'])
                 
                 logger.info(f"豆瓣 Top 250 获取到 {len(all_movies)} 条电影链接")
@@ -1899,7 +1697,6 @@ class ChartScraper:
                 if context:
                     await context.close()
         
-        # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
         try:
             return await browser_pool.execute_in_browser(scrape_with_browser)
         except Exception as e:
@@ -1961,31 +1758,25 @@ class ChartScraper:
                 
                 url = f"https://movie.douban.com/subject/{douban_id}/"
                 
-                # 重试机制
                 for attempt in range(max_retries + 1):
                     try:
-                        # 如果不是第一次尝试，等待更长时间（5-10秒）
                         if attempt > 0:
                             wait_time = random.uniform(5, 10)
                             logger.debug(f"豆瓣详情页 (ID: {douban_id}) 第 {attempt + 1} 次尝试，等待 {wait_time:.2f} 秒")
                             await asyncio.sleep(wait_time)
                         
-                        # 随机延迟，模拟人类行为（0.5-2秒）
                         await asyncio.sleep(random.uniform(0.5, 2))
                         
                         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                         
-                        # 模拟人类行为：随机滚动
                         await page.evaluate("window.scrollTo(0, Math.random() * 200)")
                         await asyncio.sleep(random.uniform(0.5, 1.5))
                         
-                        # 等待页面加载完成
                         try:
                             await page.wait_for_load_state("networkidle", timeout=10000)
                         except Exception:
                             await asyncio.sleep(1)
                         
-                        # 检查是否返回"禁止访问"页面
                         page_title = await page.title()
                         if '禁止访问' in page_title or '禁止' in page_title:
                             if attempt < max_retries:
@@ -1995,10 +1786,8 @@ class ChartScraper:
                                 logger.warning(f"豆瓣详情页 (ID: {douban_id}) 返回禁止访问页面，已达最大重试次数")
                                 return None
                         
-                        # 获取页面内容
                         content = await page.content()
                         
-                        # 检查页面内容是否包含"禁止访问"
                         if '禁止访问' in content or '<title>禁止访问</title>' in content:
                             if attempt < max_retries:
                                 logger.warning(f"豆瓣详情页 (ID: {douban_id}) 检测到禁止访问，将重试")
@@ -2007,47 +1796,37 @@ class ChartScraper:
                                 logger.warning(f"豆瓣详情页 (ID: {douban_id}) 检测到禁止访问，已达最大重试次数")
                                 return None
                         
-                        # 尝试快速查找 IMDb ID，不等待 networkidle
                         try:
-                            # 等待 IMDb 链接出现（最多等待5秒）
                             await page.wait_for_selector('a[href*="imdb.com/title/tt"]', timeout=5000)
                         except Exception:
-                            # 如果没找到，继续尝试其他方法
                             pass
                         
-                        # 使用 BeautifulSoup 解析
                         from bs4 import BeautifulSoup
                         soup = BeautifulSoup(content, 'html.parser')
                         
-                        # 查找IMDb链接
                         imdb_links = soup.find_all('a', href=lambda x: x and 'imdb.com' in x)
                         for link in imdb_links:
                             href = link.get('href', '')
                             if '/title/tt' in href:
-                                # 提取IMDb ID (tt开头)
                                 imdb_id = href.split('/title/')[-1].rstrip('/')
                                 if imdb_id.startswith('tt'):
                                     return imdb_id
                         
-                        # 如果没找到链接，尝试从文本中提取
                         imdb_spans = soup.find_all('span', class_='pl')
                         for span in imdb_spans:
                             if span.get_text().strip() == 'IMDb:':
-                                # 1) 尝试紧邻文本兄弟节点（非标签）
                                 sibling_text = getattr(span.next_sibling, 'strip', lambda: str(span.next_sibling))()
                                 if sibling_text:
                                     m = re.search(r'(tt\d+)', sibling_text)
                                     if m:
                                         return m.group(1)
 
-                                # 2) 尝试下一个span兄弟节点
                                 next_span = span.find_next_sibling('span')
                                 if next_span:
                                     imdb_text = next_span.get_text().strip()
                                     if imdb_text.startswith('tt'):
                                         return imdb_text
 
-                                # 3) 兜底：在整页HTML中用正则提取
                                 m2 = re.search(r'<span class="pl">IMDb:</span>\s*([tT]{2}\d+)<br>', content)
                                 if m2:
                                     return m2.group(1)
@@ -2074,7 +1853,6 @@ class ChartScraper:
                 if context:
                     await context.close()
         
-        # 使用浏览器池执行（自动处理浏览器的获取和释放）
         try:
             return await browser_pool.execute_in_browser(get_with_browser)
         except Exception as e:
@@ -2083,14 +1861,12 @@ class ChartScraper:
 
     async def update_douban_top250(self, douban_cookie: Optional[str] = None, request: Optional['Request'] = None) -> int:
         """豆瓣 Top 250 → '豆瓣 / 豆瓣 Top 250'"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == '豆瓣',
             ChartEntry.chart_name == '豆瓣 Top 250'
         ).delete()
         logger.info(f"豆瓣 Top 250: 清空旧数据 {deleted} 条")
         
-        # 抓取豆瓣 Top 250 列表
         movies = await self.scrape_douban_top250(douban_cookie)
         
         if not movies:
@@ -2101,14 +1877,12 @@ class ChartScraper:
         saved = 0
         total = len(movies[:250])
         
-        # 使用信号量控制并发数（降低到3个，避免触发反爬虫）
         semaphore = asyncio.Semaphore(3)
         
         async def process_movie(movie: Dict) -> Optional[Dict]:
             """处理单个电影，返回匹配结果或None"""
             nonlocal saved
             async with semaphore:
-                # 检查请求是否被取消
                 if request and await request.is_disconnected():
                     return None
                 
@@ -2121,14 +1895,12 @@ class ChartScraper:
                     return None
                 
                 try:
-                    # 从豆瓣详情页获取 IMDb ID
                     imdb_id = await self.get_douban_imdb_id_with_cookie(douban_id, douban_cookie)
                     
                     if not imdb_id:
                         logger.warning(f"豆瓣 Top 250 rank {rank} ({title}): 未能获取 IMDb ID")
                         return None
                     
-                    # 使用 IMDb ID 匹配 TMDB
                     match = None
                     try:
                         match = await matcher.match_imdb_with_tmdb(imdb_id, title, 'movie')
@@ -2148,10 +1920,8 @@ class ChartScraper:
                     logger.error(f"豆瓣 Top 250 rank {rank} ({title}) 处理失败: {e}")
                     return None
         
-        # 批量并发处理（降低到10个，避免触发反爬虫）
         batch_size = 10
         for batch_start in range(0, total, batch_size):
-            # 检查请求是否被取消
             if request and await request.is_disconnected():
                 logger.warning(f"请求已被取消，已处理 {saved}/{total} 条")
                 self.db.commit()
@@ -2160,7 +1930,6 @@ class ChartScraper:
             batch = movies[batch_start:batch_start + batch_size]
             results = await asyncio.gather(*[process_movie(movie) for movie in batch], return_exceptions=True)
             
-            # 处理结果并入库
             for result in results:
                 if isinstance(result, Exception):
                     continue
@@ -2183,15 +1952,12 @@ class ChartScraper:
                 ))
                 saved += 1
             
-            # 每批提交一次数据库
             self.db.commit()
             logger.info(f"豆瓣 Top 250 处理进度: {saved}/{total} 条已入库")
             
-            # 批次之间稍作休息，避免请求过快
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.5)
         
-        # 最终提交剩余的数据
         self.db.commit()
         logger.info(f"豆瓣 Top 250 入库完成，共 {saved}/{total} 条")
         return saved
@@ -2204,7 +1970,6 @@ class ChartScraper:
                 all_movies = []
                 base_url = "https://letterboxd.com/dave/list/official-top-250-narrative-feature-films"
                 
-                # 抓取3页（每页约83-84条，总共250条）
                 for page_num in range(1, 4):
                     if page_num == 1:
                         url = f"{base_url}/"
@@ -2216,18 +1981,15 @@ class ChartScraper:
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                     await asyncio.sleep(1)
                     
-                    # 尝试快速等待列表项出现（最多等待3秒）
                     try:
                         await page.wait_for_selector('li.posteritem.numbered-list-item', timeout=3000)
                     except Exception:
                         pass
                     
-                    # 解析页面，获取电影列表
                     items = await page.query_selector_all('li.posteritem.numbered-list-item')
                     
                     for item in items:
                         try:
-                            # 获取排名
                             rank_elem = await item.query_selector('p.list-number')
                             rank_text = await rank_elem.inner_text() if rank_elem else ""
                             rank = int(rank_text.strip()) if rank_text.strip().isdigit() else None
@@ -2235,10 +1997,8 @@ class ChartScraper:
                             if not rank:
                                 continue
                             
-                            # 获取电影链接
                             link_elem = await item.query_selector('a[data-item-link]')
                             if not link_elem:
-                                # 尝试其他选择器
                                 link_elem = await item.query_selector('a[href*="/film/"]')
                             
                             if not link_elem:
@@ -2246,13 +2006,11 @@ class ChartScraper:
                             
                             href = await link_elem.get_attribute('href')
                             if not href:
-                                # 尝试从 data-item-link 获取
                                 href = await link_elem.get_attribute('data-item-link')
                             
                             if not href:
                                 continue
                             
-                            # 构建完整链接
                             if href.startswith('/'):
                                 full_url = f"https://letterboxd.com{href}"
                             elif href.startswith('http'):
@@ -2260,11 +2018,9 @@ class ChartScraper:
                             else:
                                 full_url = f"https://letterboxd.com/{href}"
                             
-                            # 获取电影标题
                             title_elem = await item.query_selector('[data-item-name]')
                             title = await title_elem.get_attribute('data-item-name') if title_elem else ""
                             if not title:
-                                # 尝试从其他属性获取
                                 title = await link_elem.get_attribute('data-original-title') or ""
                             
                             title = title.strip() if title else ""
@@ -2278,10 +2034,8 @@ class ChartScraper:
                             logger.warning(f"解析电影项失败: {e}")
                             continue
                     
-                    # 避免请求过快
                     await asyncio.sleep(1)
                 
-                # 按排名排序
                 all_movies.sort(key=lambda x: x['rank'])
                 
                 logger.info(f"Letterboxd Top 250 获取到 {len(all_movies)} 条电影链接")
@@ -2295,7 +2049,6 @@ class ChartScraper:
             finally:
                 await page.close()
         
-        # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
         try:
             return await browser_pool.execute_in_browser(scrape_with_browser)
         except Exception as e:
@@ -2308,23 +2061,18 @@ class ChartScraper:
             page = await browser.new_page()
             try:
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
-                # 减少等待时间
                 await asyncio.sleep(1)
                 
-                # 尝试快速查找 TMDB 链接（最多等待3秒）
                 try:
                     await page.wait_for_selector('a[href*="themoviedb.org/movie/"]', timeout=3000)
                 except Exception:
                     pass
                 
-                # 查找 TMDB 链接
                 tmdb_link = await page.query_selector('a[href*="themoviedb.org/movie/"]')
                 
                 if tmdb_link:
                     href = await tmdb_link.get_attribute('href')
                     if href:
-                        # 提取 TMDB ID
-                        # 格式: https://www.themoviedb.org/movie/14537/
                         match = re.search(r'/movie/(\d+)/', href)
                         if match:
                             return int(match.group(1))
@@ -2337,7 +2085,6 @@ class ChartScraper:
             finally:
                 await page.close()
         
-        # 使用浏览器池执行（自动处理浏览器的获取和释放）
         try:
             return await browser_pool.execute_in_browser(get_with_browser)
         except Exception as e:
@@ -2346,14 +2093,12 @@ class ChartScraper:
 
     async def update_letterboxd_top250(self) -> int:
         """Letterboxd Top 250 → 'Letterboxd / Letterboxd Official Top 250'"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'Letterboxd',
             ChartEntry.chart_name == 'Letterboxd Official Top 250'
         ).delete()
         logger.info(f"Letterboxd Top 250: 清空旧数据 {deleted} 条")
         
-        # 抓取 Letterboxd Top 250 列表
         movies = await self.scrape_letterboxd_top250()
         
         if not movies:
@@ -2364,7 +2109,6 @@ class ChartScraper:
         saved = 0
         total = len(movies[:250])
         
-        # 使用信号量控制并发数（降低到3个，避免触发反爬虫）
         semaphore = asyncio.Semaphore(3)
         
         async def process_movie(movie: Dict) -> Optional[Dict]:
@@ -2379,14 +2123,12 @@ class ChartScraper:
                     return None
                 
                 try:
-                    # 从 Letterboxd 详情页获取 TMDB ID
                     tmdb_id = await self.get_letterboxd_tmdb_id(letterboxd_url)
                     
                     if not tmdb_id:
                         logger.warning(f"Letterboxd Top 250 rank {rank} ({title}): 未能获取 TMDB ID")
                         return None
                     
-                    # 获取 TMDB 详细信息（包括中文标题和海报）
                     info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                     if info:
                         final_title = self._safe_get_title(info, title)
@@ -2405,13 +2147,11 @@ class ChartScraper:
                     logger.warning(f"Letterboxd Top 250 rank {rank} ({title}): 处理异常: {e}")
                     return None
         
-        # 批量并发处理（每批20个）
         batch_size = 20
         for batch_start in range(0, total, batch_size):
             batch = movies[batch_start:batch_start + batch_size]
             results = await asyncio.gather(*[process_movie(movie) for movie in batch], return_exceptions=True)
             
-            # 处理结果并入库
             for result in results:
                 if isinstance(result, Exception):
                     continue
@@ -2429,11 +2169,9 @@ class ChartScraper:
                 ))
                 saved += 1
             
-            # 每批提交一次数据库
             self.db.commit()
             logger.info(f"Letterboxd Top 250 处理进度: {saved}/{total} 条已入库")
             
-            # 批次之间稍作休息
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.5)
         
@@ -2475,12 +2213,10 @@ class ChartScraper:
                 page = await context.new_page()
                 page.set_default_timeout(60000)
                 
-                # 先访问 Metacritic 首页，建立会话（降低被识别为爬虫的概率）
                 logger.info("访问 Metacritic 首页建立会话...")
                 try:
                     await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded", timeout=30000)
                     await asyncio.sleep(2)
-                    # 模拟人类行为：随机滚动
                     await page.evaluate("window.scrollTo(0, Math.random() * 500)")
                     await asyncio.sleep(1)
                 except Exception as e:
@@ -2489,7 +2225,6 @@ class ChartScraper:
                 all_items = []
                 base_url = f"https://www.metacritic.com/browse/{media_type}/"
                 
-                # 抓取11页
                 for page_num in range(1, 12):
                     if page_num == 1:
                         url = base_url
@@ -2501,38 +2236,30 @@ class ChartScraper:
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                     await asyncio.sleep(2)
                     
-                    # 等待页面加载完成
                     try:
                         await page.wait_for_load_state("networkidle", timeout=30000)
                     except Exception:
                         await asyncio.sleep(3)
                     
-                    # 获取页面标题用于调试
                     page_title = await page.title()
                     logger.debug(f"第 {page_num} 页页面标题: {page_title}")
                     
-                    # 逐步滚动页面以确保所有内容都加载（Metacritic 页面是懒加载）
                     logger.info(f"第 {page_num} 页开始滚动加载内容...")
                     last_count = 0
                     scroll_attempts = 0
-                    max_scroll_attempts = 10  # 最多滚动10次
+                    max_scroll_attempts = 10
                     
                     while scroll_attempts < max_scroll_attempts:
-                        # 获取页面源代码，统计卡片数量
                         page_content = await page.content()
-                        # 统计 c-finderProductCard_titleHeading 的数量（每个卡片有一个）
                         card_count = len(re.findall(r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"', page_content))
                         logger.debug(f"第 {page_num} 页滚动尝试 {scroll_attempts + 1}: 找到 {card_count} 个卡片")
                         
-                        # 如果已经找到24个或更多，说明加载完成
                         if card_count >= 24:
                             logger.info(f"第 {page_num} 页已加载完成，共 {card_count} 个卡片")
                             break
                         
-                        # 如果数量没有增加，说明可能已经加载完所有内容
                         if card_count == last_count and card_count > 0:
                             logger.debug(f"第 {page_num} 页卡片数量未增加，可能已加载完成")
-                            # 再等待一下，确保没有更多内容加载
                             await asyncio.sleep(2)
                             page_content = await page.content()
                             new_count = len(re.findall(r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"', page_content))
@@ -2542,23 +2269,14 @@ class ChartScraper:
                         
                         last_count = card_count
                         
-                        # 滚动到页面底部
                         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        await asyncio.sleep(2)  # 等待懒加载内容出现
+                        await asyncio.sleep(2)
                         
                         scroll_attempts += 1
                     
-                    # 从页面源代码提取数据
                     page_content = await page.content()
                     logger.info(f"第 {page_num} 页从页面源代码提取数据...")
                     
-                    # 匹配模式：从 HTML 源代码中提取
-                    # 排名：<span>2.</span> 中的 2
-                    # 片名：<span>片名</span> 或 data-title="片名"
-                    # 年份：从日期字符串中提取（如 "Oct 22, 1970" -> 1970）
-                    
-                    # 方法1：查找所有包含 c-finderProductCard_titleHeading 的块
-                    # 每个标题块包含排名和片名
                     heading_pattern = r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"[^>]*>(.*?)</h3>'
                     headings = re.findall(heading_pattern, page_content, re.DOTALL)
                     logger.debug(f"第 {page_num} 页找到 {len(headings)} 个标题元素")
@@ -2566,21 +2284,17 @@ class ChartScraper:
                     page_items_count = 0
                     for heading_html in headings:
                         try:
-                            # 提取排名：<span>2.</span> 中的 2
                             rank_match = re.search(r'<span>(\d+)\.</span>', heading_html)
                             if not rank_match:
                                 continue
                             rank = int(rank_match.group(1))
                             
-                            # 提取片名：<span>片名</span>（在排名之后）
                             title_match = re.search(r'<span>\d+\.</span>\s*<span>([^<]+)</span>', heading_html)
                             title = None
                             if title_match:
                                 title = title_match.group(1).strip()
                             
-                            # 如果从标题 HTML 中没找到，尝试从页面中查找对应的 data-title
                             if not title:
-                                # 在页面中查找包含这个排名的完整卡片块
                                 rank_escaped = rank_match.group(0)
                                 card_block_pattern = rf'{re.escape(rank_escaped)}.*?data-title="([^"]+)"'
                                 data_title_match = re.search(card_block_pattern, page_content, re.DOTALL)
@@ -2590,13 +2304,9 @@ class ChartScraper:
                             if not title:
                                 continue
                             
-                            # 提取年份：查找对应的日期信息
-                            # 在页面中查找包含这个标题的卡片块，然后提取日期
                             year = None
-                            # 先尝试从标题块在页面中的位置附近查找日期
                             heading_start = page_content.find(heading_html)
                             if heading_start != -1:
-                                # 在标题块后面1000字符内查找日期（包含 meta 区域）
                                 date_segment = page_content[heading_start:heading_start + 1000]
                                 date_match = re.search(r'<span[^>]*class="[^"]*u-text-uppercase[^"]*"[^>]*>([^<]+)</span>', date_segment)
                                 if date_match:
@@ -2605,11 +2315,9 @@ class ChartScraper:
                                     if year_match:
                                         year = int(year_match.group(1))
                             
-                            # 如果还没找到，尝试在整个页面中查找包含这个标题的卡片块
                             if not year:
                                 title_escaped = re.escape(title)
                                 rank_escaped = rank_match.group(0)
-                                # 查找包含排名和标题的卡片块，然后提取日期
                                 card_block_pattern = rf'(?:data-title="{title_escaped}"|{re.escape(rank_escaped)}.*?<span>{re.escape(title)}</span>).*?<span[^>]*class="[^"]*u-text-uppercase[^"]*"[^>]*>([^<]+)</span>'
                                 date_match = re.search(card_block_pattern, page_content, re.DOTALL)
                                 if date_match:
@@ -2630,10 +2338,8 @@ class ChartScraper:
                     
                     logger.info(f"第 {page_num} 页成功解析 {page_items_count} 个项目")
                     
-                    # 避免请求过快
                     await asyncio.sleep(1)
                 
-                # 按排名排序
                 all_items.sort(key=lambda x: x['rank'])
                 
                 logger.info(f"Metacritic Top 250 ({media_type}) 获取到 {len(all_items)} 条数据")
@@ -2650,7 +2356,6 @@ class ChartScraper:
                 if context:
                     await context.close()
         
-        # 使用浏览器池执行抓取（自动处理浏览器的获取和释放）
         try:
             return await browser_pool.execute_in_browser(scrape_with_browser)
         except Exception as e:
@@ -2659,14 +2364,12 @@ class ChartScraper:
 
     async def update_metacritic_best_movies(self) -> int:
         """Metacritic Best Movies of All Time → 'MTC / Metacritic Best Movies of All Time'"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'MTC',
             ChartEntry.chart_name == 'Metacritic Best Movies of All Time'
         ).delete()
         logger.info(f"Metacritic Best Movies of All Time: 清空旧数据 {deleted} 条")
         
-        # 抓取 Metacritic Top 250 列表
         items = await self.scrape_metacritic_top250('movie')
         
         if not items:
@@ -2677,7 +2380,6 @@ class ChartScraper:
         saved = 0
         total = len(items[:250])
         
-        # 使用信号量控制并发数（最多同时处理10个）
         semaphore = asyncio.Semaphore(10)
         
         async def process_item(item: Dict) -> Optional[Dict]:
@@ -2712,13 +2414,11 @@ class ChartScraper:
                     logger.warning(f"Metacritic Best Movies rank {rank} ({title}): 匹配失败: {e}")
                     return None
         
-        # 批量并发处理（每批30个）
         batch_size = 30
         for batch_start in range(0, total, batch_size):
             batch = items[batch_start:batch_start + batch_size]
             results = await asyncio.gather(*[process_item(item) for item in batch], return_exceptions=True)
             
-            # 处理结果并入库
             for result in results:
                 if isinstance(result, Exception):
                     continue
@@ -2736,11 +2436,9 @@ class ChartScraper:
                 ))
                 saved += 1
             
-            # 每批提交一次数据库
             self.db.commit()
             logger.info(f"Metacritic Best Movies of All Time 处理进度: {saved}/{total} 条已入库")
             
-            # 批次之间稍作休息
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.3)
         
@@ -2749,14 +2447,12 @@ class ChartScraper:
 
     async def update_metacritic_best_tv(self) -> int:
         """Metacritic Best TV Shows of All Time → 'MTC / Metacritic Best TV Shows of All Time'"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'MTC',
             ChartEntry.chart_name == 'Metacritic Best TV Shows of All Time'
         ).delete()
         logger.info(f"Metacritic Best TV Shows of All Time: 清空旧数据 {deleted} 条")
         
-        # 抓取 Metacritic Top 250 列表
         items = await self.scrape_metacritic_top250('tv')
         
         if not items:
@@ -2767,7 +2463,6 @@ class ChartScraper:
         saved = 0
         total = len(items[:250])
         
-        # 使用信号量控制并发数（最多同时处理10个）
         semaphore = asyncio.Semaphore(10)
         
         async def process_item(item: Dict) -> Optional[Dict]:
@@ -2802,13 +2497,11 @@ class ChartScraper:
                     logger.warning(f"Metacritic Best TV Shows rank {rank} ({title}): 匹配失败: {e}")
                     return None
         
-        # 批量并发处理（每批30个）
         batch_size = 30
         for batch_start in range(0, total, batch_size):
             batch = items[batch_start:batch_start + batch_size]
             results = await asyncio.gather(*[process_item(item) for item in batch], return_exceptions=True)
             
-            # 处理结果并入库
             for result in results:
                 if isinstance(result, Exception):
                     continue
@@ -2826,11 +2519,9 @@ class ChartScraper:
                 ))
                 saved += 1
             
-            # 每批提交一次数据库
             self.db.commit()
             logger.info(f"Metacritic Best TV Shows of All Time 处理进度: {saved}/{total} 条已入库")
             
-            # 批次之间稍作休息
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.3)
         
@@ -2839,7 +2530,6 @@ class ChartScraper:
 
     async def update_trakt_movies_weekly(self) -> int:
         """Trakt Movies most watched weekly → 'Trakt / Top Movies Last Week'"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='Trakt',
             ChartEntry.chart_name=='Top Movies Last Week'
@@ -2880,7 +2570,6 @@ class ChartScraper:
             if not match:
                 continue
             
-            # 直接插入新数据（已清空旧数据）
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
             self.db.add(ChartEntry(
                 platform='Trakt',
@@ -2937,7 +2626,6 @@ class ChartScraper:
             if not match:
                 continue
             
-            # 直接插入新数据（已清空旧数据）
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
             self.db.add(ChartEntry(
                 platform='Trakt',
@@ -2953,7 +2641,6 @@ class ChartScraper:
 
     async def update_imdb_top10(self) -> int:
         """IMDb Top 10 this week → 'IMDb / Top 10 on IMDb this week'，movie/tv/both 按返回实际类型存储"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='IMDb',
             ChartEntry.chart_name=='Top 10 on IMDb this week'
@@ -2972,7 +2659,6 @@ class ChartScraper:
             if not match:
                 continue
             media_type = match.get('media_type') or 'movie'
-            # 直接插入新数据（已清空旧数据）
             self.db.add(ChartEntry(
                 platform='IMDb',
                 chart_name='Top 10 on IMDb this week',
@@ -2987,7 +2673,6 @@ class ChartScraper:
 
     async def update_douban_weekly_movie(self) -> int:
         """豆瓣一周口碑榜（电影）：进入详情页取 IMDb ID 匹配 TMDB 并入库，失败时使用原标题匹配"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='豆瓣',
             ChartEntry.chart_name=='一周口碑榜'
@@ -3003,7 +2688,6 @@ class ChartScraper:
             douban_id = it.get('douban_id') or ''
             match = None
             
-            # 1. 优先使用IMDb ID匹配
             imdb_id = await self.get_douban_imdb_id(douban_id)
             if imdb_id:
                 logger.info(f"尝试用IMDb ID匹配: {title} (IMDb: {imdb_id})")
@@ -3011,7 +2695,6 @@ class ChartScraper:
                 if match:
                     logger.info(f"✅ IMDb ID匹配成功: {title}")
             
-            # 2. IMDb ID匹配失败时，尝试使用原标题匹配
             if not match:
                 original_title = await matcher.extract_douban_original_title(douban_id)
                 if original_title:
@@ -3023,7 +2706,6 @@ class ChartScraper:
                             match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'movie'}
                             logger.info(f"✅ 原标题匹配成功: {original_title}")
             
-            # 3. 最后兜底：使用中文标题匹配
             if not match:
                 logger.info(f"尝试用中文标题匹配: {title}")
                 mid = await matcher.match_by_title_and_year(title, 'movie')
@@ -3037,7 +2719,6 @@ class ChartScraper:
                 logger.warning(f"❌ 所有匹配方式都失败: {title}")
                 rank += 1; continue
             
-            # 直接插入新数据（已清空旧数据）
             self.db.add(ChartEntry(
                 platform='豆瓣',
                 chart_name='一周口碑榜',
@@ -3051,7 +2732,6 @@ class ChartScraper:
         self.db.commit(); logger.info(f"豆瓣 一周口碑榜 入库 {saved} 条"); return saved
 
     async def update_douban_weekly_chinese_tv(self) -> int:
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='豆瓣',
             ChartEntry.chart_name=='一周华语剧集口碑榜'
@@ -3072,7 +2752,6 @@ class ChartScraper:
             if not match:
                 rank += 1; continue
             
-            # 直接插入新数据（已清空旧数据）
             self.db.add(ChartEntry(
                 platform='豆瓣',
                 chart_name='一周华语剧集口碑榜',
@@ -3086,7 +2765,6 @@ class ChartScraper:
         self.db.commit(); logger.info(f"豆瓣 一周华语剧集口碑榜 入库 {saved} 条"); return saved
 
     async def update_douban_weekly_global_tv(self) -> int:
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='豆瓣',
             ChartEntry.chart_name=='一周全球剧集口碑榜'
@@ -3104,12 +2782,10 @@ class ChartScraper:
             
             logger.debug(f"  处理: {title} (豆瓣ID: {douban_id})")
             
-            # 使用通用原名提取函数
             original_title = await matcher.extract_douban_original_title(douban_id)
             if original_title:
                 logger.debug(f"    提取到原名: {original_title}")
             
-            # 优先用原名匹配 TMDB
             if original_title:
                 logger.debug(f"    用原名匹配: {original_title}")
                 tmdb_id = await matcher.match_by_title_and_year(original_title, 'tv')
@@ -3119,7 +2795,6 @@ class ChartScraper:
                         match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, original_title), 'poster': info.get('poster_url',''), 'media_type': 'tv'}
                         logger.info(f"    ✅ 原名匹配成功: {original_title} -> {match['title']}")
             
-            # 回退中文名匹配
             if not match:
                 logger.debug(f"    回退中文名匹配: {title}")
                 tmdb_id = await matcher.match_by_title_and_year(title, 'tv')
@@ -3130,7 +2805,6 @@ class ChartScraper:
                         logger.info(f"    ✅ 中文名匹配成功: {title} -> {match['title']}")
             if not match:
                 rank += 1; continue
-            # 直接插入新数据（已清空旧数据）
             self.db.add(ChartEntry(
                 platform='豆瓣',
                 chart_name='一周全球剧集口碑榜',
@@ -3145,7 +2819,6 @@ class ChartScraper:
     
     async def update_rotten_tv(self) -> int:
         """烂番茄 Popular TV：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
-        # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='烂番茄',
             ChartEntry.chart_name=='Popular TV'
@@ -3155,7 +2828,6 @@ class ChartScraper:
         matcher = TMDBMatcher(self.db)
         url = 'https://www.rottentomatoes.com/browse/tv_series_browse/sort:popular'
         
-        # 添加重试机制
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -3200,7 +2872,6 @@ class ChartScraper:
                 rank += 1
                 continue
             
-            # 直接插入新数据（已清空旧数据）
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
             self.db.add(ChartEntry(
                 platform='烂番茄',
@@ -3225,28 +2896,22 @@ class ChartScraper:
                 await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded")
                 await asyncio.sleep(3)
                 
-                # 等待页面完全加载（放宽超时并兜底）
                 try:
                     await page.wait_for_load_state("networkidle", timeout=60000)
                 except Exception:
-                    # 兜底等待，给懒加载一些时间
                     await asyncio.sleep(5)
                 
-                # 查找Trending Movies This Week区域
-                # 根据HTML结构，使用data-cy="movies-*"来定位电影卡片
                 movie_cards = await page.query_selector_all('[data-cy^="movies-"]')
                 results = []
                 
-                for i, card in enumerate(movie_cards[:10], 1):  # 只取前10个
+                for i, card in enumerate(movie_cards[:10], 1):
                     try:
-                        # 获取标题
                         title_elem = await card.query_selector('.c-globalProductCard_title')
                         if not title_elem:
                             continue
                             
                         title = await title_elem.inner_text()
                         
-                        # 获取链接
                         link_elem = await card.query_selector('a.c-globalProductCard_container')
                         if not link_elem:
                             continue
@@ -3255,11 +2920,9 @@ class ChartScraper:
                         if not url:
                             continue
                             
-                        # 确保URL是完整的
                         if not url.startswith('http'):
                             url = f"https://www.metacritic.com{url}"
                         
-                        # 从URL中提取Metacritic ID
                         metacritic_id = re.search(r'/movie/([^/]+)/', url)
                         if metacritic_id:
                             results.append({
@@ -3288,27 +2951,22 @@ class ChartScraper:
                 await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded")
                 await asyncio.sleep(3)
                 
-                # 等待页面完全加载（放宽超时并兜底）
                 try:
                     await page.wait_for_load_state("networkidle", timeout=60000)
                 except Exception:
                     await asyncio.sleep(5)
                 
-                # 查找Trending Shows This Week区域
-                # 根据HTML结构，使用data-cy="shows-*"来定位电视剧卡片
                 show_cards = await page.query_selector_all('[data-cy^="shows-"]')
                 results = []
                 
-                for i, card in enumerate(show_cards[:10], 1):  # 只取前10个
+                for i, card in enumerate(show_cards[:10], 1):
                     try:
-                        # 获取标题
                         title_elem = await card.query_selector('.c-globalProductCard_title')
                         if not title_elem:
                             continue
                             
                         title = await title_elem.inner_text()
                         
-                        # 获取链接
                         link_elem = await card.query_selector('a.c-globalProductCard_container')
                         if not link_elem:
                             continue
@@ -3317,11 +2975,9 @@ class ChartScraper:
                         if not url:
                             continue
                             
-                        # 确保URL是完整的
                         if not url.startswith('http'):
                             url = f"https://www.metacritic.com{url}"
                         
-                        # 从URL中提取Metacritic ID
                         metacritic_id = re.search(r'/tv/([^/]+)/', url)
                         if metacritic_id:
                             results.append({
@@ -3363,18 +3019,14 @@ class TMDBMatcher:
                 
                 tmdb_id = None
                 
-                # 直接使用IMDB ID进行TMDB搜索
                 logger.info(f"使用IMDB ID搜索: {imdb_id}")
                 match_result = await self.match_by_imdb_id(imdb_id, media_type)
                 
-                # 处理返回结果
                 if match_result:
                     if isinstance(match_result, dict):
-                        # 'both'类型返回字典
                         tmdb_id = match_result['tmdb_id']
                         actual_media_type = match_result['media_type']
                     else:
-                        # 特定类型返回ID
                         tmdb_id = match_result
                         actual_media_type = media_type
                 else:
@@ -3382,17 +3034,15 @@ class TMDBMatcher:
                     actual_media_type = media_type
                 
                 if tmdb_id:
-                    # 获取TMDB详细信息，包括海报
                     tmdb_info = await self.get_tmdb_info(tmdb_id, actual_media_type)
                     if tmdb_info:
-                        # 安全获取标题，去除空格
                         final_title = self._safe_get_title(tmdb_info, title)
                         logger.info(f"成功匹配: {title} -> TMDB ID: {tmdb_id}, 中文标题: {final_title}")
                         return {
                             'tmdb_id': tmdb_id,
                             'title': final_title,
                             'poster': tmdb_info.get('poster_url', ''),
-                            'media_type': actual_media_type  # 添加media_type字段
+                            'media_type': actual_media_type
                         }
                     else:
                         logger.warning(f"获取TMDB信息失败，但TMDB ID存在: {tmdb_id}")
@@ -3400,10 +3050,9 @@ class TMDBMatcher:
                             'tmdb_id': tmdb_id,
                             'title': title,
                             'poster': "",
-                            'media_type': actual_media_type  # 添加media_type字段
+                            'media_type': actual_media_type
                         }
                 
-                # 如果IMDB ID匹配失败，尝试使用标题搜索
                 if not tmdb_id:
                     logger.info(f"IMDB ID匹配失败，尝试标题搜索: {title}")
                     tmdb_id = await self.match_by_title_and_year(title, media_type)
@@ -3416,10 +3065,9 @@ class TMDBMatcher:
                                 'tmdb_id': tmdb_id,
                                 'title': final_title,
                                 'poster': tmdb_info.get('poster_url', ''),
-                                'media_type': media_type  # 添加media_type字段
+                                'media_type': media_type
                             }
                 
-                # 如果匹配失败，等待后重试
                 if attempt < max_retries - 1:
                     logger.warning(f"第 {attempt + 1} 次尝试失败，等待 {2 ** attempt} 秒后重试...")
                     await asyncio.sleep(2 ** attempt)  # 指数退避
@@ -3444,22 +3092,18 @@ class TMDBMatcher:
                 
                 tmdb_id = None
                 
-                # 使用通用原名提取函数
                 original_title = await self.extract_douban_original_title(douban_id)
                 
-                # 优先用原名匹配
                 if original_title:
                     logger.info(f"使用原名搜索: {original_title}")
                     tmdb_id = await self.match_by_title_and_year(original_title, media_type)
                     if tmdb_id:
                         logger.info(f"通过原名匹配成功: {title} -> {original_title} (ID: {tmdb_id})")
                 
-                # 如果原名匹配失败，使用中文标题搜索
                 if not tmdb_id:
                     logger.info(f"使用中文标题搜索: {title}")
                     tmdb_id = await self.match_by_title_and_year(title, media_type)
                 
-                # 如果剧集找不到，尝试匹配到第一季
                 if not tmdb_id and media_type == "tv" and ("第二季" in title or "Season 2" in title):
                     first_season_title = title.replace("第二季", "").replace("Season 2", "").strip()
                     logger.info(f"尝试第一季标题搜索: {first_season_title}")
@@ -3468,10 +3112,8 @@ class TMDBMatcher:
                         logger.info(f"通过第一季标题匹配成功: {title} -> {first_season_title} (ID: {tmdb_id})")
                 
                 if tmdb_id:
-                    # 获取TMDB详细信息，包括海报
                     tmdb_info = await self.get_tmdb_info(tmdb_id, media_type)
                     if tmdb_info:
-                        # 优先使用中文标题，如果没有则使用原始标题
                         final_title = tmdb_info.get('zh_title') or tmdb_info.get('title') or tmdb_info.get('name', title)
                         logger.info(f"成功匹配: {title} -> TMDB ID: {tmdb_id}, 中文标题: {final_title}")
                         return {
@@ -3487,7 +3129,6 @@ class TMDBMatcher:
                             'poster': ""
                         }
                 
-                # 如果匹配失败，等待后重试
                 if attempt < max_retries - 1:
                     logger.warning(f"第 {attempt + 1} 次尝试失败，等待 {2 ** attempt} 秒后重试...")
                     await asyncio.sleep(2 ** attempt)  # 指数退避
@@ -3522,7 +3163,6 @@ class TMDBMatcher:
             html = resp.text
             original_title = None
             
-            # 从 JSON-LD 的 name 字段提取原名
             ld_blocks = re.findall(r'<script[^>]*type=\"application/ld\+json\"[^>]*>([\s\S]*?)</script>', html)
             
             for blk in ld_blocks:
@@ -3531,13 +3171,9 @@ class TMDBMatcher:
                     if isinstance(data, dict):
                         name_field = data.get('name')
                         if isinstance(name_field, str) and name_field.strip():
-                            # 智能提取完整原名
                             patterns = [
-                                # "星期三 第二季 Wednesday Season 2" -> "Wednesday"
                                 r'^[^\s]+\s+[^\s]*\s+([A-Za-z][A-Za-z\s]+?)\s+Season\s+\d+',
-                                # "暴风圈 북극성" -> "북극성"  
                                 r'^[^\s]+\s+([A-Za-z\uAC00-\uD7A3][A-Za-z\uAC00-\uD7A3\s]*?)$',
-                                # "终极名单：黑狼 The Terminal List: Dark Wolf" -> "The Terminal List: Dark Wolf"
                                 r'^[^\s]+[^\s]*\s+([A-Za-z][A-Za-z\s:]+?)$'
                             ]
                             
@@ -3549,7 +3185,6 @@ class TMDBMatcher:
                                         original_title = candidate
                                         break
                                                     
-                            # 如果上述模式都没匹配到，尝试简单分割
                             if not original_title:
                                 tokens = re.split(r'[\s/|，,、:]+', name_field.strip())
                                 non_chinese_tokens = []
@@ -3571,16 +3206,13 @@ class TMDBMatcher:
                 except Exception:
                     continue
             
-            # 如果 JSON-LD 没找到，尝试传统的 HTML 解析
             if not original_title:
-                # 原名:
                 m = re.search(r'<span class="pl">原名:</span>\s*([^<]+)<br\s*/?>', html)
                 if m:
                     cand = m.group(1).strip()
                     if re.search(r'[A-Za-z\uAC00-\uD7A3]', cand):
                         original_title = cand
                 
-                # 又名: 取第一个包含非中文字符的名称
                 if not original_title:
                     m2 = re.search(r'<span class="pl">又名:</span>\s*([^<]+)<br\s*/?>', html)
                     if m2:
@@ -3599,7 +3231,6 @@ class TMDBMatcher:
         """清理标题，移除季数、集数、重映等后缀，用于TMDB搜索"""
         import re
         
-        # 移除常见的季数后缀
         season_patterns = [
             r'\s+第[一二三四五六七八九十\d]+季\s*$',
             r'\s+Season\s+\d+\s*$',
@@ -3615,8 +3246,6 @@ class TMDBMatcher:
         for pattern in season_patterns:
             cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
         
-        # 移除重映、修复版等后缀（括号内的内容）
-        # 匹配括号内的常见重映/修复相关词汇
         re_release_patterns = [
             r'\s*\(re-release\)\s*',
             r'\s*\(re-issue\)\s*',
@@ -3632,7 +3261,6 @@ class TMDBMatcher:
         for pattern in re_release_patterns:
             cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
         
-        # 移除首尾空格
         cleaned_title = cleaned_title.strip()
         
         logger.info(f"标题清理: '{title}' -> '{cleaned_title}'")
@@ -3645,8 +3273,7 @@ class TMDBMatcher:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             
-            # 使用TMDB的find API通过IMDB ID查找
-            api_key = "4f681fa7b5ab7346a4e184bbf2d41715"  # 使用与get_tmdb_info相同的API key
+            api_key = "4f681fa7b5ab7346a4e184bbf2d41715"
             find_url = f"https://api.themoviedb.org/3/find/{imdb_id}?api_key={api_key}&external_source=imdb_id"
                 
             logger.info(f"TMDB API URL: {find_url}")
@@ -3656,16 +3283,13 @@ class TMDBMatcher:
             if response.status_code == 200:
                 data = response.json()
                 
-                # 如果媒体类型是'both'，尝试查找movie和tv
                 if media_type == 'both':
-                    # 先尝试movie
                     movie_results = data.get('movie_results', [])
                     if movie_results:
                         tmdb_id = movie_results[0].get('id')
                         logger.info(f"通过IMDB ID {imdb_id} 找到TMDB电影ID: {tmdb_id}")
                         return {'tmdb_id': tmdb_id, 'media_type': 'movie'}
                     
-                    # 再尝试tv
                     tv_results = data.get('tv_results', [])
                     if tv_results:
                         tmdb_id = tv_results[0].get('id')
@@ -3675,7 +3299,6 @@ class TMDBMatcher:
                     logger.warning(f"IMDB ID {imdb_id} 在TMDB中未找到任何匹配")
                     return None
                 else:
-                    # 根据指定的媒体类型获取结果
                     results = data.get(f'{media_type}_results', [])
                     if results:
                         tmdb_id = results[0].get('id')
@@ -3703,10 +3326,8 @@ class TMDBMatcher:
             from fuzzywuzzy import fuzz
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-            # 清理标题用于搜索
             search_title = self.clean_title_for_search(title)
 
-            # 使用 Bearer Token
             tmdb_token = (
                 "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
             )
@@ -3724,7 +3345,6 @@ class TMDBMatcher:
                 data = resp.json()
                 return data.get("results", [])
 
-            # 中文 → 英文 → 无语言 三级搜索
             results_zh = do_search("zh-CN")
             results_en = [] if results_zh else do_search("en-US")
             results_any = [] if (results_zh or results_en) else do_search(None)
@@ -3760,11 +3380,9 @@ class TMDBMatcher:
                     best_score = total_score
                     best_match = result
 
-            # 放宽阈值，避免全量 miss
             if best_match and best_score >= 60:
                 return int(best_match.get("id"))
 
-            # 仍不满足时，尝试不带年份的无语言再次搜索（更宽松）
             if year:
                 results_relaxed = do_search(None)
                 for result in results_relaxed:
@@ -3785,7 +3403,6 @@ class TMDBMatcher:
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                 
-                # 获取英文数据
                 endpoint = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}?api_key=4f681fa7b5ab7346a4e184bbf2d41715&language=en-US&append_to_response=credits,external_ids"
                 response = requests.get(endpoint, verify=False)
                 
@@ -3805,12 +3422,10 @@ class TMDBMatcher:
                         continue
                     return None
                     
-                # 获取中文数据
                 zh_endpoint = endpoint.replace("language=en-US", "language=zh-CN")
                 zh_response = requests.get(zh_endpoint, verify=False)
                 zh_data = zh_response.json() if zh_response.status_code == 200 else en_data
                 
-                # 提取基本信息
                 if media_type == "movie":
                     title = en_data.get("title", "")
                     original_title = en_data.get("original_title", "")
@@ -3822,7 +3437,6 @@ class TMDBMatcher:
                     zh_title = zh_data.get("name", "")
                     year = en_data.get("first_air_date", "")[:4] if en_data.get("first_air_date") else ""
                 
-                # 获取海报路径
                 poster_path = en_data.get("poster_path", "")
                 poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
                 
@@ -3856,7 +3470,6 @@ class TMDBMatcher:
 
 class TelegramNotifier:
     def __init__(self):
-        # 硬编码Telegram配置
         self.bot_token = "8467848454:AAEaNsEPqfGd28y786KLYDy6JuwXQ-rxJJk"
         self.chat_id = "6467626360"
         self.enabled = bool(self.bot_token and self.chat_id)
@@ -3940,7 +3553,6 @@ class TelegramNotifier:
         
         await self.send_message(message)
 
-# 全局通知器实例
 telegram_notifier = TelegramNotifier()
 
 
@@ -3959,12 +3571,10 @@ class AutoUpdateScheduler:
         self.running = True
         logger.info("定时任务调度器已启动")
         
-        # 发送启动通知
         await telegram_notifier.send_message("🔄 *定时调度器已启动*\\n\\n⏰ 启动时间: " + 
                                            datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S') + " (北京时间)\\n\\n📅 每天21:30自动更新所有榜单")
         
         try:
-            # 创建后台任务
             self.task = asyncio.create_task(self._update_loop())
             logger.info(f"后台任务已创建: {self.task}")
         except Exception as e:
@@ -3981,7 +3591,6 @@ class AutoUpdateScheduler:
             self.task = None
         logger.info("定时任务调度器已停止")
         
-        # 发送停止通知
         await telegram_notifier.send_message("⏹️ *定时调度器已停止*\\n\\n⏰ 停止时间: " + 
                                            datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S') + " (北京时间)")
     
@@ -3990,16 +3599,13 @@ class AutoUpdateScheduler:
         """获取调度器状态"""
         from datetime import datetime, timezone, timedelta
         
-        # 计算下次更新时间（明天21:30）
         beijing_tz = timezone(timedelta(hours=8))
         now_beijing = datetime.now(beijing_tz)
         today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
         
         if now_beijing >= today_2130:
-            # 如果已经过了今天的21:30，下次更新是明天21:30
             next_update = today_2130 + timedelta(days=1)
         else:
-            # 如果还没到今天的21:30，下次更新是今天21:30
             next_update = today_2130
         
         return {
@@ -4012,37 +3618,28 @@ class AutoUpdateScheduler:
         """检查是否应该执行更新 - 每天北京21:30执行（无论之前是否更新过）"""
         from datetime import datetime, timezone, timedelta
     
-        # 获取当前北京时间
         beijing_tz = timezone(timedelta(hours=8))
         now_beijing = datetime.now(beijing_tz)
     
-        # 计算今天的21:30时间范围（21:30:00 到 21:30:59）
         today_2130_start = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
         today_2130_end = now_beijing.replace(hour=21, minute=30, second=59, microsecond=999999)
     
-        # 检查当前时间是否已经过了今天的21:30
         is_after_2130 = now_beijing >= today_2130_start
     
         if is_after_2130:
-            # 如果当前时间已经过了今天的21:30
             if not self.last_update:
                 logger.info(f"应该更新：没有上次更新记录，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}")
                 return True
         
-            # 检查上次更新是否不在今天的21:30这一分钟内
-            # 如果last_update已经是aware datetime，直接转换；否则认为是naive UTC
             if self.last_update.tzinfo:
                 last_update_beijing = self.last_update.astimezone(beijing_tz)
             else:
-                # naive datetime认为是UTC时间，先添加UTC时区再转换
                 last_update_utc = self.last_update.replace(tzinfo=timezone.utc)
                 last_update_beijing = last_update_utc.astimezone(beijing_tz)
         
-            # 检查上次更新是否不在今天的21:30这一分钟内
             last_update_date = last_update_beijing.date()
             today_date = now_beijing.date()
         
-            # 如果上次更新不是今天，或者不在今天的21:30这一分钟内，就应该更新
             if last_update_date != today_date:
                 logger.info(f"应该更新：上次更新({last_update_beijing.strftime('%Y-%m-%d %H:%M:%S')})不是今天，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')}")
                 return True
@@ -4059,7 +3656,6 @@ class AutoUpdateScheduler:
         start_time = time.time()
         logger.info("开始执行定时更新任务...")
         
-        # 发送开始更新通知
         await telegram_notifier.send_message("🚀 *开始执行定时更新任务*\\n\\n⏰ 开始时间: " + 
                                            datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S') + " (北京时间)")
         
@@ -4070,7 +3666,6 @@ class AutoUpdateScheduler:
         try:
             scraper = ChartScraper(db)
             
-            # 执行所有平台的更新
             update_tasks = [
                 ("烂番茄电影", scraper.update_rotten_movies),
                 ("烂番茄TV", scraper.update_rotten_tv),
@@ -4078,7 +3673,6 @@ class AutoUpdateScheduler:
                 ("Metacritic电影", scraper.update_metacritic_movies),
                 ("Metacritic剧集", scraper.update_metacritic_shows),
                 ("TMDB趋势", scraper.update_tmdb_trending_all_week),
-                # 注意：Top 250 榜单不包含在定时任务中，需要单独更新
                 ("Trakt电影", scraper.update_trakt_movies_weekly),
                 ("Trakt剧集", scraper.update_trakt_shows_weekly),
                 ("IMDb", scraper.update_imdb_top10),
@@ -4097,21 +3691,16 @@ class AutoUpdateScheduler:
                     logger.error(f"{platform_name} 更新失败: {e}")
                     results[platform_name] = 0
                     error_occurred = True
-                    # 发送单个平台失败通知
                     await telegram_notifier.send_update_error(str(e), platform_name)
             
-            # 将last_update设置为今天的21:30（北京时间），而不是实际更新时间
-            # 这样无论何时更新，都表示"今天已经在21:30更新过了"，避免重复更新
             beijing_tz = timezone(timedelta(hours=8))
             now_beijing = datetime.now(beijing_tz)
             today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
-            # 转换为UTC时间保存
             self.last_update = today_2130.astimezone(timezone.utc)
             logger.info(f"更新完成，将last_update设置为今天的21:30: {today_2130.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
             
             duration = time.time() - start_time
             
-            # 更新数据库中的last_update
             try:
                 from models import SchedulerStatus
                 db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
@@ -4145,7 +3734,6 @@ class AutoUpdateScheduler:
                 beijing_tz = timezone(timedelta(hours=8))
                 now_beijing = datetime.now(beijing_tz)
                 
-                # 只在21:30这一分钟内输出详细日志，其他时间只输出debug级别
                 if now_beijing.hour == 21 and now_beijing.minute == 30:
                     logger.info(f"更新循环检查中，当前时间: {now_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
                 else:
@@ -4158,7 +3746,6 @@ class AutoUpdateScheduler:
                     if now_beijing.hour == 21 and now_beijing.minute == 30:
                         logger.debug("当前在21:30这一分钟内，但不需要更新（可能已更新）")
                 
-                # 每10秒检查一次，确保能及时捕获21:30这一分钟
                 await asyncio.sleep(10)
             except asyncio.CancelledError:
                 logger.info("更新循环被取消")
@@ -4169,7 +3756,6 @@ class AutoUpdateScheduler:
                 logger.error(f"详细错误: {traceback.format_exc()}")
                 await asyncio.sleep(10)
 
-# 全局调度器实例
 scheduler_instance: Optional[AutoUpdateScheduler] = None
 
 async def start_auto_scheduler(db_session=None):
@@ -4182,7 +3768,6 @@ async def start_auto_scheduler(db_session=None):
         scheduler_instance = AutoUpdateScheduler()
         logger.info("创建新的调度器实例")
         
-        # 如果提供了数据库会话，尝试从数据库恢复last_update
         if db_session:
             try:
                 from models import SchedulerStatus
@@ -4212,7 +3797,6 @@ def get_scheduler_status() -> dict:
     """获取调度器状态"""
     global scheduler_instance
     
-    # 添加调试日志
     logger.info(f"获取调度器状态 - scheduler_instance: {scheduler_instance}")
     logger.info(f"scheduler_instance.running: {scheduler_instance.running if scheduler_instance else 'None'}")
     
@@ -4223,7 +3807,6 @@ def get_scheduler_status() -> dict:
     else:
         from datetime import datetime, timezone, timedelta
         
-        # 计算下次更新时间（明天21:30）
         beijing_tz = timezone(timedelta(hours=8))
         now_beijing = datetime.now(beijing_tz)
         today_2130 = now_beijing.replace(hour=21, minute=30, second=0, microsecond=0)
@@ -4240,4 +3823,4 @@ def get_scheduler_status() -> dict:
         }
         logger.info(f"返回默认状态: {status}")
         return status
-
+        
