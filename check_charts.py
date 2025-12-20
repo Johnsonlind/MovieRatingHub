@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# ==========================================
+# 榜单数据查询工具
+# ==========================================
 """查询数据库中各个榜单的数据情况"""
 
 from main import get_db
@@ -12,7 +15,6 @@ print("=" * 100)
 print("📊 榜单数据统计")
 print("=" * 100)
 
-# 1. 按平台和榜单名称统计总数
 print("\n【1. 各榜单数据条数】\n")
 
 charts = db.query(
@@ -39,12 +41,10 @@ print("\n" + "-" * 100)
 print(f"  {'总计':58s} : {grand_total:3d} 条")
 print("-" * 100)
 
-# 2. 按平台统计
 print("\n【2. 各平台数据总数】\n")
 for platform in sorted(platform_totals.keys()):
     print(f"  {platform:15s} : {platform_totals[platform]:3d} 条")
 
-# 3. 按 media_type 统计
 print("\n【3. 按类型统计】\n")
 
 type_stats = db.query(
@@ -57,7 +57,6 @@ type_stats = db.query(
 for media_type, count in type_stats:
     print(f"  {media_type:10s} : {count:3d} 条")
 
-# 4. 各榜单的 media_type 分布
 print("\n【4. 各榜单的类型分布】\n")
 
 chart_type_stats = db.query(
@@ -85,10 +84,8 @@ for platform, chart_name, media_type, count in chart_type_stats:
         current_chart = chart_key
     print(f"    └─ {media_type:10s} : {count:3d} 条")
 
-# 5. 检查可能的问题
 print("\n【5. 数据质量检查】\n")
 
-# 5.1 检查是否有空的 tmdb_id
 null_tmdb = db.query(func.count(ChartEntry.id)).filter(
     ChartEntry.tmdb_id == None
 ).scalar()
@@ -97,7 +94,6 @@ if null_tmdb > 0:
 else:
     print(f"  ✅ 所有记录都有 tmdb_id")
 
-# 5.2 检查是否有空的 title
 null_title = db.query(func.count(ChartEntry.id)).filter(
     ChartEntry.title == None
 ).scalar()
@@ -106,7 +102,6 @@ if null_title > 0:
 else:
     print(f"  ✅ 所有记录都有 title")
 
-# 5.3 检查是否有重复的条目（同一个榜单中同一个作品出现多次）
 print("\n  检查重复条目：")
 duplicates = db.query(
     ChartEntry.platform,
@@ -123,7 +118,7 @@ duplicates = db.query(
 
 if duplicates:
     print(f"  ⚠️  发现 {len(duplicates)} 组重复数据：")
-    for platform, chart_name, tmdb_id, count in duplicates[:10]:  # 只显示前10个
+    for platform, chart_name, tmdb_id, count in duplicates[:10]:
         entries = db.query(ChartEntry).filter(
             ChartEntry.platform == platform,
             ChartEntry.chart_name == chart_name,
@@ -135,7 +130,6 @@ if duplicates:
 else:
     print(f"  ✅ 没有发现重复数据")
 
-# 6. 显示每个榜单的完整数据
 print("\n【6. 各榜单完整数据】\n")
 
 for platform, chart_name, _ in charts:
@@ -149,7 +143,6 @@ for platform, chart_name, _ in charts:
         print(f"    {e.rank:2d}. {e.title:40s} (type={e.media_type}, tmdb_id={e.tmdb_id})")
     print()
 
-# 7. 统计各个 tmdb_id 出现的频次（用于验证聚合逻辑）
 print("\n【7. TV剧集出现频次统计（用于验证Top10，排除华语剧集榜）】\n")
 
 tv_freq = db.query(
@@ -200,4 +193,3 @@ print("✅ 查询完成")
 print("=" * 100)
 
 db.close()
-
