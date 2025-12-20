@@ -1,19 +1,16 @@
 # ==========================================
-# 浏览器池管理模块 - Playwright浏览器实例池
-# 功能: 管理浏览器实例、上下文和页面，提供高效的资源复用
+# 浏览器池管理模块
 # ==========================================
 import asyncio
 import logging
-from typing import Dict, List, Optional, Tuple
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
+from typing import List, Optional
+from playwright.async_api import async_playwright, Browser, Playwright
 
 logger = logging.getLogger(__name__)
 
 class BrowserPool:
     def __init__(self, max_browsers=5, max_contexts_per_browser=3, max_pages_per_context=5):
         self.max_browsers = max_browsers
-        self.max_contexts_per_browser = max_contexts_per_browser
-        self.max_pages_per_context = max_pages_per_context
         
         self.playwright: Optional[Playwright] = None
         self.browsers: List[Browser] = []
@@ -21,7 +18,6 @@ class BrowserPool:
         self.lock = asyncio.Lock()
         self.initialized = False
         
-        # 监控指标
         self.total_requests = 0
         self.failed_requests = 0
         self.browser_crashes = 0
@@ -88,13 +84,10 @@ class BrowserPool:
             self.failed_requests += 1
             logger.error(f"浏览器操作失败: {str(e)}")
             
-            # 检查浏览器是否崩溃
             try:
-                # 尝试创建一个上下文来检查浏览器是否仍然可用
                 context = await browser.new_context()
                 await context.close()
             except Exception:
-                # 浏览器已崩溃，替换它
                 self.browser_crashes += 1
                 logger.warning("检测到浏览器崩溃，正在替换...")
                 try:
@@ -143,5 +136,4 @@ class BrowserPool:
             "available_browsers": self.available_browsers.qsize()
         }
 
-# 全局浏览器池实例
 browser_pool = BrowserPool(max_browsers=5, max_contexts_per_browser=3, max_pages_per_context=5)
