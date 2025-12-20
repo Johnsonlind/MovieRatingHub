@@ -36,6 +36,11 @@ function isSafari(): boolean {
          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
+function isMobileDevice(): boolean {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+         (!!navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
+}
+
 function fixImageCrossOrigin(element: HTMLElement): void {
   const images = element.getElementsByTagName('img');
   Array.from(images).forEach(img => {
@@ -56,6 +61,9 @@ function fixImageCrossOrigin(element: HTMLElement): void {
 }
 
 async function waitForAllResources(element: HTMLElement): Promise<void> {
+  const isMobile = isMobileDevice();
+  const imageTimeout = isMobile ? 3000 : 5000;
+  
   const images = element.getElementsByTagName('img');
   await Promise.all(
     Array.from(images).map(
@@ -64,7 +72,7 @@ async function waitForAllResources(element: HTMLElement): Promise<void> {
         : new Promise<void>(resolve => {
             img.onload = () => resolve();
             img.onerror = () => resolve();
-            setTimeout(() => resolve(), 10000);
+            setTimeout(() => resolve(), imageTimeout);
           })
     )
   );
@@ -85,43 +93,51 @@ async function waitForAllResources(element: HTMLElement): Promise<void> {
       console.warn('字体加载警告:', error);
     }
     
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => setTimeout(resolve, isMobile ? 100 : 200));
   }
   
-  await new Promise(resolve => setTimeout(resolve, 200));
+  await new Promise(resolve => setTimeout(resolve, isMobile ? 50 : 100));
 }
 
 async function convertAllImagesToBase64ForSafari(element: HTMLElement): Promise<void> {
-  const images = element.getElementsByTagName('img');
-  const promises = Array.from(images).map(async (img) => {
-    if (img.src.startsWith('data:')) {
-      return;
-    }
-    
-    let imageUrl = img.src;
-    if (imageUrl.startsWith('/')) {
-      imageUrl = window.location.origin + imageUrl;
-    }
-    
-    try {
-      const base64 = await getBase64Image(imageUrl);
-      img.src = base64;
-      
-      await new Promise<void>((resolve) => {
-        if (img.complete && img.naturalWidth > 0) {
-          resolve();
-        } else {
-          img.onload = () => resolve();
-          img.onerror = () => resolve();
-          setTimeout(() => resolve(), 5000);
-        }
-      });
-    } catch (error) {
-      console.warn('图片转换失败:', imageUrl, error);
-    }
-  });
+  const isMobile = isMobileDevice();
+  const timeout = isMobile ? 3000 : 5000;
   
-  await Promise.all(promises);
+  const images = element.getElementsByTagName('img');
+  const maxConcurrent = isMobile ? 3 : 10;
+  const imageArray = Array.from(images).filter(img => !img.src.startsWith('data:'));
+  
+  for (let i = 0; i < imageArray.length; i += maxConcurrent) {
+    const batch = imageArray.slice(i, i + maxConcurrent);
+    await Promise.all(batch.map(async (img) => {
+      let imageUrl = img.src;
+      if (imageUrl.startsWith('/')) {
+        imageUrl = window.location.origin + imageUrl;
+      }
+      
+      try {
+        const base64 = await getBase64Image(imageUrl);
+        img.src = base64;
+        
+        await new Promise<void>((resolve) => {
+          if (img.complete && img.naturalWidth > 0) {
+            resolve();
+          } else {
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            setTimeout(() => resolve(), timeout);
+          }
+        });
+      } catch (error) {
+        console.warn('图片转换失败:', imageUrl, error);
+      }
+    }));
+
+    if (isMobile && i + maxConcurrent < imageArray.length) {
+      await yieldToMain();
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+  }
 }
 
 function removeBackdropFilters(element: HTMLElement): void {
@@ -213,10 +229,11 @@ function forceRepaint(element: HTMLElement): void {
 }
 
 async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const base64Size = dataUrl.length;
     const estimatedSize = (base64Size * 3) / 4;
     const targetSizeBytes = targetSizeMB * 1024 * 1024;
+    const isMobile = isMobileDevice();
     
     if (estimatedSize <= targetSizeBytes * 1.1) {
       console.log('文件大小已合适，无需压缩');
@@ -224,11 +241,19 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
       return;
     }
     
+    await yieldToMain();
+    
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => {
+    img.onload = async () => {
+      await yieldToMain();
+      
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { willReadFrequently: false });
+      const ctx = canvas.getContext('2d', { 
+        willReadFrequently: false,
+        alpha: true,
+        desynchronized: isMobile ? true : false
+      });
       if (!ctx) {
         reject(new Error('无法创建canvas上下文'));
         return;
@@ -239,18 +264,39 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
       const originalWidth = width;
       const originalHeight = height;
       
-      const checkSize = (w: number, h: number): Promise<string> => {
+      const maxIterations = isMobile ? 3 : 10;
+      let iterationCount = 0;
+      
+      const checkSize = async (w: number, h: number): Promise<string> => {
+        if (iterationCount > 0) {
+          await yieldToMain();
+        }
+        
         return new Promise((resolveCheck) => {
+          if (iterationCount >= maxIterations) {
+            console.log('达到最大迭代次数，使用当前尺寸');
+            canvas.width = w;
+            canvas.height = h;
+            ctx.clearRect(0, 0, w, h);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = isMobile ? 'medium' : 'high';
+            ctx.drawImage(img, 0, 0, w, h);
+            resolveCheck(canvas.toDataURL('image/png', isMobile ? 0.85 : 0.95));
+            return;
+          }
+          
+          iterationCount++;
           canvas.width = w;
           canvas.height = h;
           ctx.clearRect(0, 0, w, h);
           ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
+          ctx.imageSmoothingQuality = isMobile ? 'medium' : 'high';
           ctx.drawImage(img, 0, 0, w, h);
           
-          canvas.toBlob((blob) => {
+          const quality = isMobile ? 0.85 : 0.95;
+          canvas.toBlob(async (blob) => {
             if (!blob) {
-              resolveCheck(canvas.toDataURL('image/png'));
+              resolveCheck(canvas.toDataURL('image/png', quality));
               return;
             }
             
@@ -260,30 +306,33 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
             if (size <= targetSizeBytes * 1.1) {
               const reader = new FileReader();
               reader.onloadend = () => resolveCheck(reader.result as string);
-              reader.onerror = () => resolveCheck(canvas.toDataURL('image/png'));
+              reader.onerror = () => resolveCheck(canvas.toDataURL('image/png', quality));
               reader.readAsDataURL(blob);
             } else {
-              const ratio = Math.sqrt((targetSizeBytes * 1.1) / size);
-              const newWidth = Math.floor(w * ratio);
-              const newHeight = Math.floor(h * ratio);
+              const compressionRatio = isMobile ? 0.75 : Math.sqrt((targetSizeBytes * 1.1) / size);
+              const newWidth = Math.floor(w * compressionRatio);
+              const newHeight = Math.floor(h * compressionRatio);
               
-              const minWidth = Math.floor(originalWidth * 0.6);
-              const minHeight = Math.floor(originalHeight * 0.6);
+              const minWidth = Math.floor(originalWidth * (isMobile ? 0.5 : 0.6));
+              const minHeight = Math.floor(originalHeight * (isMobile ? 0.5 : 0.6));
               
               if (newWidth < minWidth || newHeight < minHeight) {
                 const finalWidth = Math.max(newWidth, minWidth);
                 const finalHeight = Math.max(newHeight, minHeight);
                 console.log(`达到最小尺寸限制，使用: ${finalWidth}x${finalHeight}`);
-                checkSize(finalWidth, finalHeight).then(resolveCheck);
+                const result = await checkSize(finalWidth, finalHeight);
+                resolveCheck(result);
               } else {
-                checkSize(newWidth, newHeight).then(resolveCheck);
+                const result = await checkSize(newWidth, newHeight);
+                resolveCheck(result);
               }
             }
-          }, 'image/png');
+          }, 'image/png', quality);
         });
       };
       
-      checkSize(width, height).then(resolve).catch(reject);
+      const result = await checkSize(width, height);
+      resolve(result);
     };
     img.onerror = () => reject(new Error('图片加载失败'));
     img.src = dataUrl;
@@ -372,6 +421,9 @@ function removeBoxShadows(element: HTMLElement): () => void {
 async function exportWithSnapdom(element: HTMLElement, filename: string, isChart: boolean = false, borderRadius: number = 20): Promise<void> {
   const snapdomModule = await import('@zumer/snapdom');
   const snapdom = snapdomModule as any;
+  const isMobile = isMobileDevice();
+
+  await yieldToMain();
   
   const originalOverflow = element.style.overflow;
   const originalBorderRadius = element.style.borderRadius;
@@ -386,6 +438,8 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   console.log('Safari: 开始转换所有图片为base64...');
   await convertAllImagesToBase64ForSafari(element);
   console.log('Safari: 图片转换完成');
+
+  await yieldToMain();
   
   await waitForAllResources(element);
   
@@ -400,18 +454,25 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
       });
     });
   }
+
+  await yieldToMain();
   
   forceRepaint(element);
   
-  const waitTime = isChart ? 1000 : 3000;
+  const waitTime = isChart ? (isMobile ? 300 : 800) : (isMobile ? 500 : 2000);
   await new Promise(resolve => setTimeout(resolve, waitTime));
+
+  await yieldToMain();
   
   forceRepaint(element);
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise(resolve => setTimeout(resolve, isMobile ? 100 : 300));
+
+  const baseScale = isChart ? 1.5 : 2;
+  const scale = isMobile ? Math.max(1.0, baseScale * 0.7) : baseScale;
   
-  const scale = isChart ? 1.5 : 2;
+  console.log('Safari: 开始使用snapdom导出，scale:', scale, isMobile ? '(移动端优化)' : '');
   
-  console.log('Safari: 开始使用snapdom导出，scale:', scale);
+  await yieldToMain();
   
   const imgElement = await snapdom.snapdom.toPng(element, {
     scale: scale,
@@ -425,16 +486,22 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   element.style.overflow = originalOverflow;
   element.style.borderRadius = originalBorderRadius;
   restoreShadows();
+
+  await yieldToMain();
   
   let dataUrl = imgElement.src;
   
   const scaledBorderRadius = borderRadius * scale;
   console.log('Safari: 应用圆角，半径:', scaledBorderRadius);
   dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
+
+  await yieldToMain();
   
   console.log('Safari: 开始压缩图片...');
-  dataUrl = await compressImage(dataUrl, 10);
+  dataUrl = await compressImage(dataUrl, isMobile ? 5 : 10);
   console.log('Safari: 图片压缩完成');
+
+  await yieldToMain();
   
   const link = document.createElement('a');
   link.download = filename;
@@ -445,6 +512,10 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
 }
 
 async function exportWithHtmlToImage(element: HTMLElement, filename: string, isChart: boolean = false, borderRadius: number = 20): Promise<void> {
+  const isMobile = isMobileDevice();
+
+  await yieldToMain();
+  
   const originalOverflow = element.style.overflow;
   const originalBorderRadius = element.style.borderRadius;
   
@@ -455,7 +526,14 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   
   await waitForAllResources(element);
   
-  const pixelRatio = isChart ? 1.5 : 2;
+  await yieldToMain();
+
+  const basePixelRatio = isChart ? 1.5 : 2;
+  const pixelRatio = isMobile ? Math.max(1.0, basePixelRatio * 0.7) : basePixelRatio;
+  
+  console.log('Chrome: 开始导出，pixelRatio:', pixelRatio, isMobile ? '(移动端优化)' : '');
+
+  await yieldToMain();
   
   let dataUrl = await toPng(element, {
     quality: 1.0,
@@ -480,14 +558,20 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   element.style.overflow = originalOverflow;
   element.style.borderRadius = originalBorderRadius;
   restoreShadows();
+
+  await yieldToMain();
   
   const scaledBorderRadius = borderRadius * pixelRatio;
   console.log('Chrome: 应用圆角，半径:', scaledBorderRadius);
   dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
+
+  await yieldToMain();
   
   console.log('Chrome: 开始压缩图片...');
-  dataUrl = await compressImage(dataUrl, 10);
+  dataUrl = await compressImage(dataUrl, isMobile ? 5 : 10);
   console.log('Chrome: 图片压缩完成');
+
+  await yieldToMain();
   
   const link = document.createElement('a');
   link.download = filename;
@@ -497,12 +581,22 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   document.body.removeChild(link);
 }
 
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      setTimeout(() => resolve(), 0);
+    });
+  });
+}
+
 export async function exportToPng(element: HTMLElement, filename: string, options?: { isChart?: boolean; borderRadius?: number }) {
   if (!element) {
     throw new Error('导出元素不存在');
   }
 
   try {
+    await yieldToMain();
+    
     const isSafariBrowser = isSafari();
     const isChart = options?.isChart || false;
     const borderRadius = options?.borderRadius ?? (isChart ? 20 : 24);
