@@ -17,9 +17,7 @@ from datetime import datetime
 from browser_pool import browser_pool
 from anthology_handler import anthology_handler
 
-# ==========================================
 # 日志美化工具
-# ==========================================
 class LogFormatter:
     """结构化日志输出"""
     COLORS = {
@@ -3859,3 +3857,4 @@ async def main():
     
 if __name__ == "__main__":
     asyncio.run(main())
+    
