@@ -19,6 +19,7 @@ function TopSectionsFromBackend() {
   const { data, isLoading } = useQuery({
     queryKey: ['aggregate-charts'],
     queryFn: () => fetch('/api/charts/aggregate').then(r => r.json()),
+    placeholderData: (previousData) => previousData,
   });
 
   const resolvePosterUrl = (poster: string) => {
