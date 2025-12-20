@@ -81,6 +81,7 @@ export default function ChartDetailPage() {
       return response.json();
     },
     enabled: !!platform && !!chartName,
+    placeholderData: (previousData) => previousData,
   });
 
   useAggressiveImagePreload(contentRef, !isLoading && !!data);
