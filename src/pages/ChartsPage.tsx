@@ -130,6 +130,7 @@ export default function ChartsPage() {
         chart_name: CHART_NAME_MAP[chart.chart_name] || chart.chart_name,
       }));
     },
+    placeholderData: (previousData) => previousData,
   });
 
   useAggressiveImagePreload(contentRef, !isLoading && !!chartsData);
