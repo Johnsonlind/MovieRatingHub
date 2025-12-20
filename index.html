@@ -19,7 +19,7 @@
     <link rel="preconnect" href="//image.tmdb.org" crossorigin="anonymous">
     <meta http-equiv="x-dns-prefetch-control" content="on">
     
-    <!-- 预加载关键字体资源 - 修改为更高优先级 -->
+    <!-- 预加载关键字体资源 -->
     <link rel="preload" href="/fonts/FontA.woff2" as="font" type="font/woff2" crossorigin="anonymous" fetchpriority="high">
     <link rel="preload" href="/fonts/FontB.woff2" as="font" type="font/woff2" crossorigin="anonymous" fetchpriority="high">
     
@@ -52,7 +52,7 @@
         text-rendering: optimizeLegibility;
       }
       
-      /* 字体渲染 - 修改初始不透明度为0.01而非0，避免完全不可见 */
+      /* 字体渲染 */
       :root {
         font-family: 'Onest', 'ShangGuDengKuan', system-ui, -apple-system;
         opacity: 0.01;
@@ -82,35 +82,28 @@
       }
     </style>
     
-    <!-- 字体加载检测脚本 - 优化超时时间 -->
+    <!-- 字体加载检测脚本 -->
     <script>
-      // 主题设置
       const theme = localStorage.getItem('theme') || 'light';
       document.documentElement.setAttribute('data-theme', theme);
       if (theme === 'dark') {
         document.documentElement.classList.add('dark');
       }
 
-      // 字体加载检测
-      const FONT_LOAD_TIMEOUT = 1500; // 减少到1.5秒超时
-      const FONT_LOAD_FALLBACK_TIMEOUT = 50; // 减少到50ms
+      const FONT_LOAD_TIMEOUT = 1500;
+      const FONT_LOAD_FALLBACK_TIMEOUT = 50;
 
-      // 字体加载状态跟踪
       let fontsLoaded = false;
 
-      // 字体加载主逻辑
       Promise.race([
-        // 尝试加载字体
         Promise.all([
           document.fonts.load('1em Onest'),
           document.fonts.load('1em ShangGuDengKuan')
         ]).then(() => {
           fontsLoaded = true;
           document.documentElement.classList.add('fonts-loaded');
-          // 记录成功加载时间
           performance.mark('fonts-loaded');
         }),
-        // 超时处理
         new Promise(resolve => setTimeout(() => {
           if (!fontsLoaded) {
             console.warn('字体加载超时，使用后备方案');
@@ -119,7 +112,6 @@
           resolve();
         }, FONT_LOAD_TIMEOUT))
       ]).catch(() => {
-        // 加载失败处理
         setTimeout(() => {
           if (!fontsLoaded) {
             console.warn('字体加载失败，使用后备方案');
@@ -128,7 +120,6 @@
         }, FONT_LOAD_FALLBACK_TIMEOUT);
       });
 
-      // 添加性能监控
       if (window.PerformanceObserver) {
         const observer = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
@@ -140,10 +131,8 @@
         observer.observe({ entryTypes: ['mark', 'measure'] });
       }
       
-      // 添加资源提示
       if ('connection' in navigator) {
         if (navigator.connection.saveData) {
-          // 如果用户开启了省流量模式，不预加载字体
           document.documentElement.classList.add('fonts-loaded', 'fonts-timeout');
         }
       }
