@@ -3,7 +3,7 @@
 // ==========================================
 import { useEffect, useState } from 'react';
 import { useAuth } from '../components/auth/AuthContext';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 
 interface MediaItem {
@@ -134,6 +134,7 @@ async function searchTMDB(q: string): Promise<SearchResult> {
 
 export default function AdminChartsPage() {
   const { user, isLoading } = useAuth();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     document.title = '榜单录入（管理员） - RateFuse';
@@ -314,6 +315,22 @@ export default function AdminChartsPage() {
           await loadCurrentList(currentPlatform, currentChartName, currentMediaType as SectionType);
         }
       }
+      
+      const isTop250Chart = TOP_250_CHARTS.includes(chart_name);
+      if (!isTop250Chart) {
+        queryClient.invalidateQueries({ 
+          queryKey: ['aggregate-charts'],
+          refetchType: 'active'
+        });
+      }
+      queryClient.invalidateQueries({ 
+        queryKey: ['public-charts'],
+        refetchType: 'active'
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ['chart-detail'],
+        refetchType: 'active'
+      });
     } catch (error) {
       alert(`保存失败: ${error}`);
     } finally {
@@ -688,6 +705,19 @@ export default function AdminChartsPage() {
 
       const data = await response.json();
       alert(data.message || '同步成功！');
+      
+      queryClient.invalidateQueries({ 
+        queryKey: ['public-charts'],
+        refetchType: 'active'
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ['chart-detail'],
+        refetchType: 'active'
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: ['aggregate-charts'],
+        refetchType: 'active'
+      });
     } catch (error) {
       console.error('同步榜单失败:', error);
       alert(error instanceof Error ? error.message : '同步失败');
@@ -1189,6 +1219,22 @@ export default function AdminChartsPage() {
                                                   const [currentPlatform, currentChartName, currentMediaType] = activeKey.split(':');
                                                   await loadCurrentList(currentPlatform, currentChartName, currentMediaType as SectionType);
                                                 }
+                                                
+                                                const isTop250Chart = TOP_250_CHARTS.includes(sec.name);
+                                                if (!isTop250Chart) {
+                                                  queryClient.invalidateQueries({ 
+                                                    queryKey: ['aggregate-charts'],
+                                                    refetchType: 'active'
+                                                  });
+                                                }
+                                                queryClient.invalidateQueries({ 
+                                                  queryKey: ['public-charts'],
+                                                  refetchType: 'active'
+                                                });
+                                                queryClient.invalidateQueries({ 
+                                                  queryKey: ['chart-detail'],
+                                                  refetchType: 'active'
+                                                });
                                               }}
                                               className={`px-2 py-1 rounded text-xs transition-colors bg-gray-600 text-gray-200 hover:bg-gray-500`}
                                             >
