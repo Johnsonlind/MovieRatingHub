@@ -3470,7 +3470,7 @@ class TMDBMatcher:
 
 class TelegramNotifier:
     def __init__(self):
-        self.bot_token = "8467848454:AAEaNsEPqfGd28y786KLYDy6JuwXQ-rxJJk"
+        self.bot_token = "8482630724:AAHYqjBNrTKOAh4HQ3jpDW3eJhuIcQlpgOA"
         self.chat_id = "6467626360"
         self.enabled = bool(self.bot_token and self.chat_id)
         
