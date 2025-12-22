@@ -38,6 +38,8 @@ const CHART_STRUCTURE: Array<{ platform: string; sections: Array<{ name: string;
     { name: '豆瓣2025评分最高恐怖片', media_type: 'movie' },
     { name: '豆瓣2025评分最高动画片', media_type: 'movie' },
     { name: '豆瓣2025评分最高纪录片', media_type: 'movie' },
+    { name: '豆瓣2025评分最值得期待外语电影', media_type: 'movie' },
+    { name: '豆瓣2025评分最值得期待华语电影', media_type: 'movie' },
   ]},
   { platform: 'IMDb', sections: [
     { name: 'IMDb 本周 Top 10', media_type: 'both' },
