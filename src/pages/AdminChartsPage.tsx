@@ -28,6 +28,16 @@ const CHART_STRUCTURE: Array<{ platform: string; sections: Array<{ name: string;
     { name: '一周华语剧集口碑榜', media_type: 'tv' },
     { name: '一周全球剧集口碑榜', media_type: 'tv' },
     { name: '豆瓣 电影 Top 250', media_type: 'movie' },
+    { name: '豆瓣2025评分最高华语电影', media_type: 'movie' },
+    { name: '豆瓣2025评分最高外语电影', media_type: 'movie' },
+    { name: '豆瓣2025冷门佳片', media_type: 'movie' },
+    { name: '豆瓣2025评分最高日本电影', media_type: 'movie' },
+    { name: '豆瓣2025评分最高韩国电影', media_type: 'movie' },
+    { name: '豆瓣2025评分最高喜剧片', media_type: 'movie' },
+    { name: '豆瓣2025评分最高爱情片', media_type: 'movie' },
+    { name: '豆瓣2025评分最高恐怖片', media_type: 'movie' },
+    { name: '豆瓣2025评分最高动画片', media_type: 'movie' },
+    { name: '豆瓣2025评分最高纪录片', media_type: 'movie' },
   ]},
   { platform: 'IMDb', sections: [
     { name: 'IMDb 本周 Top 10', media_type: 'both' },
@@ -81,6 +91,16 @@ const MANUAL_ENTRY_CHARTS = [
   '豆瓣 电影 Top 250',
   'Metacritic 史上最佳电影 Top 250',
   'Metacritic 史上最佳剧集 Top 250',
+  '豆瓣2025评分最高华语电影',
+  '豆瓣2025评分最高外语电影',
+  '豆瓣2025冷门佳片',
+  '豆瓣2025评分最高日本电影',
+  '豆瓣2025评分最高韩国电影',
+  '豆瓣2025评分最高喜剧片',
+  '豆瓣2025评分最高爱情片',
+  '豆瓣2025评分最高恐怖片',
+  '豆瓣2025评分最高动画片',
+  '豆瓣2025评分最高纪录片',
 ];
 
 // 平台名称反向映射（前端显示名称 → 后端存储名称）
