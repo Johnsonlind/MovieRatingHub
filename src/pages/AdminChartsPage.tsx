@@ -93,6 +93,10 @@ const MANUAL_ENTRY_CHARTS = [
   '豆瓣 电影 Top 250',
   'Metacritic 史上最佳电影 Top 250',
   'Metacritic 史上最佳剧集 Top 250',
+];
+
+// 支持手动录入的10条数据榜单（显示10行表格，支持导出）
+const MANUAL_ENTRY_10_CHARTS = [
   '豆瓣2025评分最高华语电影',
   '豆瓣2025评分最高外语电影',
   '豆瓣2025冷门佳片',
@@ -103,6 +107,8 @@ const MANUAL_ENTRY_CHARTS = [
   '豆瓣2025评分最高恐怖片',
   '豆瓣2025评分最高动画片',
   '豆瓣2025评分最高纪录片',
+  '豆瓣2025评分最值得期待外语电影',
+  '豆瓣2025评分最值得期待华语电影',
 ];
 
 // 平台名称反向映射（前端显示名称 → 后端存储名称）
@@ -1104,7 +1110,7 @@ export default function AdminChartsPage() {
                                 {platformOperations[`${platform}_${sec.name}_update`] ? '更新中...' : '更新 Top 250'}
                               </button>
                             )}
-                            {MANUAL_ENTRY_CHARTS.includes(sec.name) && (
+                            {(MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_10_CHARTS.includes(sec.name)) && (
                               <button
                                 onClick={() => {
                                   if (activeKey !== key) {
@@ -1151,7 +1157,7 @@ export default function AdminChartsPage() {
                     </div>
                     {activeKey === key && (
                       <div className="space-y-3">
-                        {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name)) ? (
+                        {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_10_CHARTS.includes(sec.name)) ? (
                           <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
                             <table className="w-full border-collapse">
                               <thead className={`sticky top-0 bg-gray-100 dark:bg-gray-900 z-10`}>
@@ -1163,7 +1169,7 @@ export default function AdminChartsPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {Array.from({ length: 250 }, (_, idx) => idx + 1).map(r => {
+                                {Array.from({ length: MANUAL_ENTRY_10_CHARTS.includes(sec.name) ? 10 : 250 }, (_, idx) => idx + 1).map(r => {
                                   const current = currentList.find(i => i.rank === r);
                                   const isMetacriticTop250 = sec.name === 'Metacritic 史上最佳电影 Top 250' || sec.name === 'Metacritic 史上最佳剧集 Top 250';
                                   const locked = isMetacriticTop250 
@@ -1336,7 +1342,7 @@ export default function AdminChartsPage() {
                       </div>
                     )}
                     <div className={`text-xs mt-2 text-gray-600 dark:text-gray-400`}>
-                      {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name))
+                      {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_10_CHARTS.includes(sec.name))
                         ? '提示：点击"选择"按钮后搜索选择影视作品，排名由表格行号决定。' 
                         : '提示：点击排名按钮后进行搜索选择并完成。'}
                     </div>
