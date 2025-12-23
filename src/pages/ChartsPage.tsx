@@ -181,7 +181,12 @@ export default function ChartsPage() {
     const result = sortedCharts.reduce((acc, chart) => {
     const platformKey = chart.platform;
     
-    if (chart.platform === 'TMDB' || chart.platform === 'IMDb') {
+    // 对于 TMDB、IMDb 和"豆瓣2025评分月度热搜影视"榜单，合并 movie 和 tv 类型
+    const shouldMerge = chart.platform === 'TMDB' || 
+                       chart.platform === 'IMDb' || 
+                       chart.chart_name === '豆瓣2025评分月度热搜影视';
+    
+    if (shouldMerge) {
       if (acc[platformKey] && acc[platformKey].length > 0) {
         const existingChart = acc[platformKey].find(c => c.chart_name === chart.chart_name);
         if (existingChart) {
