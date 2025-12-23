@@ -181,7 +181,6 @@ export default function ChartsPage() {
     const result = sortedCharts.reduce((acc, chart) => {
     const platformKey = chart.platform;
     
-    // 对于 TMDB、IMDb 和"豆瓣2025评分月度热搜影视"榜单，合并 movie 和 tv 类型
     const shouldMerge = chart.platform === 'TMDB' || 
                        chart.platform === 'IMDb' || 
                        chart.chart_name === '豆瓣2025评分月度热搜影视';
