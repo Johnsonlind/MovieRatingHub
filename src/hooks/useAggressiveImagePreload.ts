@@ -21,9 +21,13 @@ export function useAggressiveImagePreload(
 
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
       window.innerWidth < 768;
+    
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent) || 
+                     (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream);
+    const isSafariMobile = isMobile && isSafari;
 
-    const MAX_CONCURRENT_LOADS = isMobile ? 8 : 20;
-    const PRELOAD_SCREENS = isMobile ? 4 : 6;
+    const MAX_CONCURRENT_LOADS = isSafariMobile ? 3 : (isMobile ? 6 : 20);
+    const PRELOAD_SCREENS = isSafariMobile ? 1.5 : (isMobile ? 2 : 6);
     const ENABLE_FORCE_DECODE = !isMobile;
 
     const processQueue = () => {
