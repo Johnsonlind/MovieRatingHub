@@ -50,12 +50,12 @@ const DOUBAN_CHART_ORDER = [
   '豆瓣2025最值得期待外语电影',
   '豆瓣2025最值得期待华语电影',
   '豆瓣2025评分最高华语剧集',
-   '豆瓣2025评分最高英美新剧',
+  '豆瓣2025评分最高英美新剧',
   '豆瓣2025评分最高英美续订剧',
   '豆瓣2025评分最受关注综艺', 
   '豆瓣2025评分最高动画剧集',
- '豆瓣2025评分最高大陆微短剧',
- '豆瓣2025评分最高纪录剧集',
+  '豆瓣2025评分最高大陆微短剧',
+  '豆瓣2025评分最高纪录剧集',
 ];
 
 // 平台名称映射（后端返回的名称 → 前端显示的名称）
@@ -133,6 +133,16 @@ export default function ChartsPage() {
 
   const contentRef = useRef<HTMLDivElement>(null);
 
+  const isSafariMobile = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    const ua = navigator.userAgent;
+    const isMobile = /iPhone|iPad|iPod/.test(ua) || 
+                    (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
+    const isSafari = /^((?!chrome|android).)*safari/i.test(ua) || 
+                     (/iPad|iPhone|iPod/.test(ua) && !(window as any).MSStream);
+    return isMobile && isSafari;
+  }, []);
+
   const { data: chartsData, isLoading } = useQuery({
     queryKey: ['public-charts'],
     queryFn: async () => {
@@ -150,7 +160,7 @@ export default function ChartsPage() {
     placeholderData: (previousData) => previousData,
   });
 
-  useAggressiveImagePreload(contentRef, !isLoading && !!chartsData);
+  useAggressiveImagePreload(contentRef, !isLoading && !!chartsData && !isSafariMobile);
 
   const sortedCharts = useMemo(() => {
     if (!chartsData) return [];
@@ -462,6 +472,8 @@ export default function ChartsPage() {
                                       ? `/movie/${entry.tmdb_id}` 
                                       : `/tv/${entry.tmdb_id}`;
                                     
+                                    const shouldUseEager = !isSafariMobile && idx < 20;
+                                    
                                     return (
                                       <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative" style={{ contain: 'layout style' }}>
                                         <Link to={linkPath} target="_blank" rel="noopener noreferrer">
@@ -471,7 +483,7 @@ export default function ChartsPage() {
                                                 src={resolvePosterUrl(entry.poster)}
                                                 alt={entry.title}
                                                 className="w-full h-full object-cover transition-opacity duration-200"
-                                                loading="eager"
+                                                loading={shouldUseEager ? "eager" : "lazy"}
                                                 fetchPriority={idx < 20 ? 'high' : idx < 60 ? 'auto' : 'low'}
                                                 decoding="async"
                                                 sizes="(min-width:1280px) 10vw, (min-width:1024px) 14vw, (min-width:640px) 20vw, 33vw"
