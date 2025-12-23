@@ -45,6 +45,8 @@ const CHART_STRUCTURE: Array<{ platform: string; sections: Array<{ name: string;
     { name: '豆瓣2025评分最高动画剧集', media_type: 'tv' },
     { name: '豆瓣2025评分最高大陆微短剧', media_type: 'tv' },
     { name: '豆瓣2025评分最高纪录剧集', media_type: 'tv' },
+    { name: '豆瓣2025最值得期待剧集', media_type: 'tv' },
+    { name: '豆瓣2025评分月度热搜影视', media_type: 'both' },
   ]},
   { platform: 'IMDb', sections: [
     { name: 'IMDb 本周 Top 10', media_type: 'both' },
@@ -1167,9 +1169,12 @@ export default function AdminChartsPage() {
                                   const locked = isMetacriticTop250 
                                     ? (currentListsByType.movie.some(i=> i.rank===r && i.locked) || currentListsByType.tv.some(i=> i.rank===r && i.locked))
                                     : (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
+                                  const displayRank = sec.name === '豆瓣2025评分月度热搜影视' && r >= 1 && r <= 12
+                                    ? `${r}月`
+                                    : r;
                                   return (
                                     <tr key={r} className={`border-b border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800/30 ${current ? '' : 'opacity-60'}`}>
-                                      <td className={`py-2 px-3 text-sm text-gray-900 dark:text-white font-medium text-center`}>{r}</td>
+                                      <td className={`py-2 px-3 text-sm text-gray-900 dark:text-white font-medium text-center`}>{displayRank}</td>
                                       <td className={`py-2 px-3`}>
                                         <div className={`w-12 h-18 overflow-hidden rounded bg-gray-700`}>
                                           {current?.poster ? (
@@ -1271,9 +1276,12 @@ export default function AdminChartsPage() {
                           </div>
                         ) : (
                           <div className="flex gap-3 flex-wrap items-end">
-                            {Array.from({ length: 10 }, (_, idx) => idx + 1).map(r => {
+                            {Array.from({ length: sec.name === '豆瓣2025评分月度热搜影视' ? 12 : 10 }, (_, idx) => idx + 1).map(r => {
                               const current = currentList.find(i => i.rank === r);
                               const locked = (sec.media_type === 'movie' ? currentListsByType.movie : sec.media_type === 'tv' ? currentListsByType.tv : currentList).some(i=> i.rank===r && i.locked);
+                              const displayRank = sec.name === '豆瓣2025评分月度热搜影视' && r >= 1 && r <= 12
+                                ? `${r}月`
+                                : r;
                               return (
                                 <div key={r} className="flex flex-col items-center">
                                   <div className={`w-12 h-18 overflow-hidden rounded mb-1 bg-gray-700`}>
@@ -1291,7 +1299,7 @@ export default function AdminChartsPage() {
                                       onClick={() => openPicker(platform, sec.name, sec.media_type, r)}
                                       className={`px-2 py-1 rounded text-sm transition-colors ${locked ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
                                     >
-                                      排名{r}
+                                      排名{displayRank}
                                     </button>
                                     {current && (
                                       <button
