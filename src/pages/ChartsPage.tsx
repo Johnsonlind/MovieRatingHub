@@ -284,6 +284,57 @@ export default function ChartsPage() {
     return result;
   }, [sortedCharts]);
 
+  const [visiblePlatforms, setVisiblePlatforms] = useState<string[]>([]);
+  
+  useEffect(() => {
+    if (!chartsByPlatform) return;
+    
+    const platforms = Object.keys(chartsByPlatform);
+    
+    if (isSafariMobile) {
+      setVisiblePlatforms(platforms.slice(0, 2));
+      
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              const platform = entry.target.getAttribute('data-platform');
+              if (platform) {
+                setVisiblePlatforms((prev) => {
+                  if (!prev.includes(platform)) {
+                    return [...prev, platform];
+                  }
+                  return prev;
+                });
+              }
+            }
+          });
+        },
+        {
+          rootMargin: '200px', // 提前200px开始加载
+        }
+      );
+
+      // 延迟设置 observer，确保 DOM 已渲染
+      const timer = setTimeout(() => {
+        platforms.slice(2).forEach((platform) => {
+          const placeholder = document.getElementById(`platform-placeholder-${platform}`);
+          if (placeholder) {
+            observer.observe(placeholder);
+          }
+        });
+      }, 100);
+
+      return () => {
+        clearTimeout(timer);
+        observer.disconnect();
+      };
+    } else {
+      // 非Safari移动端，显示所有平台
+      setVisiblePlatforms(platforms);
+    }
+  }, [isSafariMobile, chartsByPlatform]);
+
   const [exportingChart, setExportingChart] = useState<string | null>(null);
   const exportRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -418,6 +469,34 @@ export default function ChartsPage() {
               {CHART_ORDER.map(platform => {
                 const platformCharts = chartsByPlatform[platform] || [];
                 if (platformCharts.length === 0) return null;
+                
+                if (isSafariMobile && !visiblePlatforms.includes(platform)) {
+                  return (
+                    <div
+                      key={`placeholder-${platform}`}
+                      id={`platform-placeholder-${platform}`}
+                      data-platform={platform}
+                      className="glass-card rounded-2xl p-6"
+                      style={{ minHeight: '200px' }}
+                    >
+                      <div className="flex items-center gap-3 mb-6">
+                        {PLATFORM_LOGOS[platform] && (
+                          <img 
+                            src={PLATFORM_LOGOS[platform]} 
+                            alt={platform}
+                            className="w-8 h-8 object-contain"
+                          />
+                        )}
+                        <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
+                          {platform}
+                        </h2>
+                      </div>
+                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                        加载中...
+                      </div>
+                    </div>
+                  );
+                }
 
                 return (
                   <div key={platform} className="glass-card rounded-2xl p-6">
@@ -439,7 +518,10 @@ export default function ChartsPage() {
                         const sortedEntries = [...chart.entries].sort((a, b) => a.rank - b.rank);
                         
                         const isNonExportable = NON_EXPORTABLE_CHARTS.includes(chart.chart_name);
-                        const displayEntries = isNonExportable ? sortedEntries.slice(0, 10) : sortedEntries;
+                        const maxDisplayEntries = isSafariMobile ? 20 : Infinity;
+                        const displayEntries = isNonExportable 
+                          ? sortedEntries.slice(0, 10) 
+                          : sortedEntries.slice(0, maxDisplayEntries);
                         
                         return (
                         <div key={chartKey}>
@@ -483,6 +565,9 @@ export default function ChartsPage() {
                                       : `/tv/${entry.tmdb_id}`;
                                     
                                     const shouldUseEager = !isSafariMobile && idx < 20;
+                                    const fetchPriorityValue = isSafariMobile 
+                                      ? (idx < 10 ? 'high' : 'low')
+                                      : (idx < 20 ? 'high' : idx < 60 ? 'auto' : 'low');
                                     
                                     return (
                                       <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative" style={{ contain: 'layout style' }}>
@@ -494,7 +579,7 @@ export default function ChartsPage() {
                                                 alt={entry.title}
                                                 className="w-full h-full object-cover transition-opacity duration-200"
                                                 loading={shouldUseEager ? "eager" : "lazy"}
-                                                fetchPriority={idx < 20 ? 'high' : idx < 60 ? 'auto' : 'low'}
+                                                fetchPriority={fetchPriorityValue}
                                                 decoding="async"
                                                 sizes="(min-width:1280px) 10vw, (min-width:1024px) 14vw, (min-width:640px) 20vw, 33vw"
                                                 style={{ 
