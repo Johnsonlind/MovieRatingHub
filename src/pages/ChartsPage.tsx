@@ -56,6 +56,8 @@ const DOUBAN_CHART_ORDER = [
   '豆瓣2025评分最高动画剧集',
   '豆瓣2025评分最高大陆微短剧',
   '豆瓣2025评分最高纪录剧集',
+  '豆瓣2025最值得期待剧集',
+  '豆瓣2025评分月度热搜影视',
 ];
 
 // 平台名称映射（后端返回的名称 → 前端显示的名称）
@@ -530,7 +532,9 @@ export default function ChartsPage() {
                                                   dominantBaseline="middle"
                                                   className="text-[15px] font-bold fill-white"
                                                 >
-                                                  {entry.rank}
+                                                  {chart.chart_name === '豆瓣2025评分月度热搜影视' && entry.rank >= 1 && entry.rank <= 12
+                                                    ? `${entry.rank}月`
+                                                    : entry.rank}
                                                 </text>
                                               </svg>
                                             </div>
