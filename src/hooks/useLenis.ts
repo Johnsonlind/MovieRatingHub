@@ -15,7 +15,7 @@ export function useLenis() {
       orientation: 'vertical',
       gestureOrientation: 'vertical',
       smoothWheel: true,
-      wheelMultiplier: 1.3,
+      wheelMultiplier: 1.0,
       touchMultiplier: 1.5,
       infinite: false,
       syncTouch: false,
