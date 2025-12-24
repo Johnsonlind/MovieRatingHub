@@ -334,25 +334,39 @@ export default function ChartsPage() {
   }, [isSafariMobile, chartsByPlatform]);
 
   const [exportingChart, setExportingChart] = useState<string | null>(null);
-  const exportRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [activeExportChart, setActiveExportChart] = useState<{
+    platform: string;
+    chartName: string;
+    chartKey: string;
+    layout: 'portrait' | 'landscape';
+  } | null>(null);
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
   const handleExportChart = useCallback(async (platform: string, chartName: string, chartKey: string, layout: 'portrait' | 'landscape' = 'portrait') => {
-    const elementKey = `${chartKey}-${layout}`;
     const exportKey = `${chartKey}-${layout}`;
-    const element = exportRefs.current[elementKey];
-    if (!element || exportingChart === exportKey) return;
+    if (exportingChart === exportKey) return;
 
     setExportingChart(exportKey);
+    
+    // 设置要导出的榜单信息，触发渲染
+    setActiveExportChart({ platform, chartName, chartKey, layout });
 
+    // 等待 DOM 更新
     await new Promise(resolve => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          setTimeout(() => resolve(null), 0);
+          setTimeout(() => resolve(null), 100);
         });
       });
     });
     
     try {
+      const element = exportRef.current;
+      if (!element) {
+        console.error('导出元素未找到');
+        return;
+      }
+
       const chart = sortedCharts?.find(c => 
         c.platform === platform && c.chart_name === chartName
       );
@@ -443,6 +457,8 @@ export default function ChartsPage() {
       console.error('导出失败:', error);
     } finally {
       setExportingChart(null);
+      // 导出完成后清理
+      setActiveExportChart(null);
     }
   }, [sortedCharts, exportingChart]);
 
@@ -664,40 +680,6 @@ export default function ChartsPage() {
                                     );
                                   })}
                               </div>
-                              
-                              {/* 导出用的隐藏容器 */}
-                              {!isNonExportable && (
-                                <>
-                                  <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
-                                    <div 
-                                      ref={(el) => { exportRefs.current[`${chartKey}-portrait`] = el; }}
-                                      id={`export-chart-${chartKey}-portrait`}
-                                    >
-                                      <ExportChartCard 
-                                        platform={chart.platform}
-                                        chartName={chart.chart_name}
-                                        entries={chart.entries.sort((a, b) => a.rank - b.rank)}
-                                        platformLogo={PLATFORM_LOGOS[chart.platform]}
-                                        layout="portrait"
-                                      />
-                                    </div>
-                                  </div>
-                                  <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
-                                    <div 
-                                      ref={(el) => { exportRefs.current[`${chartKey}-landscape`] = el; }}
-                                      id={`export-chart-${chartKey}-landscape`}
-                                    >
-                                      <ExportChartCard 
-                                        platform={chart.platform}
-                                        chartName={chart.chart_name}
-                                        entries={chart.entries.sort((a, b) => a.rank - b.rank)}
-                                        platformLogo={PLATFORM_LOGOS[chart.platform]}
-                                        layout="landscape"
-                                      />
-                                    </div>
-                                  </div>
-                                </>
-                              )}
                             </>
                           )}
                         </div>
@@ -713,6 +695,30 @@ export default function ChartsPage() {
         </div>
         <Footer />
       </div>
+
+      {/* 按需渲染的导出容器 - 只在导出时创建 */}
+      {activeExportChart && (() => {
+        const chart = sortedCharts?.find(c => 
+          c.platform === activeExportChart.platform && 
+          c.chart_name === activeExportChart.chartName
+        );
+        
+        if (!chart) return null;
+        
+        return (
+          <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
+            <div ref={exportRef}>
+              <ExportChartCard 
+                platform={chart.platform}
+                chartName={chart.chart_name}
+                entries={chart.entries.sort((a, b) => a.rank - b.rank)}
+                platformLogo={PLATFORM_LOGOS[chart.platform]}
+                layout={activeExportChart.layout}
+              />
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }
