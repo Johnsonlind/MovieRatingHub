@@ -407,6 +407,7 @@ function showImagePreview(dataUrl: string, filename: string): void {
     justify-content: center;
     padding: 20px;
     animation: fadeIn 0.3s ease;
+    color-scheme: light;
   `;
 
   // 创建提示文字
@@ -436,6 +437,8 @@ function showImagePreview(dataUrl: string, filename: string): void {
     overflow: auto;
     border-radius: 10px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+    background: white;
+    color-scheme: light;
   `;
 
   // 创建图片
@@ -447,6 +450,9 @@ function showImagePreview(dataUrl: string, filename: string): void {
     height: auto;
     display: block;
     border-radius: 10px;
+    filter: none !important;
+    -webkit-filter: none !important;
+    color-scheme: light;
   `;
 
   // 创建关闭按钮
@@ -481,7 +487,7 @@ function showImagePreview(dataUrl: string, filename: string): void {
   overlay.appendChild(imgContainer);
   overlay.appendChild(closeBtn);
 
-  // 添加动画样式
+  // 添加动画样式和深色模式重置
   const style = document.createElement('style');
   style.textContent = `
     @keyframes fadeIn {
@@ -491,6 +497,21 @@ function showImagePreview(dataUrl: string, filename: string): void {
     @keyframes fadeOut {
       from { opacity: 1; }
       to { opacity: 0; }
+    }
+    
+    /* 强制禁用深色模式对图片的影响 */
+    img[alt="${filename}"] {
+      filter: none !important;
+      -webkit-filter: none !important;
+      color-scheme: light !important;
+      forced-color-adjust: none !important;
+    }
+    
+    @media (prefers-color-scheme: dark) {
+      img[alt="${filename}"] {
+        filter: none !important;
+        -webkit-filter: none !important;
+      }
     }
   `;
   document.head.appendChild(style);
