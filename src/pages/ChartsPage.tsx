@@ -666,7 +666,7 @@ export default function ChartsPage() {
                               </div>
                               
                               {/* 导出用的隐藏容器 */}
-                              {!isNonExportable && !isSafariMobile && (
+                              {!isNonExportable && (
                                 <>
                                   <div className="fixed left-0 top-0 -z-50 pointer-events-none opacity-0">
                                     <div 
