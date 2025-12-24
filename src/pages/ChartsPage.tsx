@@ -622,7 +622,7 @@ export default function ChartsPage() {
                                             )}
                                             {/* 排名标签 - 圆环 */}
                                             <div className="absolute top-0 left-0 pointer-events-none" style={{ zIndex: 10 }}>
-                                              <div style={{ position: 'relative', width: entry.rank === 1 ? '40px' : '32px', height: entry.rank === 1 ? '40px' : '32px' }}>
+                                              <div className={`relative ${entry.rank === 1 ? 'w-8 h-8 sm:w-10 h-10' : 'w-6 h-6 sm:w-8 h-8'}`}>
                                                 <img
                                                   src={
                                                     entry.rank === 1 ? '/laurel-wreath-top1.png' :
@@ -632,24 +632,13 @@ export default function ChartsPage() {
                                                   }
                                                   alt=""
                                                   crossOrigin="anonymous"
-                                                  style={{
-                                                    width: '100%',
-                                                    height: '100%',
-                                                    objectFit: 'contain',
-                                                    display: 'block'
-                                                  }}
+                                                  className="w-full h-full object-contain"
                                                 />
-                                                <div style={{
-                                                  position: 'absolute',
-                                                  top: '50%',
-                                                  left: '50%',
-                                                  transform: 'translate(-50%, -50%)',
-                                                  color: '#ffffff',
-                                                  fontSize: entry.rank === 1 ? '16px' : '14px',
-                                                  fontWeight: 'bold',
-                                                  textShadow: '1px 1px 2px #000000, -1px -1px 2px #000000, 1px -1px 2px #000000, -1px 1px 2px #000000',
-                                                  lineHeight: '1',
-                                                  whiteSpace: 'nowrap'
+                                                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-bold leading-none whitespace-nowrap ${
+                                                  entry.rank === 1 ? 'text-xs sm:text-base' : 'text-[10px] sm:text-sm'
+                                                }`}
+                                                style={{
+                                                  textShadow: '1px 1px 2px #000000, -1px -1px 2px #000000, 1px -1px 2px #000000, -1px 1px 2px #000000'
                                                 }}>
                                                   {chart.chart_name === '豆瓣2025评分月度热搜影视' && entry.rank >= 1 && entry.rank <= 12
                                                     ? `${entry.rank}月`
