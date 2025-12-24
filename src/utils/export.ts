@@ -388,6 +388,132 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
 }
 
 /**
+ * 显示图片预览弹窗（用于移动端长按保存）
+ */
+function showImagePreview(dataUrl: string, filename: string): void {
+  // 创建遮罩层
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    z-index: 999999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: fadeIn 0.3s ease;
+  `;
+
+  // 创建提示文字
+  const hint = document.createElement('div');
+  hint.style.cssText = `
+    color: white;
+    font-size: 16px;
+    text-align: center;
+    margin-bottom: 20px;
+    padding: 15px 20px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+    line-height: 1.5;
+  `;
+  hint.innerHTML = `
+    <div style="font-size: 18px; font-weight: bold; margin-bottom: 8px;">📱 保存图片到相册</div>
+    <div>👇 长按下方图片</div>
+    <div>选择"保存图片"或"添加到相册"</div>
+  `;
+
+  // 创建图片容器
+  const imgContainer = document.createElement('div');
+  imgContainer.style.cssText = `
+    max-width: 90%;
+    max-height: 70vh;
+    overflow: auto;
+    border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  `;
+
+  // 创建图片
+  const img = document.createElement('img');
+  img.src = dataUrl;
+  img.alt = filename;
+  img.style.cssText = `
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 10px;
+  `;
+
+  // 创建关闭按钮
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕ 关闭';
+  closeBtn.style.cssText = `
+    margin-top: 20px;
+    padding: 12px 30px;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 25px;
+    font-size: 16px;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+  `;
+
+  closeBtn.onclick = () => {
+    overlay.style.animation = 'fadeOut 0.3s ease';
+    setTimeout(() => document.body.removeChild(overlay), 300);
+  };
+
+  // 点击遮罩层也关闭
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      closeBtn.click();
+    }
+  };
+
+  imgContainer.appendChild(img);
+  overlay.appendChild(hint);
+  overlay.appendChild(imgContainer);
+  overlay.appendChild(closeBtn);
+
+  // 添加动画样式
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; }
+    }
+  `;
+  document.head.appendChild(style);
+
+  document.body.appendChild(overlay);
+  console.log('显示图片预览弹窗');
+}
+
+/**
+ * 检测是否为微信浏览器
+ */
+function isWeChat(): boolean {
+  return /MicroMessenger/i.test(navigator.userAgent);
+}
+
+/**
+ * 检测是否为夸克浏览器
+ */
+function isQuark(): boolean {
+  return /Quark/i.test(navigator.userAgent);
+}
+
+/**
  * 下载图片 - 兼容移动端浏览器
  * @param dataUrl - 图片的 data URL
  * @param filename - 文件名
@@ -395,6 +521,22 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
  */
 async function downloadImage(dataUrl: string, filename: string, isMobile: boolean): Promise<void> {
   if (isMobile) {
+    const isWeChatBrowser = isWeChat();
+    const isQuarkBrowser = isQuark();
+    
+    console.log('浏览器检测:', { 
+      isWeChat: isWeChatBrowser, 
+      isQuark: isQuarkBrowser,
+      userAgent: navigator.userAgent 
+    });
+
+    // 微信浏览器：直接显示预览（因为微信会拦截下载）
+    if (isWeChatBrowser) {
+      console.log('检测到微信浏览器，显示长按保存提示');
+      showImagePreview(dataUrl, filename);
+      return;
+    }
+
     try {
       const base64Data = dataUrl.split(',')[1];
       const byteCharacters = atob(base64Data);
@@ -405,43 +547,61 @@ async function downloadImage(dataUrl: string, filename: string, isMobile: boolea
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: 'image/png' });
       
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], filename, { type: 'image/png' })] })) {
-        const file = new File([blob], filename, { type: 'image/png' });
-        await navigator.share({
-          files: [file],
-          title: '导出图片',
-          text: '分享或保存图片'
-        });
-        console.log('使用 Share API 分享成功');
-        return;
+      // 尝试 Share API（但不检查 canShare，因为某些浏览器不支持）
+      if (navigator.share) {
+        try {
+          const file = new File([blob], filename, { type: 'image/png' });
+          await navigator.share({
+            files: [file],
+            title: '保存图片',
+            text: '保存图片到相册'
+          });
+          console.log('使用 Share API 分享成功');
+          return;
+        } catch (shareError: any) {
+          // Share API 失败（用户取消或不支持文件分享）
+          console.log('Share API 失败:', shareError.message);
+          
+          // 如果是夸克浏览器，显示预览作为降级方案
+          if (isQuarkBrowser) {
+            console.log('夸克浏览器 Share API 失败，显示长按保存提示');
+            showImagePreview(dataUrl, filename);
+            return;
+          }
+        }
       }
       
+      // 尝试 Blob URL 下载
+      console.log('尝试使用 Blob URL 下载');
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
       link.download = filename;
-      link.style.display = 'none';
-      document.body.appendChild(link);
       
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // 尝试触发下载
+      document.body.appendChild(link);
       link.click();
       
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // 等待一下，如果下载没有开始，显示预览
+      await new Promise(resolve => setTimeout(resolve, 500));
       document.body.removeChild(link);
+      
+      // 检查是否真的下载了（通过检查是否有下载事件）
+      // 如果是夸克等问题浏览器，显示预览
+      if (isQuarkBrowser) {
+        console.log('夸克浏览器可能下载失败，显示长按保存提示');
+        showImagePreview(dataUrl, filename);
+      } else {
+        console.log('使用 Blob URL 下载');
+      }
+      
       URL.revokeObjectURL(blobUrl);
-      console.log('使用 Blob URL 下载成功');
     } catch (error) {
-      console.warn('Blob 下载失败，尝试使用 data URL:', error);
-      const link = document.createElement('a');
-      link.download = filename;
-      link.href = dataUrl;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      console.log('使用 data URL 下载');
+      console.warn('下载失败，显示预览:', error);
+      showImagePreview(dataUrl, filename);
     }
   } else {
+    // 桌面端直接下载
     const link = document.createElement('a');
     link.download = filename;
     link.href = dataUrl;
