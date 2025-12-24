@@ -391,6 +391,10 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
  * 显示图片预览弹窗（用于移动端长按保存）
  */
 function showImagePreview(dataUrl: string, filename: string): void {
+  // 临时禁用页面的深色模式
+  const originalColorScheme = document.documentElement.style.colorScheme;
+  document.documentElement.style.colorScheme = 'light';
+  
   // 创建遮罩层
   const overlay = document.createElement('div');
   overlay.style.cssText = `
@@ -437,7 +441,7 @@ function showImagePreview(dataUrl: string, filename: string): void {
     overflow: auto;
     border-radius: 10px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-    background: white;
+    background: transparent;
     color-scheme: light;
   `;
 
@@ -472,13 +476,22 @@ function showImagePreview(dataUrl: string, filename: string): void {
 
   closeBtn.onclick = () => {
     overlay.style.animation = 'fadeOut 0.3s ease';
-    setTimeout(() => document.body.removeChild(overlay), 300);
+    setTimeout(() => {
+      document.body.removeChild(overlay);
+      // 恢复原来的 color-scheme
+      document.documentElement.style.colorScheme = originalColorScheme;
+    }, 300);
   };
 
   // 点击遮罩层也关闭
   overlay.onclick = (e) => {
     if (e.target === overlay) {
-      closeBtn.click();
+      overlay.style.animation = 'fadeOut 0.3s ease';
+      setTimeout(() => {
+        document.body.removeChild(overlay);
+        // 恢复原来的 color-scheme
+        document.documentElement.style.colorScheme = originalColorScheme;
+      }, 300);
     }
   };
 
@@ -489,6 +502,10 @@ function showImagePreview(dataUrl: string, filename: string): void {
 
   // 添加动画样式和深色模式重置
   const style = document.createElement('style');
+  const uniqueClass = 'preview-img-' + Date.now();
+  img.className = uniqueClass;
+  imgContainer.className = 'preview-container-' + Date.now();
+  
   style.textContent = `
     @keyframes fadeIn {
       from { opacity: 0; }
@@ -499,18 +516,32 @@ function showImagePreview(dataUrl: string, filename: string): void {
       to { opacity: 0; }
     }
     
-    /* 强制禁用深色模式对图片的影响 */
+    /* 强制禁用深色模式对图片和容器的影响 */
+    .${uniqueClass},
+    .${imgContainer.className},
     img[alt="${filename}"] {
       filter: none !important;
       -webkit-filter: none !important;
-      color-scheme: light !important;
+      color-scheme: only light !important;
       forced-color-adjust: none !important;
+      -webkit-user-modify: read-only !important;
     }
     
+    /* 针对深色模式的额外保护 */
     @media (prefers-color-scheme: dark) {
+      .${uniqueClass},
+      .${imgContainer.className},
       img[alt="${filename}"] {
         filter: none !important;
         -webkit-filter: none !important;
+        opacity: 1 !important;
+      }
+    }
+    
+    /* 针对浏览器强制深色模式的保护 */
+    @media (prefers-color-scheme: dark) {
+      .${imgContainer.className} {
+        background-color: transparent !important;
       }
     }
   `;
