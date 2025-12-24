@@ -457,7 +457,6 @@ export default function ChartsPage() {
       console.error('导出失败:', error);
     } finally {
       setExportingChart(null);
-      // 导出完成后清理
       setActiveExportChart(null);
     }
   }, [sortedCharts, exportingChart]);
