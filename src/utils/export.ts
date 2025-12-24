@@ -389,12 +389,9 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
 
 /**
  * 显示图片预览弹窗（用于移动端长按保存）
+ * 使用 Canvas 渲染以避免浏览器强制暗夜模式的影响
  */
-function showImagePreview(dataUrl: string, filename: string): void {
-  // 临时禁用页面的深色模式
-  const originalColorScheme = document.documentElement.style.colorScheme;
-  document.documentElement.style.colorScheme = 'light';
-  
+function showImagePreview(dataUrl: string, _filename: string): void {
   // 创建遮罩层
   const overlay = document.createElement('div');
   overlay.style.cssText = `
@@ -411,7 +408,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     justify-content: center;
     padding: 20px;
     animation: fadeIn 0.3s ease;
-    color-scheme: light;
   `;
 
   // 创建提示文字
@@ -433,31 +429,51 @@ function showImagePreview(dataUrl: string, filename: string): void {
     <div>选择"保存图片"或"添加到相册"</div>
   `;
 
-  // 创建图片容器
-  const imgContainer = document.createElement('div');
-  imgContainer.style.cssText = `
+  // 创建 Canvas 容器
+  const canvasContainer = document.createElement('div');
+  canvasContainer.style.cssText = `
     max-width: 90%;
     max-height: 70vh;
     overflow: auto;
     border-radius: 10px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-    background: transparent;
-    color-scheme: light;
   `;
 
-  // 创建图片
-  const img = document.createElement('img');
-  img.src = dataUrl;
-  img.alt = filename;
-  img.style.cssText = `
-    width: 100%;
-    height: auto;
+  // 创建 Canvas（Canvas 不会被浏览器暗夜模式影响）
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = `
     display: block;
     border-radius: 10px;
-    filter: none !important;
-    -webkit-filter: none !important;
-    color-scheme: light;
+    max-width: 100%;
+    height: auto;
   `;
+
+  // 加载图片并绘制到 Canvas
+  const img = new Image();
+  img.onload = () => {
+    // 设置 Canvas 尺寸
+    canvas.width = img.width;
+    canvas.height = img.height;
+    
+    // 获取 2D 上下文
+    const ctx = canvas.getContext('2d', {
+      alpha: true,
+      desynchronized: false,
+      willReadFrequently: false
+    });
+    
+    if (ctx) {
+      // 禁用图像平滑以保持清晰度
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // 绘制图片到 Canvas
+      ctx.drawImage(img, 0, 0);
+      
+      console.log('图片已绘制到 Canvas，尺寸:', canvas.width, 'x', canvas.height);
+    }
+  };
+  img.src = dataUrl;
 
   // 创建关闭按钮
   const closeBtn = document.createElement('button');
@@ -474,38 +490,31 @@ function showImagePreview(dataUrl: string, filename: string): void {
     backdrop-filter: blur(10px);
   `;
 
-  closeBtn.onclick = () => {
+  const closePreview = () => {
     overlay.style.animation = 'fadeOut 0.3s ease';
     setTimeout(() => {
-      document.body.removeChild(overlay);
-      // 恢复原来的 color-scheme
-      document.documentElement.style.colorScheme = originalColorScheme;
+      if (document.body.contains(overlay)) {
+        document.body.removeChild(overlay);
+      }
     }, 300);
   };
+
+  closeBtn.onclick = closePreview;
 
   // 点击遮罩层也关闭
   overlay.onclick = (e) => {
     if (e.target === overlay) {
-      overlay.style.animation = 'fadeOut 0.3s ease';
-      setTimeout(() => {
-        document.body.removeChild(overlay);
-        // 恢复原来的 color-scheme
-        document.documentElement.style.colorScheme = originalColorScheme;
-      }, 300);
+      closePreview();
     }
   };
 
-  imgContainer.appendChild(img);
+  canvasContainer.appendChild(canvas);
   overlay.appendChild(hint);
-  overlay.appendChild(imgContainer);
+  overlay.appendChild(canvasContainer);
   overlay.appendChild(closeBtn);
 
-  // 添加动画样式和深色模式重置
+  // 添加动画样式
   const style = document.createElement('style');
-  const uniqueClass = 'preview-img-' + Date.now();
-  img.className = uniqueClass;
-  imgContainer.className = 'preview-container-' + Date.now();
-  
   style.textContent = `
     @keyframes fadeIn {
       from { opacity: 0; }
@@ -515,40 +524,11 @@ function showImagePreview(dataUrl: string, filename: string): void {
       from { opacity: 1; }
       to { opacity: 0; }
     }
-    
-    /* 强制禁用深色模式对图片和容器的影响 */
-    .${uniqueClass},
-    .${imgContainer.className},
-    img[alt="${filename}"] {
-      filter: none !important;
-      -webkit-filter: none !important;
-      color-scheme: only light !important;
-      forced-color-adjust: none !important;
-      -webkit-user-modify: read-only !important;
-    }
-    
-    /* 针对深色模式的额外保护 */
-    @media (prefers-color-scheme: dark) {
-      .${uniqueClass},
-      .${imgContainer.className},
-      img[alt="${filename}"] {
-        filter: none !important;
-        -webkit-filter: none !important;
-        opacity: 1 !important;
-      }
-    }
-    
-    /* 针对浏览器强制深色模式的保护 */
-    @media (prefers-color-scheme: dark) {
-      .${imgContainer.className} {
-        background-color: transparent !important;
-      }
-    }
   `;
   document.head.appendChild(style);
 
   document.body.appendChild(overlay);
-  console.log('显示图片预览弹窗');
+  console.log('显示 Canvas 预览弹窗（不受浏览器暗夜模式影响）');
 }
 
 /**
