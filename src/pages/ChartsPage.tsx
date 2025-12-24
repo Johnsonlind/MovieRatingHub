@@ -676,18 +676,6 @@ export default function ChartsPage() {
                                   })}
                               </div>
                               
-                              {/* Safari移动端内容提示 */}
-                              {isSafariMobile && sortedEntries.length > maxDisplayEntries && (
-                                <div className="mt-3 text-center">
-                                  <Link
-                                    to={`/charts/${encodeURIComponent(chart.platform)}/${encodeURIComponent(chart.chart_name)}`}
-                                    className="text-sm text-blue-500 dark:text-blue-400 hover:underline"
-                                  >
-                                    查看完整榜单 ({sortedEntries.length} 个条目)
-                                  </Link>
-                                </div>
-                              )}
-                              
                               {/* 导出用的隐藏容器 */}
                               {!isNonExportable && !isSafariMobile && (
                                 <>
