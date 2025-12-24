@@ -54,21 +54,30 @@ const CHART_STRUCTURE: Array<{ platform: string; sections: Array<{ name: string;
   ]},
   { platform: 'IMDb', sections: [
     { name: 'IMDb 本周 Top 10', media_type: 'both' },
+    { name: 'IMDb 2025最受欢迎电影', media_type: 'movie' },
+    { name: 'IMDb 2025最受欢迎剧集', media_type: 'tv' },
+    { name: 'IMDb 工作人员2025最喜爱的电影', media_type: 'movie' },
+    { name: 'IMDb 工作人员2025最喜爱的剧集', media_type: 'tv' },
     { name: 'IMDb 电影 Top 250', media_type: 'movie' },
     { name: 'IMDb 剧集 Top 250', media_type: 'tv' },
   ]},
   { platform: 'Rotten Tomatoes', sections: [
     { name: '热门流媒体电影', media_type: 'movie' },
     { name: '热门剧集', media_type: 'tv' },
+    { name: 'Rotten Tomatoes 2025 最佳电影', media_type: 'movie' },
+    { name: 'Rotten Tomatoes 2025 最佳剧集', media_type: 'tv' },
   ]},
   { platform: 'Metacritic', sections: [
     { name: '本周趋势电影', media_type: 'movie' },
     { name: '本周趋势剧集', media_type: 'tv' },
+    { name: 'Metacritic 2025 最佳电影', media_type: 'movie' },
+    { name: 'Metacritic 2025 最佳剧集', media_type: 'tv' },
     { name: 'Metacritic 史上最佳电影 Top 250', media_type: 'movie' },
     { name: 'Metacritic 史上最佳剧集 Top 250', media_type: 'tv' },
   ]},
   { platform: 'Letterboxd', sections: [
     { name: '本周热门影视', media_type: 'both' },
+    { name: 'Letterboxd 2025 Top 50', media_type: 'both' },
     { name: 'Letterboxd 电影 Top 250', media_type: 'movie' },
   ]},
   { platform: 'TMDB', sections: [
@@ -106,8 +115,16 @@ const MANUAL_ENTRY_CHARTS = [
   'Metacritic 史上最佳剧集 Top 250',
 ];
 
-// 支持手动录入的10条数据榜单（显示10行表格，支持导出）
-const MANUAL_ENTRY_10_CHARTS: string[] = [];
+// 支持手动录入的自定义数量榜单（显示指定行数表格，支持导出）
+const MANUAL_ENTRY_CUSTOM_CHARTS: Record<string, number> = {
+  'IMDb 工作人员2025最喜爱的电影': 27,
+  'IMDb 工作人员2025最喜爱的剧集': 20,
+  'Letterboxd 2025 Top 50': 50,
+  'Rotten Tomatoes 2025 最佳电影': 219,
+  'Rotten Tomatoes 2025 最佳剧集': 121,
+  'Metacritic 2025 最佳电影': 20,
+  'Metacritic 2025 最佳剧集': 20,
+};
 
 // 平台名称反向映射（前端显示名称 → 后端存储名称）
 const PLATFORM_NAME_REVERSE_MAP: Record<string, string> = {
@@ -126,6 +143,11 @@ const CHART_NAME_REVERSE_MAP: Record<string, string> = {
   '本周趋势影视': '趋势本周',
   '上周剧集 Top 榜': 'Top TV Shows Last Week',
   '上周电影 Top 榜': 'Top Movies Last Week',
+  // IMDb 2025 榜单反向映射
+  'IMDb 2025最受欢迎电影': 'IMDb 2025最受欢迎电影',
+  'IMDb 2025最受欢迎剧集': 'IMDb 2025最受欢迎剧集',
+  'IMDb 工作人员2025最喜爱的电影': 'IMDb 工作人员2025最喜爱的电影',
+  'IMDb 工作人员2025最喜爱的剧集': 'IMDb 工作人员2025最喜爱的剧集',
   // Top 250 榜单反向映射
   'IMDb 电影 Top 250': 'IMDb Top 250 Movies',
   'IMDb 剧集 Top 250': 'IMDb Top 250 TV Shows',
@@ -1108,7 +1130,7 @@ export default function AdminChartsPage() {
                                 {platformOperations[`${platform}_${sec.name}_update`] ? '更新中...' : '更新 Top 250'}
                               </button>
                             )}
-                            {(MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_10_CHARTS.includes(sec.name)) && (
+                            {(MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CUSTOM_CHARTS[sec.name]) && (
                               <button
                                 onClick={() => {
                                   if (activeKey !== key) {
@@ -1155,7 +1177,7 @@ export default function AdminChartsPage() {
                     </div>
                     {activeKey === key && (
                       <div className="space-y-3">
-                        {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_10_CHARTS.includes(sec.name)) ? (
+                        {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CUSTOM_CHARTS[sec.name]) ? (
                           <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
                             <table className="w-full border-collapse">
                               <thead className={`sticky top-0 bg-gray-100 dark:bg-gray-900 z-10`}>
@@ -1167,7 +1189,7 @@ export default function AdminChartsPage() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {Array.from({ length: MANUAL_ENTRY_10_CHARTS.includes(sec.name) ? 10 : 250 }, (_, idx) => idx + 1).map(r => {
+                                {Array.from({ length: MANUAL_ENTRY_CUSTOM_CHARTS[sec.name] || 250 }, (_, idx) => idx + 1).map(r => {
                                   const current = currentList.find(i => i.rank === r);
                                   const isMetacriticTop250 = sec.name === 'Metacritic 史上最佳电影 Top 250' || sec.name === 'Metacritic 史上最佳剧集 Top 250';
                                   const locked = isMetacriticTop250 
@@ -1346,7 +1368,7 @@ export default function AdminChartsPage() {
                       </div>
                     )}
                     <div className={`text-xs mt-2 text-gray-600 dark:text-gray-400`}>
-                      {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_10_CHARTS.includes(sec.name))
+                      {(MANUAL_ONLY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CHARTS.includes(sec.name) || MANUAL_ENTRY_CUSTOM_CHARTS[sec.name])
                         ? '提示：点击"选择"按钮后搜索选择影视作品，排名由表格行号决定。' 
                         : '提示：点击排名按钮后进行搜索选择并完成。'}
                     </div>
