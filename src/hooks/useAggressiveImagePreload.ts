@@ -26,8 +26,9 @@ export function useAggressiveImagePreload(
                      (/iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream);
     const isSafariMobile = isMobile && isSafari;
 
-    const MAX_CONCURRENT_LOADS = isSafariMobile ? 3 : (isMobile ? 6 : 20);
-    const PRELOAD_SCREENS = isSafariMobile ? 1.5 : (isMobile ? 2 : 6);
+    // Safari移动端使用极度保守的设置，避免崩溃
+    const MAX_CONCURRENT_LOADS = isSafariMobile ? 2 : (isMobile ? 6 : 20);
+    const PRELOAD_SCREENS = isSafariMobile ? 0.5 : (isMobile ? 2 : 6);
     const ENABLE_FORCE_DECODE = !isMobile;
 
     const processQueue = () => {
