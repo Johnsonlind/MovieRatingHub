@@ -387,6 +387,71 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
   });
 }
 
+/**
+ * 下载图片 - 兼容移动端浏览器
+ * @param dataUrl - 图片的 data URL
+ * @param filename - 文件名
+ * @param isMobile - 是否为移动设备
+ */
+async function downloadImage(dataUrl: string, filename: string, isMobile: boolean): Promise<void> {
+  if (isMobile) {
+    try {
+      const base64Data = dataUrl.split(',')[1];
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/png' });
+      
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], filename, { type: 'image/png' })] })) {
+        const file = new File([blob], filename, { type: 'image/png' });
+        await navigator.share({
+          files: [file],
+          title: '导出图片',
+          text: '分享或保存图片'
+        });
+        console.log('使用 Share API 分享成功');
+        return;
+      }
+      
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      link.click();
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+      console.log('使用 Blob URL 下载成功');
+    } catch (error) {
+      console.warn('Blob 下载失败，尝试使用 data URL:', error);
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = dataUrl;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      console.log('使用 data URL 下载');
+    }
+  } else {
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    console.log('桌面端下载成功');
+  }
+}
+
 function removeBoxShadows(element: HTMLElement): () => void {
   const shadowMap = new Map<HTMLElement, string>();
   
@@ -503,12 +568,7 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
 
   await yieldToMain();
   
-  const link = document.createElement('a');
-  link.download = filename;
-  link.href = dataUrl;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  await downloadImage(dataUrl, filename, isMobile);
 }
 
 async function exportWithHtmlToImage(element: HTMLElement, filename: string, isChart: boolean = false, borderRadius: number = 20): Promise<void> {
@@ -573,12 +633,7 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
 
   await yieldToMain();
   
-  const link = document.createElement('a');
-  link.download = filename;
-  link.href = dataUrl;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  await downloadImage(dataUrl, filename, isMobile);
 }
 
 function yieldToMain(): Promise<void> {
