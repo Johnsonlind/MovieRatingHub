@@ -34,35 +34,75 @@ const resolvePosterUrl = (poster: string) =>
 // 榜单顺序
 const CHART_ORDER = ['豆瓣', 'IMDb', 'Rotten Tomatoes', 'Metacritic', 'Letterboxd', 'TMDB', 'Trakt'];
 
-// 豆瓣平台的榜单顺序
-const DOUBAN_CHART_ORDER = [
-  '一周口碑榜',
-  '一周华语剧集口碑榜',
-  '一周全球剧集口碑榜',
-  '豆瓣2025评分最高华语电影',
-  '豆瓣2025评分最高外语电影',
-  '豆瓣2025冷门佳片',
-  '豆瓣2025评分最高日本电影',
-  '豆瓣2025评分最高韩国电影',
-  '豆瓣2025评分最高喜剧片',
-  '豆瓣2025评分最高爱情片',
-  '豆瓣2025评分最高恐怖片',
-  '豆瓣2025评分最高动画片',
-  '豆瓣2025评分最高纪录片',
-  '豆瓣2026最值得期待华语电影',
-  '豆瓣2026最值得期待外语电影',
-  '豆瓣2025评分最高华语剧集',
-  '豆瓣2025评分最高英美新剧',
-  '豆瓣2025评分最高英美续订剧',
-  '豆瓣2025评分最高日本剧集',
-  '豆瓣2025评分最高韩国剧集',
-  '豆瓣2025评分最受关注综艺', 
-  '豆瓣2025评分最高动画剧集',
-  '豆瓣2025评分最高大陆微短剧',
-  '豆瓣2025评分最高纪录剧集',
-  '豆瓣2026最值得期待剧集',
-  '豆瓣2025评分月度热搜影视',
-];
+// 各平台的榜单顺序配置
+const PLATFORM_CHART_ORDER: Record<string, string[]> = {
+  '豆瓣': [
+    '一周口碑榜',
+    '一周华语剧集口碑榜',
+    '一周全球剧集口碑榜',
+    '豆瓣2025评分最高华语电影',
+    '豆瓣2025评分最高外语电影',
+    '豆瓣2025冷门佳片',
+    '豆瓣2025评分最高日本电影',
+    '豆瓣2025评分最高韩国电影',
+    '豆瓣2025评分最高喜剧片',
+    '豆瓣2025评分最高爱情片',
+    '豆瓣2025评分最高恐怖片',
+    '豆瓣2025评分最高动画片',
+    '豆瓣2025评分最高纪录片',
+    '豆瓣2026最值得期待华语电影',
+    '豆瓣2026最值得期待外语电影',
+    '豆瓣2025评分最高华语剧集',
+    '豆瓣2025评分最高英美新剧',
+    '豆瓣2025评分最高英美续订剧',
+    '豆瓣2025评分最高日本剧集',
+    '豆瓣2025评分最高韩国剧集',
+    '豆瓣2025评分最受关注综艺', 
+    '豆瓣2025评分最高动画剧集',
+    '豆瓣2025评分最高大陆微短剧',
+    '豆瓣2025评分最高纪录剧集',
+    '豆瓣2026最值得期待剧集',
+    '豆瓣2025评分月度热搜影视',
+    '豆瓣 电影 Top 250',
+  ],
+  'IMDb': [
+    'IMDb 本周 Top 10',
+    'IMDb 2025最受欢迎电影',
+    'IMDb 2025最受欢迎剧集',
+    'IMDb 工作人员2025最喜爱的电影',
+    'IMDb 工作人员2025最喜爱的剧集',
+    'IMDb 电影 Top 250',
+    'IMDb 剧集 Top 250',
+  ],
+  'Rotten Tomatoes': [
+    '热门流媒体电影',
+    '热门剧集',
+    'Rotten Tomatoes 2025 最佳电影',
+    'Rotten Tomatoes 2025 最佳剧集',
+  ],
+  'Metacritic': [
+    '本周趋势电影',
+    '本周趋势剧集',
+    'Metacritic 2025 最佳电影',
+    'Metacritic 2025 最佳剧集',
+    'Metacritic 史上最佳电影 Top 250',
+    'Metacritic 史上最佳剧集 Top 250',
+  ],
+  'Letterboxd': [
+    '本周热门影视',
+    'Letterboxd 2025 Top 50',
+    'Letterboxd 电影 Top 250',
+  ],
+  'TMDB': [
+    '本周趋势影视',
+    'TMDB 高分电影 Top 250',
+    'TMDB 高分剧集 Top 250',
+  ],
+  'Trakt': [
+    '上周电影 Top 榜',
+    '上周剧集 Top 榜',
+  ],
+};
 
 // 平台名称映射（后端返回的名称 → 前端显示的名称）
 const PLATFORM_NAME_MAP: Record<string, string> = {
@@ -72,36 +112,47 @@ const PLATFORM_NAME_MAP: Record<string, string> = {
 
 // 榜单名称映射（后端返回的名称 → 前端显示的名称）
 const CHART_NAME_MAP: Record<string, string> = {
+  // 豆瓣
+  '豆瓣 Top 250': '豆瓣 电影 Top 250',
+  // IMDb
   'Top 10 on IMDb this week': 'IMDb 本周 Top 10',
-  'Popular Streaming Movies': '热门流媒体电影',
-  'Popular TV': '热门剧集',
-  'Trending Movies This Week': '本周趋势电影',
-  'Trending Shows This Week': '本周趋势剧集',
-  'Popular films this week': '本周热门影视',
-  '趋势本周': '本周趋势影视',
-  'Top TV Shows Last Week': '上周剧集 Top 榜',
-  'Top Movies Last Week': '上周电影 Top 榜',
-  // Top 250 榜单映射
   'IMDb Top 250 Movies': 'IMDb 电影 Top 250',
   'IMDb Top 250 TV Shows': 'IMDb 剧集 Top 250',
-  'Letterboxd Official Top 250': 'Letterboxd 电影 Top 250',
-  '豆瓣 Top 250': '豆瓣 电影 Top 250',
+  // Rotten Tomatoes
+  'Popular Streaming Movies': '热门流媒体电影',
+  'Popular TV': '热门剧集',
+  // Metacritic
+  'Trending Movies This Week': '本周趋势电影',
+  'Trending Shows This Week': '本周趋势剧集',
   'Metacritic Best Movies of All Time': 'Metacritic 史上最佳电影 Top 250',
   'Metacritic Best TV Shows of All Time': 'Metacritic 史上最佳剧集 Top 250',
+  // Letterboxd
+  'Popular films this week': '本周热门影视',
+  'Letterboxd Official Top 250': 'Letterboxd 电影 Top 250',
+  // TMDB
+  '趋势本周': '本周趋势影视',
   'TMDB Top 250 Movies': 'TMDB 高分电影 Top 250',
   'TMDB Top 250 TV Shows': 'TMDB 高分剧集 Top 250',
+  // Trakt
+  'Top TV Shows Last Week': '上周剧集 Top 榜',
+  'Top Movies Last Week': '上周电影 Top 榜',
 };
 
-// 不可导出的榜单列表（Top 250 榜单）
+// 不可导出的榜单列表
 const NON_EXPORTABLE_CHARTS = [
+  '豆瓣 电影 Top 250',
+  'IMDb 工作人员2025最喜爱的电影',
+  'IMDb 工作人员2025最喜爱的剧集',
   'IMDb 电影 Top 250',
   'IMDb 剧集 Top 250',
+  'Letterboxd 2025 Top 50',
   'Letterboxd 电影 Top 250',
-  '豆瓣 电影 Top 250',
   'Metacritic 史上最佳电影 Top 250',
   'Metacritic 史上最佳剧集 Top 250',
   'TMDB 高分电影 Top 250',
   'TMDB 高分剧集 Top 250',
+  'Rotten Tomatoes 2025 最佳电影',
+  'Rotten Tomatoes 2025 最佳剧集',
 ];
 
 // 平台logo映射
@@ -217,66 +268,31 @@ export default function ChartsPage() {
       return acc;
     }, {} as Record<string, ChartSection[]>);
 
-    // 对豆瓣平台的榜单进行排序
-    if (result['豆瓣']) {
-      result['豆瓣'].sort((a, b) => {
-        const indexA = DOUBAN_CHART_ORDER.indexOf(a.chart_name);
-        const indexB = DOUBAN_CHART_ORDER.indexOf(b.chart_name);
-        if (indexA !== -1 && indexB !== -1) {
-          return indexA - indexB;
-        }
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return a.chart_name.localeCompare(b.chart_name);
-      });
-    }
-
-    // 对 Rotten Tomatoes 平台的榜单进行排序（电影在前，剧集在后）
-    if (result['Rotten Tomatoes']) {
-      result['Rotten Tomatoes'].sort((a, b) => {
-        if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
-        if (a.media_type !== 'movie' && b.media_type === 'movie') return 1;
-        return a.chart_name.localeCompare(b.chart_name);
-      });
-    }
-    
-    // 对 Metacritic 平台的榜单进行排序（电影在前，剧集在后）
-    if (result['Metacritic']) {
-      result['Metacritic'].sort((a, b) => {
-        if (a.media_type === 'movie' && b.media_type !== 'movie') return -1;
-        if (a.media_type !== 'movie' && b.media_type === 'movie') return 1;
-        return a.chart_name.localeCompare(b.chart_name);
-      });
-    }
-
-    // 对 Trakt 平台的榜单进行排序（剧集在前，电影在后）
-    if (result['Trakt']) {
-      result['Trakt'].sort((a, b) => {
-        if (a.media_type === 'tv' && b.media_type !== 'tv') return -1;
-        if (a.media_type !== 'tv' && b.media_type === 'tv') return 1;
-        return a.chart_name.localeCompare(b.chart_name);
-      });
-    }
-
-    // 对所有平台的榜单进行排序：Top 250 榜单放在最后
+    // 对所有平台的榜单进行排序
     Object.keys(result).forEach(platform => {
       if (result[platform]) {
-        const alreadySorted = ['Rotten Tomatoes', 'Metacritic', '豆瓣'].includes(platform);
+        const platformOrder = PLATFORM_CHART_ORDER[platform];
         
-        if (alreadySorted) {
-          const top250Charts = result[platform].filter(chart => NON_EXPORTABLE_CHARTS.includes(chart.chart_name));
-          const nonTop250Charts = result[platform].filter(chart => !NON_EXPORTABLE_CHARTS.includes(chart.chart_name));
-          result[platform] = [...nonTop250Charts, ...top250Charts];
-        } else {
+        if (platformOrder) {
+          // 如果有自定义顺序，按照自定义顺序排序
           result[platform].sort((a, b) => {
-            const aIsTop250 = NON_EXPORTABLE_CHARTS.includes(a.chart_name);
-            const bIsTop250 = NON_EXPORTABLE_CHARTS.includes(b.chart_name);
+            const indexA = platformOrder.indexOf(a.chart_name);
+            const indexB = platformOrder.indexOf(b.chart_name);
             
-            if (aIsTop250 && !bIsTop250) return 1;
-            if (!aIsTop250 && bIsTop250) return -1;
-            
+            // 两个都在自定义顺序中
+            if (indexA !== -1 && indexB !== -1) {
+              return indexA - indexB;
+            }
+            // 只有 a 在自定义顺序中
+            if (indexA !== -1) return -1;
+            // 只有 b 在自定义顺序中
+            if (indexB !== -1) return 1;
+            // 都不在自定义顺序中，按名称排序
             return a.chart_name.localeCompare(b.chart_name);
           });
+        } else {
+          // 没有自定义顺序，使用默认排序（按名称）
+          result[platform].sort((a, b) => a.chart_name.localeCompare(b.chart_name));
         }
       }
     });
