@@ -507,13 +507,6 @@ function isWeChat(): boolean {
 }
 
 /**
- * 检测是否为夸克浏览器
- */
-function isQuark(): boolean {
-  return /Quark/i.test(navigator.userAgent);
-}
-
-/**
  * 下载图片 - 兼容移动端浏览器
  * @param dataUrl - 图片的 data URL
  * @param filename - 文件名
@@ -522,11 +515,9 @@ function isQuark(): boolean {
 async function downloadImage(dataUrl: string, filename: string, isMobile: boolean): Promise<void> {
   if (isMobile) {
     const isWeChatBrowser = isWeChat();
-    const isQuarkBrowser = isQuark();
     
     console.log('浏览器检测:', { 
-      isWeChat: isWeChatBrowser, 
-      isQuark: isQuarkBrowser,
+      isWeChat: isWeChatBrowser,
       userAgent: navigator.userAgent 
     });
 
@@ -537,7 +528,10 @@ async function downloadImage(dataUrl: string, filename: string, isMobile: boolea
       return;
     }
 
+    // 其他所有移动浏览器
     try {
+      console.log('移动浏览器：准备触发系统下载');
+      
       const base64Data = dataUrl.split(',')[1];
       const byteCharacters = atob(base64Data);
       const byteNumbers = new Array(byteCharacters.length);
@@ -546,58 +540,32 @@ async function downloadImage(dataUrl: string, filename: string, isMobile: boolea
       }
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: 'image/png' });
-      
-      // 尝试 Share API（但不检查 canShare，因为某些浏览器不支持）
-      if (navigator.share) {
-        try {
-          const file = new File([blob], filename, { type: 'image/png' });
-          await navigator.share({
-            files: [file],
-            title: '保存图片',
-            text: '保存图片到相册'
-          });
-          console.log('使用 Share API 分享成功');
-          return;
-        } catch (shareError: any) {
-          // Share API 失败（用户取消或不支持文件分享）
-          console.log('Share API 失败:', shareError.message);
-          
-          // 如果是夸克浏览器，显示预览作为降级方案
-          if (isQuarkBrowser) {
-            console.log('夸克浏览器 Share API 失败，显示长按保存提示');
-            showImagePreview(dataUrl, filename);
-            return;
-          }
-        }
-      }
-      
-      // 尝试 Blob URL 下载
-      console.log('尝试使用 Blob URL 下载');
       const blobUrl = URL.createObjectURL(blob);
+      
       const link = document.createElement('a');
       link.href = blobUrl;
       link.download = filename;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
       
-      // 尝试触发下载
       document.body.appendChild(link);
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      console.log('触发下载:', filename);
       link.click();
       
-      // 等待一下，如果下载没有开始，显示预览
       await new Promise(resolve => setTimeout(resolve, 500));
       document.body.removeChild(link);
       
-      // 检查是否真的下载了（通过检查是否有下载事件）
-      // 如果是夸克等问题浏览器，显示预览
-      if (isQuarkBrowser) {
-        console.log('夸克浏览器可能下载失败，显示长按保存提示');
-        showImagePreview(dataUrl, filename);
-      } else {
-        console.log('使用 Blob URL 下载');
-      }
+      setTimeout(() => {
+        URL.revokeObjectURL(blobUrl);
+        console.log('下载已触发，清理资源');
+      }, 1000);
       
-      URL.revokeObjectURL(blobUrl);
     } catch (error) {
-      console.warn('下载失败，显示预览:', error);
+      console.warn('下载失败:', error);
+      console.log('降级方案：显示预览窗口');
       showImagePreview(dataUrl, filename);
     }
   } else {
