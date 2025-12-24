@@ -521,53 +521,14 @@ async function downloadImage(dataUrl: string, filename: string, isMobile: boolea
       userAgent: navigator.userAgent 
     });
 
-    // 微信浏览器：直接显示预览（因为微信会拦截下载）
     if (isWeChatBrowser) {
       console.log('检测到微信浏览器，显示长按保存提示');
       showImagePreview(dataUrl, filename);
       return;
     }
 
-    // 其他所有移动浏览器
-    try {
-      console.log('移动浏览器：准备触发系统下载');
-      
-      const base64Data = dataUrl.split(',')[1];
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'image/png' });
-      const blobUrl = URL.createObjectURL(blob);
-      
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = filename;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      
-      document.body.appendChild(link);
-      
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      console.log('触发下载:', filename);
-      link.click();
-      
-      await new Promise(resolve => setTimeout(resolve, 500));
-      document.body.removeChild(link);
-      
-      setTimeout(() => {
-        URL.revokeObjectURL(blobUrl);
-        console.log('下载已触发，清理资源');
-      }, 1000);
-      
-    } catch (error) {
-      console.warn('下载失败:', error);
-      console.log('降级方案：显示预览窗口');
-      showImagePreview(dataUrl, filename);
-    }
+    console.log('移动浏览器：显示预览窗口供用户长按保存');
+    showImagePreview(dataUrl, filename);
   } else {
     // 桌面端直接下载
     const link = document.createElement('a');
