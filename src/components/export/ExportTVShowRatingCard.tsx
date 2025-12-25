@@ -364,15 +364,12 @@ export function ExportTVShowRatingCard({
             zIndex: 15
           }}>
             <img
-              src="/laurel-wreath-left.png"
+              src={isDark ? "/laurel-wreath-left-white.png" : "/laurel-wreath-left-dark.png"}
               alt="Left Laurel"
               style={{ 
                 width: '100%', 
                 height: '100%', 
-                objectFit: 'contain',
-                filter: isDark 
-                  ? 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))'
-                  : 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+                objectFit: 'contain'
               }}
               crossOrigin="anonymous"
             />
@@ -390,15 +387,12 @@ export function ExportTVShowRatingCard({
             zIndex: 15
           }}>
             <img
-              src="/laurel-wreath-right.png"
+              src={isDark ? "/laurel-wreath-right-white.png" : "/laurel-wreath-right-dark.png"}
               alt="Right Laurel"
               style={{ 
                 width: '100%', 
                 height: '100%', 
-                objectFit: 'contain',
-                filter: isDark 
-                  ? 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))'
-                  : 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+                objectFit: 'contain'
               }}
               crossOrigin="anonymous"
             />
@@ -418,17 +412,14 @@ export function ExportTVShowRatingCard({
             <div style={{ 
               fontSize: '100px', 
               fontWeight: 'bold', 
-              color: '#ffbf00', 
-              lineHeight: 1,
-              filter: isDark 
-                ? 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))'
-                : 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+              color: isDark ? '#f1f5f9' : '#111827', 
+              lineHeight: 1
             }}>
               {overallRating.toFixed(1)}
             </div>
             <div style={{ 
               fontSize: '15px', 
-              color: '#ffbf00', 
+              color: isDark ? '#f1f5f9' : '#111827', 
               marginTop: '8px'
             }}>
               基于{validPlatformsCount}个平台的加权计算
