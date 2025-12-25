@@ -359,7 +359,7 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
 
       ctx.clearRect(0, 0, width, height);
 
-      const inset = 1;
+      const inset = 2;
       const x = inset;
       const y = inset;
       const w = width - inset * 2;
