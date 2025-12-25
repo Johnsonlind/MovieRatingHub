@@ -359,28 +359,21 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
       canvas.width = width;
       canvas.height = height;
 
+      // 1. 先画完整图片
       ctx.drawImage(img, 0, 0, width, height);
 
-      ctx.globalCompositeOperation = 'destination-in';
+      // 2. 用 destination-out 扣掉四个角
+      ctx.globalCompositeOperation = 'destination-out';
 
       ctx.beginPath();
-      ctx.moveTo(0, r);
-      ctx.arcTo(0, 0, r, 0, r);
-      ctx.lineTo(0, 0);
-
-      ctx.moveTo(width - r, 0);
-      ctx.arcTo(width, 0, width, r, r);
-      ctx.lineTo(width, 0);
-
-      ctx.moveTo(width, height - r);
-      ctx.arcTo(width, height, width - r, height, r);
-      ctx.lineTo(width, height);
-
-      ctx.moveTo(r, height);
-      ctx.arcTo(0, height, 0, height - r, r);
-      ctx.lineTo(0, height);
-
-      ctx.closePath();
+      // 左上角
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      // 右上角
+      ctx.arc(width, 0, r, 0, Math.PI * 2);
+      // 右下角
+      ctx.arc(width, height, r, 0, Math.PI * 2);
+      // 左下角
+      ctx.arc(0, height, r, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.globalCompositeOperation = 'source-over';
