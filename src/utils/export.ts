@@ -339,7 +339,7 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
   });
 }
 
-async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promise<string> {
+async function applyRoundedCorners(dataUrl: string, borderRadius: number, backgroundColor?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -351,19 +351,21 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
         return;
       }
       
-      canvas.width = img.width;
-      canvas.height = img.height;
+      const padding = 1;
+      canvas.width = img.width + padding * 2;
+      canvas.height = img.height + padding * 2;
       
-      const isDark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark';
-      const backgroundColor = isDark ? '#0a0e1a' : '#f0f9ff';
+      if (backgroundColor) {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
       
-      ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      const x = 0;
-      const y = 0;
-      const w = canvas.width;
-      const h = canvas.height;
+      const x = padding;
+      const y = padding;
+      const w = img.width;
+      const h = img.height;
       const r = Math.min(borderRadius, Math.min(w, h) / 2);
       
       ctx.beginPath();
@@ -380,7 +382,7 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
       
       ctx.save();
       ctx.clip();
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, x, y);
       ctx.restore();
       
       const roundedDataUrl = canvas.toDataURL('image/png');
@@ -580,6 +582,9 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   const snapdomModule = await import('@zumer/snapdom');
   const snapdom = snapdomModule as any;
   const isMobile = isMobileDevice();
+  
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const backgroundColor = isDark ? '#0a0e1a' : '#f0f9ff';
 
   await yieldToMain();
   
@@ -634,7 +639,7 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   
   const imgElement = await snapdom.snapdom.toPng(element, {
     scale: scale,
-    backgroundColor: 'transparent',
+    backgroundColor: backgroundColor,
     useProxy: '/api/image-proxy?url={url}',
     embedFonts: true,
   });
@@ -651,7 +656,7 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   
   const scaledBorderRadius = borderRadius * scale;
   console.log('Safari: 应用圆角，半径:', scaledBorderRadius);
-  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
+  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius, backgroundColor);
 
   await yieldToMain();
   
@@ -666,6 +671,9 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
 
 async function exportWithHtmlToImage(element: HTMLElement, filename: string, isChart: boolean = false, borderRadius: number = 20): Promise<void> {
   const isMobile = isMobileDevice();
+  
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const backgroundColor = isDark ? '#0a0e1a' : '#f0f9ff';
 
   await yieldToMain();
   
@@ -693,9 +701,9 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
     pixelRatio: pixelRatio,
     skipAutoScale: true,
     cacheBust: true,
-    backgroundColor: 'transparent',
+    backgroundColor: backgroundColor,
     style: {
-      background: 'transparent',
+      background: backgroundColor,
     },
     filter: (node) => {
       if (node instanceof HTMLElement) {
@@ -716,7 +724,7 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   
   const scaledBorderRadius = borderRadius * pixelRatio;
   console.log('Chrome: 应用圆角，半径:', scaledBorderRadius);
-  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
+  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius, backgroundColor);
 
   await yieldToMain();
   
