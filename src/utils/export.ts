@@ -343,28 +343,21 @@ function getElementBackgroundColor(element: HTMLElement): string {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const computed = window.getComputedStyle(element);
   
-  // 尝试获取背景色
   let bgColor = computed.backgroundColor;
   
-  // 如果背景色是透明的，检查背景图片（渐变）
   if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
     const bgImage = computed.backgroundImage;
     if (bgImage && bgImage !== 'none') {
-      // 从渐变中提取第一个颜色（起始色）
-      // 深色模式: linear-gradient(135deg, #0a0e1a 0%, ...)
-      // 浅色模式: linear-gradient(135deg, #f0f9ff 0%, ...)
       if (isDark) {
-        return '#0a0e1a'; // 深色模式渐变起始色
+        return '#0a0e1a';
       } else {
-        return '#f0f9ff'; // 浅色模式渐变起始色
+        return '#f0f9ff';
       }
     }
     
-    // 使用主题默认色
     return isDark ? '#0a0e1a' : '#f0f9ff';
   }
   
-  // 如果获取到的是半透明色，转换为不透明色
   if (bgColor.startsWith('rgba')) {
     const rgbaMatch = bgColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
     if (rgbaMatch) {
@@ -384,7 +377,10 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number, backgr
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { willReadFrequently: false });
+      const ctx = canvas.getContext('2d', { 
+        willReadFrequently: false,
+        alpha: true
+      });
       if (!ctx) {
         reject(new Error('无法创建canvas上下文'));
         return;
@@ -393,13 +389,12 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number, backgr
       canvas.width = img.width;
       canvas.height = img.height;
       
-      // 先填充背景色，避免边缘透明
-      if (backgroundColor) {
-        ctx.fillStyle = backgroundColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      } else {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
+      // 启用图像平滑以获得更好的边缘质量
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
+      // 先绘制完整图片（保持原始透明度）
+      ctx.drawImage(img, 0, 0);
       
       const x = 0;
       const y = 0;
@@ -407,6 +402,7 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number, backgr
       const h = canvas.height;
       const r = Math.min(borderRadius, Math.min(w, h) / 2);
       
+      // 创建圆角路径
       ctx.beginPath();
       ctx.moveTo(x + r, y);
       ctx.lineTo(x + w - r, y);
@@ -419,10 +415,21 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number, backgr
       ctx.arcTo(x, y, x + r, y, r);
       ctx.closePath();
       
+      // 使用 destination-in 合成模式：只保留圆角区域内的内容
+      // 这样可以保持圆角边缘的平滑透明过渡
       ctx.save();
-      ctx.clip();
-      ctx.drawImage(img, 0, 0);
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.fill();
       ctx.restore();
+      
+      // 如果有背景色，在圆角区域外填充背景色（使用 destination-over，不会覆盖已有内容）
+      if (backgroundColor) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+      }
       
       const roundedDataUrl = canvas.toDataURL('image/png');
       resolve(roundedDataUrl);
@@ -436,7 +443,6 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number, backgr
  * 显示图片预览弹窗（用于移动端长按保存）
  */
 function showImagePreview(dataUrl: string, filename: string): void {
-  // 创建遮罩层
   const overlay = document.createElement('div');
   overlay.style.cssText = `
     position: fixed;
@@ -454,7 +460,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     animation: fadeIn 0.3s ease;
   `;
 
-  // 创建提示文字
   const hint = document.createElement('div');
   hint.style.cssText = `
     color: white;
@@ -473,7 +478,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     <div>选择"保存图片"或"添加到相册"</div>
   `;
 
-  // 创建图片容器
   const imgContainer = document.createElement('div');
   imgContainer.style.cssText = `
     max-width: 90%;
@@ -483,7 +487,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   `;
 
-  // 创建图片
   const img = document.createElement('img');
   img.src = dataUrl;
   img.alt = filename;
@@ -494,7 +497,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     border-radius: 10px;
   `;
 
-  // 创建关闭按钮
   const closeBtn = document.createElement('button');
   closeBtn.textContent = '✕ 关闭';
   closeBtn.style.cssText = `
@@ -514,7 +516,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     setTimeout(() => document.body.removeChild(overlay), 300);
   };
 
-  // 点击遮罩层也关闭
   overlay.onclick = (e) => {
     if (e.target === overlay) {
       closeBtn.click();
@@ -526,7 +527,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
   overlay.appendChild(imgContainer);
   overlay.appendChild(closeBtn);
 
-  // 添加动画样式
   const style = document.createElement('style');
   style.textContent = `
     @keyframes fadeIn {
