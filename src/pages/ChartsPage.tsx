@@ -153,6 +153,8 @@ const NON_EXPORTABLE_CHARTS = [
   'TMDB 高分剧集 Top 250',
   'Rotten Tomatoes 2025 最佳电影',
   'Rotten Tomatoes 2025 最佳剧集',
+  'Metacritic 2025 最佳电影',
+  'Metacritic 2025 最佳剧集',
 ];
 
 // 平台logo映射
