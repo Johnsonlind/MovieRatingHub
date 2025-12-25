@@ -339,16 +339,11 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
   });
 }
 
-function getThemeBackgroundColor(): string {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  // 使用与exportStyles.ts中cardStyle相同的背景色
-  return isDark ? '#0a0e1a' : '#f0f9ff';
-}
-
 async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
+
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d', { willReadFrequently: false });
@@ -356,21 +351,25 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
         reject(new Error('无法创建canvas上下文'));
         return;
       }
-      
-      canvas.width = img.width;
-      canvas.height = img.height;
-      
-      // 先填充背景色，避免边缘透明
-      const bgColor = getThemeBackgroundColor();
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      const x = 0;
-      const y = 0;
-      const w = canvas.width;
-      const h = canvas.height;
-      const r = Math.min(borderRadius, Math.min(w, h) / 2);
-      
+
+      const width = Math.floor(img.width);
+      const height = Math.floor(img.height);
+      canvas.width = width;
+      canvas.height = height;
+
+      ctx.clearRect(0, 0, width, height);
+
+      const inset = 1;
+      const x = inset;
+      const y = inset;
+      const w = width - inset * 2;
+      const h = height - inset * 2;
+
+      const r = Math.max(
+        0,
+        Math.min(borderRadius - 1, Math.min(w, h) / 2)
+      );
+
       ctx.beginPath();
       ctx.moveTo(x + r, y);
       ctx.lineTo(x + w - r, y);
@@ -382,15 +381,17 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
       ctx.lineTo(x, y + r);
       ctx.arcTo(x, y, x + r, y, r);
       ctx.closePath();
-      
+
       ctx.save();
       ctx.clip();
-      ctx.drawImage(img, 0, 0);
+
+      ctx.drawImage(img, x, y, w, h);
+
       ctx.restore();
-      
-      const roundedDataUrl = canvas.toDataURL('image/png');
-      resolve(roundedDataUrl);
+
+      resolve(canvas.toDataURL('image/png'));
     };
+
     img.onerror = () => reject(new Error('图片加载失败'));
     img.src = dataUrl;
   });
@@ -637,10 +638,9 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   
   await yieldToMain();
   
-  const backgroundColor = getThemeBackgroundColor();
   const imgElement = await snapdom.snapdom.toPng(element, {
     scale: scale,
-    backgroundColor: backgroundColor,
+    backgroundColor: 'transparent',
     useProxy: '/api/image-proxy?url={url}',
     embedFonts: true,
   });
@@ -694,15 +694,14 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
 
   await yieldToMain();
   
-  const backgroundColor = getThemeBackgroundColor();
   let dataUrl = await toPng(element, {
     quality: 1.0,
     pixelRatio: pixelRatio,
     skipAutoScale: true,
     cacheBust: true,
-    backgroundColor: backgroundColor,
+    backgroundColor: 'transparent',
     style: {
-      background: backgroundColor,
+      background: 'transparent',
     },
     filter: (node) => {
       if (node instanceof HTMLElement) {
