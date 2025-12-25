@@ -140,6 +140,7 @@ const CHART_NAME_MAP: Record<string, string> = {
 
 // 不可导出的榜单列表
 const NON_EXPORTABLE_CHARTS = [
+  '豆瓣2025评分月度热搜影视',
   '豆瓣 电影 Top 250',
   'IMDb 工作人员2025最喜爱的电影',
   'IMDb 工作人员2025最喜爱的剧集',
