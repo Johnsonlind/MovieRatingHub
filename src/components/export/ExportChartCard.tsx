@@ -404,17 +404,14 @@ export function ExportChartCard({
       }}>
         {/* 左侧花环 */}
         <img 
-          src="/laurel-wreath-left.png" 
+          src={isDark ? "/laurel-wreath-left-white.png" : "/laurel-wreath-left-dark.png"}
           alt=""
           crossOrigin="anonymous"
           style={{ 
             width: '54px',
             height: '83px',
             objectFit: 'contain',
-            flexShrink: 0,
-            filter: isDark 
-              ? 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))'
-              : 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+            flexShrink: 0
           }}
         />
         
@@ -429,12 +426,9 @@ export function ExportChartCard({
           <div style={{
             fontSize: '24px',
             fontWeight: 'bold',
-            color: '#ffbf00',
+            color: isDark ? '#f1f5f9' : '#111827',
             letterSpacing: '0.05em',
-            whiteSpace: 'nowrap',
-            filter: isDark 
-              ? 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))'
-              : 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+            whiteSpace: 'nowrap'
           }}>
             {chartName}
           </div>
@@ -443,12 +437,9 @@ export function ExportChartCard({
           <div style={{
             fontSize: '16px',
             fontWeight: '500',
-            color: '#ffbf00',
+            color: isDark ? '#f1f5f9' : '#111827',
             letterSpacing: '0.02em',
-            whiteSpace: 'nowrap',
-            filter: isDark 
-              ? 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))'
-              : 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+            whiteSpace: 'nowrap'
           }}>
             {platform}
           </div>
@@ -456,17 +447,14 @@ export function ExportChartCard({
         
         {/* 右侧花环 */}
         <img 
-          src="/laurel-wreath-right.png" 
+          src={isDark ? "/laurel-wreath-right-white.png" : "/laurel-wreath-right-dark.png"}
           alt=""
           crossOrigin="anonymous"
           style={{ 
             width: '54px',
             height: '83px',
             objectFit: 'contain',
-            flexShrink: 0,
-            filter: isDark 
-              ? 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.6)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4))'
-              : 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+            flexShrink: 0
           }}
         />
       </div>
