@@ -354,7 +354,11 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
       canvas.width = img.width;
       canvas.height = img.height;
       
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const isDark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark';
+      const backgroundColor = isDark ? '#0a0e1a' : '#f0f9ff';
+      
+      ctx.fillStyle = backgroundColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       
       const x = 0;
       const y = 0;
@@ -376,7 +380,7 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
       
       ctx.save();
       ctx.clip();
-      ctx.drawImage(img, 0, 0);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       ctx.restore();
       
       const roundedDataUrl = canvas.toDataURL('image/png');
