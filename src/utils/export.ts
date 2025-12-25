@@ -378,7 +378,12 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
       ctx.clip();
       ctx.drawImage(img, 0, 0);
       ctx.restore();
-      
+
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.fillStyle = 'rgba(255,255,255,0.002)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.globalCompositeOperation = 'source-over';
+
       const roundedDataUrl = canvas.toDataURL('image/png');
       resolve(roundedDataUrl);
     };
