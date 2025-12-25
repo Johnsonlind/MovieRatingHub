@@ -346,7 +346,7 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
 
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: false });
       if (!ctx) {
         reject(new Error('无法创建canvas上下文'));
         return;
@@ -354,29 +354,40 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
 
       const width = Math.floor(img.width);
       const height = Math.floor(img.height);
-      const r = Math.max(0, Math.floor(borderRadius));
-
       canvas.width = width;
       canvas.height = height;
 
-      // 1. 先画完整图片
-      ctx.drawImage(img, 0, 0, width, height);
+      ctx.clearRect(0, 0, width, height);
 
-      // 2. 用 destination-out 扣掉四个角
-      ctx.globalCompositeOperation = 'destination-out';
+      const inset = 1;
+      const x = inset;
+      const y = inset;
+      const w = width - inset * 2;
+      const h = height - inset * 2;
+
+      const r = Math.max(
+        0,
+        Math.min(borderRadius - 1, Math.min(w, h) / 2)
+      );
 
       ctx.beginPath();
-      // 左上角
-      ctx.arc(0, 0, r, 0, Math.PI * 2);
-      // 右上角
-      ctx.arc(width, 0, r, 0, Math.PI * 2);
-      // 右下角
-      ctx.arc(width, height, r, 0, Math.PI * 2);
-      // 左下角
-      ctx.arc(0, height, r, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.arcTo(x + w, y, x + w, y + r, r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+      ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x, y + h, x, y + h - r, r);
+      ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x + r, y, r);
+      ctx.closePath();
 
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.save();
+      ctx.clip();
+
+      ctx.drawImage(img, x, y, w, h);
+
+      ctx.restore();
 
       resolve(canvas.toDataURL('image/png'));
     };
