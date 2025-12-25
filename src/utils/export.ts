@@ -346,7 +346,7 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
 
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { willReadFrequently: false });
+      const ctx = canvas.getContext('2d');
       if (!ctx) {
         reject(new Error('无法创建canvas上下文'));
         return;
@@ -354,40 +354,36 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
 
       const width = Math.floor(img.width);
       const height = Math.floor(img.height);
+      const r = Math.max(0, Math.floor(borderRadius));
+
       canvas.width = width;
       canvas.height = height;
 
-      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
 
-      const inset = 1;
-      const x = inset;
-      const y = inset;
-      const w = width - inset * 2;
-      const h = height - inset * 2;
-
-      const r = Math.max(
-        0,
-        Math.min(borderRadius - 1, Math.min(w, h) / 2)
-      );
+      ctx.globalCompositeOperation = 'destination-in';
 
       ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.arcTo(x + w, y, x + w, y + r, r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-      ctx.lineTo(x + r, y + h);
-      ctx.arcTo(x, y + h, x, y + h - r, r);
-      ctx.lineTo(x, y + r);
-      ctx.arcTo(x, y, x + r, y, r);
+      ctx.moveTo(0, r);
+      ctx.arcTo(0, 0, r, 0, r);
+      ctx.lineTo(0, 0);
+
+      ctx.moveTo(width - r, 0);
+      ctx.arcTo(width, 0, width, r, r);
+      ctx.lineTo(width, 0);
+
+      ctx.moveTo(width, height - r);
+      ctx.arcTo(width, height, width - r, height, r);
+      ctx.lineTo(width, height);
+
+      ctx.moveTo(r, height);
+      ctx.arcTo(0, height, 0, height - r, r);
+      ctx.lineTo(0, height);
+
       ctx.closePath();
+      ctx.fill();
 
-      ctx.save();
-      ctx.clip();
-
-      ctx.drawImage(img, x, y, w, h);
-
-      ctx.restore();
+      ctx.globalCompositeOperation = 'source-over';
 
       resolve(canvas.toDataURL('image/png'));
     };
