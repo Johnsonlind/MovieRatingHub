@@ -343,7 +343,6 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d', { willReadFrequently: false });
@@ -351,25 +350,18 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
         reject(new Error('无法创建canvas上下文'));
         return;
       }
-
-      const width = Math.floor(img.width);
-      const height = Math.floor(img.height);
-      canvas.width = width;
-      canvas.height = height;
-
-      ctx.clearRect(0, 0, width, height);
-
-      const inset = -1;
-      const x = inset;
-      const y = inset;
-      const w = width - inset * 2;
-      const h = height - inset * 2;
-
-      const r = Math.max(
-        0,
-        Math.min(borderRadius - inset, Math.min(w, h) / 2)
-      );
-
+      
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      const x = 0;
+      const y = 0;
+      const w = canvas.width;
+      const h = canvas.height;
+      const r = Math.min(borderRadius, Math.min(w, h) / 2);
+      
       ctx.beginPath();
       ctx.moveTo(x + r, y);
       ctx.lineTo(x + w - r, y);
@@ -381,17 +373,15 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
       ctx.lineTo(x, y + r);
       ctx.arcTo(x, y, x + r, y, r);
       ctx.closePath();
-
+      
       ctx.save();
       ctx.clip();
-
-      ctx.drawImage(img, x, y, w, h);
-
+      ctx.drawImage(img, 0, 0);
       ctx.restore();
-
-      resolve(canvas.toDataURL('image/png'));
+      
+      const roundedDataUrl = canvas.toDataURL('image/png');
+      resolve(roundedDataUrl);
     };
-
     img.onerror = () => reject(new Error('图片加载失败'));
     img.src = dataUrl;
   });
@@ -655,7 +645,7 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   
   let dataUrl = imgElement.src;
   
-  const scaledBorderRadius = borderRadius * scale;
+  const scaledBorderRadius = Math.floor(borderRadius * scale) - 1;
   console.log('Safari: 应用圆角，半径:', scaledBorderRadius);
   dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
 
