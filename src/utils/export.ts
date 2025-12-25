@@ -339,7 +339,46 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
   });
 }
 
-function applyRoundedCorners(dataUrl: string, borderRadius: number): Promise<string> {
+function getElementBackgroundColor(element: HTMLElement): string {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const computed = window.getComputedStyle(element);
+  
+  // 尝试获取背景色
+  let bgColor = computed.backgroundColor;
+  
+  // 如果背景色是透明的，检查背景图片（渐变）
+  if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+    const bgImage = computed.backgroundImage;
+    if (bgImage && bgImage !== 'none') {
+      // 从渐变中提取第一个颜色（起始色）
+      // 深色模式: linear-gradient(135deg, #0a0e1a 0%, ...)
+      // 浅色模式: linear-gradient(135deg, #f0f9ff 0%, ...)
+      if (isDark) {
+        return '#0a0e1a'; // 深色模式渐变起始色
+      } else {
+        return '#f0f9ff'; // 浅色模式渐变起始色
+      }
+    }
+    
+    // 使用主题默认色
+    return isDark ? '#0a0e1a' : '#f0f9ff';
+  }
+  
+  // 如果获取到的是半透明色，转换为不透明色
+  if (bgColor.startsWith('rgba')) {
+    const rgbaMatch = bgColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+    if (rgbaMatch) {
+      const r = rgbaMatch[1];
+      const g = rgbaMatch[2];
+      const b = rgbaMatch[3];
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+  }
+  
+  return bgColor;
+}
+
+async function applyRoundedCorners(dataUrl: string, borderRadius: number, backgroundColor?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -354,7 +393,13 @@ function applyRoundedCorners(dataUrl: string, borderRadius: number): Promise<str
       canvas.width = img.width;
       canvas.height = img.height;
       
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // 先填充背景色，避免边缘透明
+      if (backgroundColor) {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
       
       const x = 0;
       const y = 0;
@@ -381,81 +426,6 @@ function applyRoundedCorners(dataUrl: string, borderRadius: number): Promise<str
       
       const roundedDataUrl = canvas.toDataURL('image/png');
       resolve(roundedDataUrl);
-    };
-    img.onerror = () => reject(new Error('图片加载失败'));
-    img.src = dataUrl;
-  });
-}
-
-/**
- * 在现有图片基础上扩展2像素背景色，解决边缘透明问题
- */
-function expandBackgroundWithRoundedCorners(
-  dataUrl: string, 
-  borderRadius: number,
-  theme: 'light' | 'dark' = 'light'
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { willReadFrequently: false });
-      if (!ctx) {
-        reject(new Error('无法创建canvas上下文'));
-        return;
-      }
-      
-      // 每边扩展2像素
-      const expandPixels = 2;
-      canvas.width = img.width + expandPixels * 2;
-      canvas.height = img.height + expandPixels * 2;
-      
-      // 根据主题设置背景色
-      const backgroundColor = theme === 'dark' ? '#0f172a' : '#ffffff';
-      
-      // 清除画布
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      // 创建扩展后的圆角路径（半径+2像素）
-      const x = expandPixels;
-      const y = expandPixels;
-      const w = img.width;
-      const h = img.height;
-      const r = Math.min(borderRadius + expandPixels, Math.min(w, h) / 2);
-      
-      // 绘制背景（仅在圆角外部的区域，圆角内部保持原图）
-      ctx.save();
-      
-      // 绘制一个全尺寸的矩形
-      ctx.fillStyle = backgroundColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // 创建圆角矩形作为裁剪路径（反向）
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + w - r, y);
-      ctx.arcTo(x + w, y, x + w, y + r, r);
-      ctx.lineTo(x + w, y + h - r);
-      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-      ctx.lineTo(x + r, y + h);
-      ctx.arcTo(x, y + h, x, y + h - r, r);
-      ctx.lineTo(x, y + r);
-      ctx.arcTo(x, y, x + r, y, r);
-      ctx.closePath();
-      ctx.fill();
-      
-      ctx.restore();
-      
-      // 恢复正常的合成模式
-      ctx.globalCompositeOperation = 'source-over';
-      
-      // 绘制原始图片
-      ctx.drawImage(img, expandPixels, expandPixels);
-      
-      const resultDataUrl = canvas.toDataURL('image/png');
-      resolve(resultDataUrl);
     };
     img.onerror = () => reject(new Error('图片加载失败'));
     img.src = dataUrl;
@@ -721,14 +691,9 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   let dataUrl = imgElement.src;
   
   const scaledBorderRadius = borderRadius * scale;
-  console.log('Safari: 应用圆角，半径:', scaledBorderRadius);
-  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
-  
-  // 扩展2像素背景，解决边缘透明问题
-  await yieldToMain();
-  console.log('Safari: 扩展背景解决边缘透明问题...');
-  const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-  dataUrl = await expandBackgroundWithRoundedCorners(dataUrl, scaledBorderRadius, theme);
+  const backgroundColor = getElementBackgroundColor(element);
+  console.log('Safari: 应用圆角，半径:', scaledBorderRadius, '背景色:', backgroundColor);
+  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius, backgroundColor);
 
   await yieldToMain();
   
@@ -792,14 +757,9 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   await yieldToMain();
   
   const scaledBorderRadius = borderRadius * pixelRatio;
-  console.log('Chrome: 应用圆角，半径:', scaledBorderRadius);
-  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
-  
-  // 扩展2像素背景，解决边缘透明问题
-  await yieldToMain();
-  console.log('Chrome: 扩展背景解决边缘透明问题...');
-  const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-  dataUrl = await expandBackgroundWithRoundedCorners(dataUrl, scaledBorderRadius, theme);
+  const backgroundColor = getElementBackgroundColor(element);
+  console.log('Chrome: 应用圆角，半径:', scaledBorderRadius, '背景色:', backgroundColor);
+  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius, backgroundColor);
 
   await yieldToMain();
   
