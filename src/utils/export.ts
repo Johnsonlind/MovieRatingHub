@@ -339,6 +339,54 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
   });
 }
 
+async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: false });
+      if (!ctx) {
+        reject(new Error('无法创建canvas上下文'));
+        return;
+      }
+      
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      const x = 0;
+      const y = 0;
+      const w = canvas.width;
+      const h = canvas.height;
+      const r = Math.min(borderRadius, Math.min(w, h) / 2);
+      
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.arcTo(x + w, y, x + w, y + r, r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+      ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x, y + h, x, y + h - r, r);
+      ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x + r, y, r);
+      ctx.closePath();
+      
+      ctx.save();
+      ctx.clip();
+      ctx.drawImage(img, 0, 0);
+      ctx.restore();
+      
+      const roundedDataUrl = canvas.toDataURL('image/png');
+      resolve(roundedDataUrl);
+    };
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = dataUrl;
+  });
+}
+
 /**
  * 显示图片预览弹窗（用于移动端长按保存）
  */
@@ -524,7 +572,7 @@ function removeBoxShadows(element: HTMLElement): () => void {
   };
 }
 
-async function exportWithSnapdom(element: HTMLElement, filename: string, isChart: boolean = false): Promise<void> {
+async function exportWithSnapdom(element: HTMLElement, filename: string, isChart: boolean = false, borderRadius: number = 20): Promise<void> {
   const snapdomModule = await import('@zumer/snapdom');
   const snapdom = snapdomModule as any;
   const isMobile = isMobileDevice();
@@ -535,7 +583,7 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   const originalBorderRadius = element.style.borderRadius;
   
   element.style.overflow = 'hidden';
-  element.style.borderRadius = `0px`;
+  element.style.borderRadius = `${borderRadius}px`;
   
   const restoreShadows = removeBoxShadows(element);
   
@@ -596,6 +644,10 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   await yieldToMain();
   
   let dataUrl = imgElement.src;
+  
+  const scaledBorderRadius = borderRadius * scale;
+  console.log('Safari: 应用圆角，半径:', scaledBorderRadius);
+  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
 
   await yieldToMain();
   
@@ -608,7 +660,7 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   await downloadImage(dataUrl, filename, isMobile);
 }
 
-async function exportWithHtmlToImage(element: HTMLElement, filename: string, isChart: boolean = false): Promise<void> {
+async function exportWithHtmlToImage(element: HTMLElement, filename: string, isChart: boolean = false, borderRadius: number = 20): Promise<void> {
   const isMobile = isMobileDevice();
 
   await yieldToMain();
@@ -617,7 +669,7 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   const originalBorderRadius = element.style.borderRadius;
   
   element.style.overflow = 'hidden';
-  element.style.borderRadius = `0px`;
+  element.style.borderRadius = `${borderRadius}px`;
   
   const restoreShadows = removeBoxShadows(element);
   
@@ -657,6 +709,10 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   restoreShadows();
 
   await yieldToMain();
+  
+  const scaledBorderRadius = borderRadius * pixelRatio;
+  console.log('Chrome: 应用圆角，半径:', scaledBorderRadius);
+  dataUrl = await applyRoundedCorners(dataUrl, scaledBorderRadius);
 
   await yieldToMain();
   
@@ -687,13 +743,14 @@ export async function exportToPng(element: HTMLElement, filename: string, option
     
     const isSafariBrowser = isSafari();
     const isChart = options?.isChart || false;
+    const borderRadius = options?.borderRadius ?? (isChart ? 20 : 24);
     
-    console.log('开始导出，浏览器:', isSafariBrowser ? 'Safari' : '其他', '类型:', isChart ? '榜单' : '评分卡片');
+    console.log('开始导出，浏览器:', isSafariBrowser ? 'Safari' : '其他', '类型:', isChart ? '榜单' : '评分卡片', '圆角:', borderRadius);
     
     if (isSafariBrowser) {
-      await exportWithSnapdom(element, filename, isChart);
+      await exportWithSnapdom(element, filename, isChart, borderRadius);
     } else {
-      await exportWithHtmlToImage(element, filename, isChart);
+      await exportWithHtmlToImage(element, filename, isChart, borderRadius);
     }
     
     console.log('导出成功');
