@@ -2,6 +2,8 @@
 // 评分计算工具
 // ==========================================
 import { isValidRatingData, normalizeRating, safeParseCount } from './ratingHelpers';
+import type { NormalizedRating } from './ratingTypes';
+import { calculateRobustRating } from './robustRatingCalculator';
 
 interface PlatformRatingResult {
   rating: number;
@@ -18,6 +20,30 @@ interface RatingCalculationState {
   totalVoteCount: number;
   validPlatforms: string[];
   ratingDetails: any[];
+  normalizedRatings: NormalizedRating[];
+}
+
+/**
+ * 判断平台评分类型（专业评分 vs 用户评分）
+ */
+function determineRatingType(platformLabel: string): 'critic' | 'user' {
+  // 专业评分标识
+  if (platformLabel.includes('critics') || 
+      platformLabel.includes('metascore') || 
+      platformLabel.includes('tomatometer')) {
+    return 'critic';
+  }
+  // 用户评分标识
+  return 'user';
+}
+
+/**
+ * 映射平台名称到标准平台代码
+ */
+function mapPlatformName(platformName: string): NormalizedRating['platform'] {
+  if (platformName === 'rottentomatoes') return 'rt';
+  if (platformName === 'metacritic') return 'mc';
+  return platformName as NormalizedRating['platform'];
 }
 
 /**
@@ -67,10 +93,26 @@ function processPlatformRating(
     state.validPlatforms.push(platformConfig.name);
   }
 
+  const platformLabel = platformConfig.platformLabel || platformConfig.name;
+  
+  // 创建统一的评分数据结构
+  const normalizedRatingData: NormalizedRating = {
+    platform: mapPlatformName(platformConfig.name),
+    type: determineRatingType(platformLabel),
+    score: normalizedRating,
+    voteCount: voteCountValue !== undefined && voteCountValue !== null 
+      ? safeParseCount(voteCountValue, 0) 
+      : undefined,
+    platformLabel,
+    ...(platformConfig.season !== undefined && { season: platformConfig.season })
+  };
+
+  state.normalizedRatings.push(normalizedRatingData);
+
   const result: PlatformRatingResult = {
     rating: normalizedRating,
     voteCount,
-    platform: platformConfig.platformLabel || platformConfig.name,
+    platform: platformLabel,
     originalRating: ratingValue,
     normalizedRating,
     contribution,
@@ -365,9 +407,27 @@ export function processLetterboxdRating(
  * 计算最终评分
  */
 export function calculateFinalRating(state: RatingCalculationState): number | null {
-  return state.totalVoteCount > 0
-    ? Number((state.ratingTimesVoteSum / state.totalVoteCount).toFixed(1))
-    : null;
+  if (state.normalizedRatings.length === 0) {
+    return null;
+  }
+
+  const { finalScore, state: calculationState } = calculateRobustRating(state.normalizedRatings);
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('稳健算法计算详情:', {
+      输入评分数: state.normalizedRatings.length,
+      专业评分数: calculationState.criticContributions.length,
+      用户评分数: calculationState.userContributions.length,
+      专业评分汇总: calculationState.criticSum,
+      专业权重汇总: calculationState.criticWeightSum,
+      用户评分汇总: calculationState.userSum,
+      用户权重汇总: calculationState.userWeightSum,
+      最终评分: finalScore,
+      评分详情: state.normalizedRatings
+    });
+  }
+
+  return finalScore;
 }
 
 /**
@@ -378,6 +438,7 @@ export function createRatingCalculationState(): RatingCalculationState {
     ratingTimesVoteSum: 0,
     totalVoteCount: 0,
     validPlatforms: [],
-    ratingDetails: []
+    ratingDetails: [],
+    normalizedRatings: []
   };
 }
