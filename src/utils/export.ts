@@ -367,7 +367,7 @@ async function applyRoundedCorners(dataUrl: string, borderRadius: number): Promi
 
       const r = Math.max(
         0,
-        Math.min(borderRadius - 1, Math.min(w, h) / 2)
+        Math.min(borderRadius - inset, Math.min(w, h) / 2)
       );
 
       ctx.beginPath();
