@@ -10,12 +10,12 @@ export function getExportStyles(isDark: boolean) {
       background: isDark 
         ? `linear-gradient(135deg, #0a0e1a 0%, #0f172a 50%, #1e293b 100%)`
         : `linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #bae6fd 100%)`,
-      border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(255, 255, 255, 0.6)',
-      borderRadius: '24px',
+      backdropFilter: 'blur(50px) saturate(200%)',
+      WebkitBackdropFilter: 'blur(50px) saturate(200%)',      
+      border: 'none',
+      borderRadius: '0px',
       padding: '50px',
-      boxShadow: isDark
-        ? `0 16px 48px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3)`
-        : `0 16px 48px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1)`,
+      boxShadow: 'none',
       position: 'relative' as const,
       boxSizing: 'border-box' as const,
       overflow: 'hidden' as const,
