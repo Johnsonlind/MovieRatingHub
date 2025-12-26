@@ -298,10 +298,8 @@ export function ExportTVShowRatingCard({
         ? `linear-gradient(135deg, #0a0e1a 0%, #0f172a 50%, #1e293b 100%)`
         : `linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 50%, #bae6fd 100%)`,
       border: 'none',
-      borderRadius: '24px',
-      boxShadow: isDark
-        ? `0 16px 48px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3)`
-        : `0 16px 48px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1)`,
+      borderRadius: '0px',
+      boxShadow: 'none',
       position: 'relative' as const,
       boxSizing: 'border-box' as const,
       overflow: 'hidden' as const,
