@@ -224,7 +224,7 @@ export default function HomePage() {
             >
               <div className="flex items-center justify-center mb-3">
                 <img
-                  src="/logos/home.png"
+                  src="/logos/newyearhome.png"
                   alt="Rating Card"
                   className="w-12 h-12 object-contain"
                 />
