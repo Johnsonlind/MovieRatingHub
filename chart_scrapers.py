@@ -1875,7 +1875,8 @@ class ChartScraper:
         
         matcher = TMDBMatcher(self.db)
         saved = 0
-        total = len(movies[:250])
+        movies = movies[:250]
+        total = len(movies)
         
         semaphore = asyncio.Semaphore(3)
         
@@ -1883,8 +1884,7 @@ class ChartScraper:
             """处理单个电影，返回匹配结果或None"""
             nonlocal saved
             async with semaphore:
-                if request and await request.is_disconnected():
-                    return None
+                pass
                 
                 rank = movie.get('rank')
                 title = movie.get('title') or ''
