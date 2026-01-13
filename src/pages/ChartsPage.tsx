@@ -237,6 +237,7 @@ export default function ChartsPage() {
     
     const shouldMerge = chart.platform === 'TMDB' || 
                        chart.platform === 'IMDb' || 
+                       chart.platform === 'Letterboxd' ||
                        chart.chart_name === '豆瓣2025评分月度热搜影视';
     
     if (shouldMerge) {
@@ -271,30 +272,23 @@ export default function ChartsPage() {
       return acc;
     }, {} as Record<string, ChartSection[]>);
 
-    // 对所有平台的榜单进行排序
     Object.keys(result).forEach(platform => {
       if (result[platform]) {
         const platformOrder = PLATFORM_CHART_ORDER[platform];
         
         if (platformOrder) {
-          // 如果有自定义顺序，按照自定义顺序排序
           result[platform].sort((a, b) => {
             const indexA = platformOrder.indexOf(a.chart_name);
             const indexB = platformOrder.indexOf(b.chart_name);
             
-            // 两个都在自定义顺序中
             if (indexA !== -1 && indexB !== -1) {
               return indexA - indexB;
             }
-            // 只有 a 在自定义顺序中
             if (indexA !== -1) return -1;
-            // 只有 b 在自定义顺序中
             if (indexB !== -1) return 1;
-            // 都不在自定义顺序中，按名称排序
             return a.chart_name.localeCompare(b.chart_name);
           });
         } else {
-          // 没有自定义顺序，使用默认排序（按名称）
           result[platform].sort((a, b) => a.chart_name.localeCompare(b.chart_name));
         }
       }
@@ -367,10 +361,8 @@ export default function ChartsPage() {
 
     setExportingChart(exportKey);
     
-    // 设置要导出的榜单信息，触发渲染
     setActiveExportChart({ platform, chartName, chartKey, layout });
 
-    // 等待 DOM 更新
     await new Promise(resolve => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
