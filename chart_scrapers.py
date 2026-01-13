@@ -1923,9 +1923,9 @@ class ChartScraper:
         batch_size = 10
         for batch_start in range(0, total, batch_size):
             #if request and await request.is_disconnected():
-                #logger.warning(f"请求已被取消，已处理 {saved}/{total} 条")
-                #self.db.commit()
-                #return saved
+            #    logger.warning(f"请求已被取消，已处理 {saved}/{total} 条")
+            #    self.db.commit()
+            #    return saved
             
             batch = movies[batch_start:batch_start + batch_size]
             results = await asyncio.gather(*[process_movie(movie) for movie in batch], return_exceptions=True)
