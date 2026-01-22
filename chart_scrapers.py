@@ -386,32 +386,13 @@ class ChartScraper:
         async def scrape_with_browser(browser):
             page = await browser.new_page()
             try:
-                logger.info("开始抓取Letterboxd Popular films this week")
                 url = "https://letterboxd.com/films/"
-                logger.info(f"正在访问URL: {url}")
-                
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                logger.info("页面加载完成，等待2秒以确保内容渲染")
                 await asyncio.sleep(2)
                 
-                # 检查页面标题和URL
-                page_title = await page.title()
-                page_url = page.url
-                logger.info(f"页面标题: {page_title}")
-                logger.info(f"实际URL: {page_url}")
-                
-                # 尝试获取页面HTML的一部分来检查结构
-                try:
-                    body_html = await page.evaluate("() => document.body.innerHTML.substring(0, 2000)")
-                    logger.debug(f"页面HTML前2000字符: {body_html[:500]}...")
-                except Exception as e:
-                    logger.warning(f"无法获取页面HTML预览: {e}")
-                
-                # 检查是否存在popular-films容器
                 popular_container = await page.query_selector('#popular-films')
                 if not popular_container:
                     logger.error("未找到 #popular-films 容器")
-                    # 尝试查找其他可能的选择器
                     alternative_selectors = [
                         '#popular-films',
                         '.popular-films',
@@ -422,40 +403,13 @@ class ChartScraper:
                     for selector in alternative_selectors:
                         elem = await page.query_selector(selector)
                         if elem:
-                            logger.info(f"找到替代选择器: {selector}")
                             break
                     else:
                         logger.error("未找到任何popular相关的容器")
-                        # 获取所有section元素
-                        sections = await page.query_selector_all('section')
-                        logger.info(f"页面中共有 {len(sections)} 个section元素")
-                        for i, section in enumerate(sections[:5]):
-                            try:
-                                section_id = await section.get_attribute('id')
-                                section_class = await section.get_attribute('class')
-                                logger.info(f"Section {i}: id={section_id}, class={section_class}")
-                            except:
-                                pass
-                else:
-                    logger.info("找到 #popular-films 容器")
                 
-                # 检查poster-list
-                poster_list = await page.query_selector('#popular-films .poster-list')
-                if not poster_list:
-                    logger.error("未找到 .poster-list 元素")
-                    # 尝试查找其他可能的列表容器
-                    list_containers = await page.query_selector_all('#popular-films ul, #popular-films ol, #popular-films .list')
-                    logger.info(f"找到 {len(list_containers)} 个可能的列表容器")
-                else:
-                    logger.info("找到 .poster-list 元素")
-                
-                # 尝试原始选择器
                 popular_items = await page.query_selector_all('#popular-films .poster-list li')
-                logger.info(f"使用选择器 '#popular-films .poster-list li' 找到 {len(popular_items)} 个元素")
                 
-                # 如果没找到，尝试其他选择器
                 if len(popular_items) == 0:
-                    logger.warning("原始选择器未找到元素，尝试替代选择器...")
                     alternative_patterns = [
                         '#popular-films li',
                         '.popular-films li',
@@ -465,93 +419,62 @@ class ChartScraper:
                     ]
                     for pattern in alternative_patterns:
                         items = await page.query_selector_all(pattern)
-                        logger.info(f"选择器 '{pattern}' 找到 {len(items)} 个元素")
                         if len(items) > 0:
                             popular_items = items
-                            logger.info(f"使用替代选择器: {pattern}")
                             break
                 
                 results = []
                 
                 if len(popular_items) == 0:
                     logger.error("未找到任何榜单项，可能页面结构已改变")
-                    # 尝试截图保存（如果可能）
-                    try:
-                        screenshot_path = "/tmp/letterboxd_debug.png"
-                        await page.screenshot(path=screenshot_path, full_page=False)
-                        logger.info(f"已保存页面截图到: {screenshot_path}")
-                    except Exception as e:
-                        logger.warning(f"无法保存截图: {e}")
                 else:
-                    logger.info(f"开始处理 {len(popular_items)} 个榜单项（最多处理前10个）")
-                
-                for i, item in enumerate(popular_items[:10], 1):
-                    try:
-                        logger.debug(f"处理第 {i} 个榜单项")
-                        
-                        # 尝试获取item的HTML结构
+                    for i, item in enumerate(popular_items[:10], 1):
                         try:
-                            item_html = await item.evaluate("(el) => el.outerHTML.substring(0, 500)")
-                            logger.debug(f"第 {i} 项HTML: {item_html}")
-                        except:
-                            pass
-                        
-                        title_elem = await item.query_selector('[data-item-name]')
-                        if not title_elem:
-                            logger.warning(f"第 {i} 项: 未找到 [data-item-name] 元素")
-                            # 尝试其他可能的选择器
-                            alt_selectors = [
-                                'a[data-item-name]',
-                                '.film-poster[data-item-name]',
-                                '[data-film-id]',
-                                'a[data-film-id]'
-                            ]
-                            for alt_sel in alt_selectors:
-                                alt_elem = await item.query_selector(alt_sel)
-                                if alt_elem:
-                                    logger.info(f"第 {i} 项: 使用替代选择器找到元素: {alt_sel}")
-                                    title_elem = alt_elem
-                                    break
-                        
-                        if title_elem:
-                            title = await title_elem.get_attribute('data-item-name')
-                            link = await title_elem.get_attribute('data-item-link')
-                            film_id = await title_elem.get_attribute('data-film-id')
+                            title_elem = await item.query_selector('[data-item-name]')
+                            if not title_elem:
+                                alt_selectors = [
+                                    'a[data-item-name]',
+                                    '.film-poster[data-item-name]',
+                                    '[data-film-id]',
+                                    'a[data-film-id]'
+                                ]
+                                for alt_sel in alt_selectors:
+                                    alt_elem = await item.query_selector(alt_sel)
+                                    if alt_elem:
+                                        title_elem = alt_elem
+                                        break
                             
-                            logger.debug(f"第 {i} 项提取结果: title={title}, link={link}, film_id={film_id}")
-                            
-                            # 如果data-item-link不存在，尝试从href获取
-                            if not link:
-                                href = await title_elem.get_attribute('href')
-                                if href:
-                                    link = href
-                                    logger.info(f"第 {i} 项: 从href属性获取链接: {link}")
-                            
-                            # 如果data-film-id不存在，尝试从其他属性获取
-                            if not film_id:
-                                # 尝试从链接中提取film ID
-                                if link:
-                                    match = re.search(r'/film/([^/]+)/', link)
-                                    if match:
-                                        film_id = match.group(1)
-                                        logger.info(f"第 {i} 项: 从链接提取film_id: {film_id}")
-                            
-                            if title and link and film_id:
-                                full_url = f"https://letterboxd.com{link}" if not link.startswith('http') else link
-                                results.append({
-                                    'rank': i,
-                                    'title': title,
-                                    'letterboxd_id': film_id,
-                                    'url': full_url
-                                })
-                                logger.info(f"第 {i} 项成功提取: {title} ({full_url})")
+                            if title_elem:
+                                title = await title_elem.get_attribute('data-item-name')
+                                link = await title_elem.get_attribute('data-item-link')
+                                film_id = await title_elem.get_attribute('data-film-id')
+                                
+                                if not link:
+                                    href = await title_elem.get_attribute('href')
+                                    if href:
+                                        link = href
+                                
+                                if not film_id:
+                                    if link:
+                                        match = re.search(r'/film/([^/]+)/', link)
+                                        if match:
+                                            film_id = match.group(1)
+                                
+                                if title and link and film_id:
+                                    full_url = f"https://letterboxd.com{link}" if not link.startswith('http') else link
+                                    results.append({
+                                        'rank': i,
+                                        'title': title,
+                                        'letterboxd_id': film_id,
+                                        'url': full_url
+                                    })
+                                else:
+                                    logger.warning(f"第 {i} 项: 缺少必要属性")
                             else:
-                                logger.warning(f"第 {i} 项: 缺少必要属性 - title={bool(title)}, link={bool(link)}, film_id={bool(film_id)}")
-                        else:
-                            logger.warning(f"第 {i} 项: 未找到任何可用的标题元素")
-                    except Exception as e:
-                        logger.error(f"处理Letterboxd榜单项 {i} 时出错: {e}", exc_info=True)
-                        continue
+                                logger.warning(f"第 {i} 项: 未找到任何可用的标题元素")
+                        except Exception as e:
+                            logger.error(f"处理Letterboxd榜单项 {i} 时出错: {e}", exc_info=True)
+                            continue
                 
                 logger.info(f"Letterboxd Popular films this week 抓取完成，共获取 {len(results)} 条数据")
                 return results
@@ -707,20 +630,16 @@ class ChartScraper:
 
     async def update_letterboxd_popular(self) -> int:
         """Letterboxd Popular films this week：进入详情解析 data-tmdb-id，匹配 TMDB 并入库"""
-        logger.info("=" * 60)
         logger.info("开始更新 Letterboxd Popular films this week 榜单")
-        logger.info("=" * 60)
         
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='Letterboxd',
             ChartEntry.chart_name=='Popular films this week'
         ).delete()
-        logger.info(f"Letterboxd榜单: 清空旧数据 {deleted} 条")
+        logger.info(f"清空旧数据 {deleted} 条")
         
         matcher = TMDBMatcher(self.db)
-        logger.info("开始抓取Letterboxd Popular films this week数据...")
         items = await self.scrape_letterboxd_popular()
-        logger.info(f"抓取完成，获取到 {len(items)} 条原始数据")
         
         if not items:
             logger.error("未获取到任何数据，无法继续处理")
@@ -732,33 +651,22 @@ class ChartScraper:
         for it in items[:10]:
             title = it.get('title') or ''
             url = it.get('url') or ''
-            letterboxd_id = it.get('letterboxd_id') or ''
-            
-            logger.info(f"\n处理第 {rank} 项: {title}")
-            logger.info(f"  URL: {url}")
-            logger.info(f"  Letterboxd ID: {letterboxd_id}")
             
             if not url:
-                logger.warning(f"  跳过: URL为空")
+                logger.warning(f"跳过第 {rank} 项: URL为空")
                 rank += 1
                 continue
             
             tmdb_id = None
             try:
-                logger.info(f"  正在使用浏览器访问详情页获取TMDB ID...")
                 tmdb_id = await self.get_letterboxd_tmdb_id(url)
-                if tmdb_id:
-                    logger.info(f"  成功获取到TMDB ID: {tmdb_id}")
-                else:
-                    logger.warning(f"  未能从详情页获取到TMDB ID")
             except Exception as e:
-                logger.error(f"  访问详情页时出错: {e}", exc_info=True)
+                logger.error(f"访问详情页时出错: {e}", exc_info=True)
                 tmdb_id = None
             
             match = None
             actual_media_type = 'movie'
             if tmdb_id:
-                logger.info(f"  使用TMDB ID {tmdb_id} 查询信息...")
                 info = await matcher.get_tmdb_info(tmdb_id, 'movie')
                 if info:
                     match = {
@@ -767,9 +675,7 @@ class ChartScraper:
                         'poster': info.get('poster_url', ''),
                         'media_type': 'movie'
                     }
-                    logger.info(f"  成功匹配为电影: {match['title']}")
                 else:
-                    logger.info(f"  电影类型未匹配，尝试TV类型...")
                     info = await matcher.get_tmdb_info(tmdb_id, 'tv')
                     if info:
                         match = {
@@ -779,15 +685,12 @@ class ChartScraper:
                             'media_type': 'tv'
                         }
                         actual_media_type = 'tv'
-                        logger.info(f"  成功匹配为TV: {match['title']}")
                     else:
-                        logger.warning(f"  TMDB ID {tmdb_id} 在movie和tv中都未找到信息")
+                        logger.warning(f"TMDB ID {tmdb_id} 在movie和tv中都未找到信息")
             
             if not match:
-                logger.info(f"  尝试通过标题匹配电影...")
                 for attempt in range(3):
                     try:
-                        logger.debug(f"    尝试 {attempt + 1}/3")
                         mid = await matcher.match_by_title_and_year(title, 'movie')
                         if not mid:
                             raise RuntimeError('no id')
@@ -800,18 +703,14 @@ class ChartScraper:
                             'poster': info.get('poster_url', ''),
                             'media_type': 'movie'
                         }
-                        logger.info(f"  通过标题成功匹配为电影: {match['title']} (TMDB ID: {mid})")
                         break
                     except Exception as e:
-                        logger.debug(f"    尝试 {attempt + 1} 失败: {e}")
                         if attempt < 2:
                             await asyncio.sleep(2 ** attempt)
                 
                 if not match:
-                    logger.info(f"  尝试通过标题匹配TV...")
                     for attempt in range(3):
                         try:
-                            logger.debug(f"    尝试 {attempt + 1}/3")
                             mid = await matcher.match_by_title_and_year(title, 'tv')
                             if not mid:
                                 raise RuntimeError('no id')
@@ -825,15 +724,13 @@ class ChartScraper:
                                 'media_type': 'tv'
                             }
                             actual_media_type = 'tv'
-                            logger.info(f"  通过标题成功匹配为TV: {match['title']} (TMDB ID: {mid})")
                             break
                         except Exception as e:
-                            logger.debug(f"    尝试 {attempt + 1} 失败: {e}")
                             if attempt < 2:
                                 await asyncio.sleep(2 ** attempt)
             
             if not match:
-                logger.warning(f"  Letterboxd未匹配: {title} (URL: {url})")
+                logger.warning(f"未匹配: {title} (URL: {url})")
                 rank += 1
                 continue
             
@@ -848,20 +745,18 @@ class ChartScraper:
                     poster=match.get('poster','')
                 ))
                 saved += 1
-                logger.info(f"  ✓ 成功入库: {match['title']} (排名: {rank}, TMDB ID: {match['tmdb_id']})")
             except Exception as e:
-                logger.error(f"  入库时出错: {e}", exc_info=True)
+                logger.error(f"入库时出错: {e}", exc_info=True)
             
             rank += 1
         
         try:
             self.db.commit()
-            logger.info(f"\nLetterboxd Popular films this week 入库完成，共 {saved}/{len(items)} 条")
+            logger.info(f"Letterboxd Popular films this week 入库完成，共 {saved}/{len(items)} 条")
         except Exception as e:
             logger.error(f"提交数据库时出错: {e}", exc_info=True)
             self.db.rollback()
         
-        logger.info("=" * 60)
         return saved
 
     async def _extract_imdb_from_metacritic(self, url: str) -> Optional[str]:
