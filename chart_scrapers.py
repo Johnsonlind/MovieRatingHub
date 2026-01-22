@@ -2252,28 +2252,56 @@ class ChartScraper:
         async def get_with_browser(browser):
             page = await browser.new_page()
             try:
-                logger.debug(f"使用浏览器访问 Letterboxd 详情页: {letterboxd_url}")
+                logger.info(f"使用浏览器访问 Letterboxd 详情页: {letterboxd_url}")
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
-                await asyncio.sleep(1)
+                
+                # 等待页面完全加载，特别是body标签的属性
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    logger.warning("网络空闲等待超时，继续执行")
+                
+                await asyncio.sleep(2)  # 增加等待时间确保页面完全渲染
                 
                 # 方法1: 尝试从body标签的data-tmdb-id属性获取
                 try:
                     body = await page.query_selector('body')
                     if body:
+                        # 获取body标签的所有data-*属性用于调试
+                        body_class = await body.get_attribute('class')
+                        body_data_type = await body.get_attribute('data-type')
+                        body_data_tmdb_type = await body.get_attribute('data-tmdb-type')
                         tmdb_id_attr = await body.get_attribute('data-tmdb-id')
+                        
+                        logger.info(f"Body标签信息: class={body_class}, data-type={body_data_type}, data-tmdb-type={body_data_tmdb_type}, data-tmdb-id={tmdb_id_attr}")
+                        
                         if tmdb_id_attr:
                             try:
                                 tmdb_id = int(tmdb_id_attr)
-                                logger.debug(f"从body标签data-tmdb-id属性获取到TMDB ID: {tmdb_id}")
+                                logger.info(f"✓ 从body标签data-tmdb-id属性获取到TMDB ID: {tmdb_id}")
                                 return tmdb_id
-                            except ValueError:
-                                pass
+                            except ValueError as e:
+                                logger.warning(f"data-tmdb-id属性值无法转换为整数: {tmdb_id_attr}, 错误: {e}")
+                        else:
+                            logger.warning("Body标签存在但未找到data-tmdb-id属性")
+                    else:
+                        logger.warning("未找到body标签")
                 except Exception as e:
-                    logger.debug(f"从body标签获取TMDB ID失败: {e}")
+                    logger.warning(f"从body标签获取TMDB ID失败: {e}", exc_info=True)
                 
                 # 方法2: 尝试从页面HTML中提取
                 try:
+                    logger.info("尝试从页面HTML中提取TMDB ID...")
                     html = await page.content()
+                    html_length = len(html)
+                    logger.info(f"页面HTML长度: {html_length} 字符")
+                    
+                    # 检查body标签片段
+                    body_start = html.find('<body')
+                    if body_start != -1:
+                        body_snippet = html[body_start:body_start+500]
+                        logger.info(f"Body标签片段: {body_snippet[:200]}...")
+                    
                     # 尝试多种模式
                     patterns = [
                         r'<body[^>]*data-tmdb-id=["\'](\d+)["\']',
@@ -2286,18 +2314,20 @@ class ChartScraper:
                         if m:
                             try:
                                 tmdb_id = int(m.group(1))
-                                logger.debug(f"使用模式 '{pattern}' 从HTML提取到TMDB ID: {tmdb_id}")
+                                logger.info(f"✓ 使用模式 '{pattern}' 从HTML提取到TMDB ID: {tmdb_id}")
                                 return tmdb_id
                             except ValueError:
                                 continue
+                    logger.warning("所有HTML模式都未匹配到TMDB ID")
                 except Exception as e:
-                    logger.debug(f"从HTML提取TMDB ID失败: {e}")
+                    logger.warning(f"从HTML提取TMDB ID失败: {e}", exc_info=True)
                 
                 # 方法3: 尝试从TMDB链接中提取
                 try:
+                    logger.info("尝试从TMDB链接中提取...")
                     await page.wait_for_selector('a[href*="themoviedb.org/movie/"]', timeout=3000)
                 except Exception:
-                    pass
+                    logger.info("未找到TMDB movie链接选择器，继续尝试其他方法")
                 
                 tmdb_link = await page.query_selector('a[href*="themoviedb.org/movie/"]')
                 
@@ -2307,10 +2337,11 @@ class ChartScraper:
                         match = re.search(r'/movie/(\d+)/', href)
                         if match:
                             tmdb_id = int(match.group(1))
-                            logger.debug(f"从TMDB链接提取到TMDB ID: {tmdb_id}")
+                            logger.info(f"✓ 从TMDB movie链接提取到TMDB ID: {tmdb_id}")
                             return tmdb_id
                 
                 # 方法4: 尝试TV链接
+                logger.info("尝试从TMDB TV链接中提取...")
                 tmdb_tv_link = await page.query_selector('a[href*="themoviedb.org/tv/"]')
                 if tmdb_tv_link:
                     href = await tmdb_tv_link.get_attribute('href')
@@ -2318,14 +2349,14 @@ class ChartScraper:
                         match = re.search(r'/tv/(\d+)/', href)
                         if match:
                             tmdb_id = int(match.group(1))
-                            logger.debug(f"从TMDB TV链接提取到TMDB ID: {tmdb_id}")
+                            logger.info(f"✓ 从TMDB TV链接提取到TMDB ID: {tmdb_id}")
                             return tmdb_id
                 
-                logger.debug(f"未能从 Letterboxd 页面提取到 TMDB ID: {letterboxd_url}")
+                logger.warning(f"✗ 未能从 Letterboxd 页面提取到 TMDB ID: {letterboxd_url}")
                 return None
                 
             except Exception as e:
-                logger.debug(f"获取 Letterboxd TMDB ID 失败 (url: {letterboxd_url}): {e}")
+                logger.error(f"获取 Letterboxd TMDB ID 失败 (url: {letterboxd_url}): {e}", exc_info=True)
                 return None
             finally:
                 await page.close()
@@ -2333,7 +2364,7 @@ class ChartScraper:
         try:
             return await browser_pool.execute_in_browser(get_with_browser)
         except Exception as e:
-            logger.debug(f"获取 Letterboxd TMDB ID 失败: {e}")
+            logger.error(f"获取 Letterboxd TMDB ID 失败: {e}", exc_info=True)
             return None
 
     async def update_letterboxd_top250(self) -> int:
