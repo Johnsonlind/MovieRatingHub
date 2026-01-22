@@ -3,10 +3,21 @@
 # ==========================================
 import asyncio
 import logging
-from typing import List, Optional
-from playwright.async_api import async_playwright, Browser, Playwright
+import random
+from typing import List, Optional, Dict, Any
+from playwright.async_api import async_playwright, Browser, Playwright, BrowserContext
 
 logger = logging.getLogger(__name__)
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
+]
 
 class BrowserPool:
     def __init__(self, max_browsers=5, max_contexts_per_browser=3, max_pages_per_context=5):
@@ -135,5 +146,101 @@ class BrowserPool:
             "active_browsers": len(self.browsers),
             "available_browsers": self.available_browsers.qsize()
         }
+    
+    async def create_stealth_context(self, browser: Browser, locale: str = 'en-US', timezone_id: str = 'America/New_York') -> BrowserContext:
+        """创建反检测的浏览器上下文，包含真实的 User-Agent、Headers 和 JavaScript 注入"""
+        selected_user_agent = random.choice(USER_AGENTS)
+        
+        context_options: Dict[str, Any] = {
+            'viewport': {'width': 1920, 'height': 1080},
+            'user_agent': selected_user_agent,
+            'bypass_csp': True,
+            'ignore_https_errors': True,
+            'java_script_enabled': True,
+            'has_touch': False,
+            'is_mobile': False,
+            'locale': locale,
+            'timezone_id': timezone_id,
+            'extra_http_headers': {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0',
+            }
+        }
+        
+        context = await browser.new_context(**context_options)
+        
+        await context.add_init_script("""
+            // 隐藏 webdriver 属性
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => false
+            });
+            
+            // 覆盖 plugins 属性
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            
+            // 覆盖 languages 属性
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+            
+            // 添加 Chrome 对象（Chrome 浏览器特有）
+            if (!window.chrome) {
+                window.chrome = {
+                    runtime: {}
+                };
+            }
+            
+            // 覆盖 permissions API
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+            
+            // 覆盖 getBattery API
+            if (navigator.getBattery) {
+                navigator.getBattery = () => Promise.resolve({
+                    charging: true,
+                    chargingTime: 0,
+                    dischargingTime: Infinity,
+                    level: 1
+                });
+            }
+            
+            // 覆盖 WebGL 参数，隐藏自动化特征
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) {
+                    return 'Intel Inc.';
+                }
+                if (parameter === 37446) {
+                    return 'Intel Iris OpenGL Engine';
+                }
+                return getParameter.call(this, parameter);
+            };
+            
+            // 覆盖 toString 方法，隐藏自动化特征
+            const originalToString = Function.prototype.toString;
+            Function.prototype.toString = function() {
+                if (this === navigator.getBattery || this === window.navigator.permissions.query) {
+                    return 'function () { [native code] }';
+                }
+                return originalToString.call(this);
+            };
+        """)
+        
+        return context
 
 browser_pool = BrowserPool(max_browsers=5, max_contexts_per_browser=3, max_pages_per_context=5)
