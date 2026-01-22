@@ -2250,7 +2250,44 @@ class ChartScraper:
     async def get_letterboxd_tmdb_id(self, letterboxd_url: str) -> Optional[int]:
         """从 Letterboxd 详情页获取 TMDB ID（优化版）"""
         async def get_with_browser(browser):
-            page = await browser.new_page()
+            # 创建带有反检测设置的context和page
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+                extra_http_headers={
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Cache-Control': 'max-age=0',
+                }
+            )
+            
+            # 注入脚本隐藏webdriver属性
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                window.chrome = {
+                    runtime: {}
+                };
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en']
+                });
+            """)
+            
+            page = await context.new_page()
             try:
                 logger.info(f"使用浏览器访问 Letterboxd 详情页: {letterboxd_url}")
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
@@ -2261,6 +2298,13 @@ class ChartScraper:
                 except Exception:
                     logger.warning("网络空闲等待超时，继续执行")
                 
+                # 检查是否是验证页面
+                page_content = await page.content()
+                if 'Verify you are human' in page_content or 'verify you are human' in page_content.lower():
+                    logger.warning(f"检测到Letterboxd验证页面，URL: {letterboxd_url}")
+                    logger.warning("页面可能检测到自动化访问，需要人工验证")
+                    # 即使有验证页面，也尝试搜索一下，有时候验证页面也会包含数据
+                
                 # 等待body标签有data-tmdb-id属性，或者等待更长时间让JavaScript执行
                 max_wait = 5  # 最多等待5次，每次2秒
                 for wait_attempt in range(max_wait):
@@ -2269,6 +2313,12 @@ class ChartScraper:
                     # 方法1: 优先从HTML中直接搜索data-tmdb-id（最简单直接）
                     try:
                         html = await page.content()
+                        
+                        # 再次检查是否是验证页面
+                        if 'Verify you are human' in html and wait_attempt == max_wait - 1:
+                            logger.error("页面仍然是验证页面，无法获取TMDB ID")
+                            return None
+                        
                         # 直接搜索 data-tmdb-id="数字" 或 data-tmdb-id='数字'
                         pattern = r'data-tmdb-id=["\'](\d+)["\']'
                         m = re.search(pattern, html)
@@ -2371,6 +2421,7 @@ class ChartScraper:
                 return None
             finally:
                 await page.close()
+                await context.close()
         
         try:
             return await browser_pool.execute_in_browser(get_with_browser)
