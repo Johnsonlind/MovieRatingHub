@@ -728,11 +728,6 @@ class ChartScraper:
         
         saved = 0
         rank = 1
-        import urllib3, requests
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
-        }
         
         for it in items[:10]:
             title = it.get('title') or ''
@@ -750,39 +745,12 @@ class ChartScraper:
             
             tmdb_id = None
             try:
-                logger.info(f"  正在访问详情页获取TMDB ID...")
-                r = requests.get(url, headers=headers, timeout=20, verify=False)
-                logger.info(f"  响应状态码: {r.status_code}")
-                
-                if r.status_code != 200:
-                    logger.warning(f"  响应状态码异常: {r.status_code}")
-                
-                # 尝试多种方式提取tmdb_id
-                m = re.search(r'<body[^>]*data-tmdb-id=\"(\d+)\"', r.text)
-                if m:
-                    tmdb_id = int(m.group(1))
-                    logger.info(f"  从body标签提取到TMDB ID: {tmdb_id}")
+                logger.info(f"  正在使用浏览器访问详情页获取TMDB ID...")
+                tmdb_id = await self.get_letterboxd_tmdb_id(url)
+                if tmdb_id:
+                    logger.info(f"  成功获取到TMDB ID: {tmdb_id}")
                 else:
-                    # 尝试其他可能的模式
-                    patterns = [
-                        r'data-tmdb-id="(\d+)"',
-                        r'"tmdb_id":\s*(\d+)',
-                        r'tmdbId["\']?\s*[:=]\s*["\']?(\d+)',
-                    ]
-                    for pattern in patterns:
-                        m = re.search(pattern, r.text)
-                        if m:
-                            tmdb_id = int(m.group(1))
-                            logger.info(f"  使用模式 '{pattern}' 提取到TMDB ID: {tmdb_id}")
-                            break
-                    
-                    if not tmdb_id:
-                        logger.warning(f"  未能在页面中找到TMDB ID")
-                        # 记录页面HTML的一部分用于调试
-                        body_start = r.text.find('<body')
-                        if body_start != -1:
-                            body_snippet = r.text[body_start:body_start+500]
-                            logger.debug(f"  Body标签片段: {body_snippet}")
+                    logger.warning(f"  未能从详情页获取到TMDB ID")
             except Exception as e:
                 logger.error(f"  访问详情页时出错: {e}", exc_info=True)
                 tmdb_id = None
@@ -2284,9 +2252,48 @@ class ChartScraper:
         async def get_with_browser(browser):
             page = await browser.new_page()
             try:
+                logger.debug(f"使用浏览器访问 Letterboxd 详情页: {letterboxd_url}")
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
                 await asyncio.sleep(1)
                 
+                # 方法1: 尝试从body标签的data-tmdb-id属性获取
+                try:
+                    body = await page.query_selector('body')
+                    if body:
+                        tmdb_id_attr = await body.get_attribute('data-tmdb-id')
+                        if tmdb_id_attr:
+                            try:
+                                tmdb_id = int(tmdb_id_attr)
+                                logger.debug(f"从body标签data-tmdb-id属性获取到TMDB ID: {tmdb_id}")
+                                return tmdb_id
+                            except ValueError:
+                                pass
+                except Exception as e:
+                    logger.debug(f"从body标签获取TMDB ID失败: {e}")
+                
+                # 方法2: 尝试从页面HTML中提取
+                try:
+                    html = await page.content()
+                    # 尝试多种模式
+                    patterns = [
+                        r'<body[^>]*data-tmdb-id=["\'](\d+)["\']',
+                        r'data-tmdb-id=["\'](\d+)["\']',
+                        r'"tmdb_id":\s*(\d+)',
+                        r'tmdbId["\']?\s*[:=]\s*["\']?(\d+)',
+                    ]
+                    for pattern in patterns:
+                        m = re.search(pattern, html)
+                        if m:
+                            try:
+                                tmdb_id = int(m.group(1))
+                                logger.debug(f"使用模式 '{pattern}' 从HTML提取到TMDB ID: {tmdb_id}")
+                                return tmdb_id
+                            except ValueError:
+                                continue
+                except Exception as e:
+                    logger.debug(f"从HTML提取TMDB ID失败: {e}")
+                
+                # 方法3: 尝试从TMDB链接中提取
                 try:
                     await page.wait_for_selector('a[href*="themoviedb.org/movie/"]', timeout=3000)
                 except Exception:
@@ -2299,8 +2306,22 @@ class ChartScraper:
                     if href:
                         match = re.search(r'/movie/(\d+)/', href)
                         if match:
-                            return int(match.group(1))
+                            tmdb_id = int(match.group(1))
+                            logger.debug(f"从TMDB链接提取到TMDB ID: {tmdb_id}")
+                            return tmdb_id
                 
+                # 方法4: 尝试TV链接
+                tmdb_tv_link = await page.query_selector('a[href*="themoviedb.org/tv/"]')
+                if tmdb_tv_link:
+                    href = await tmdb_tv_link.get_attribute('href')
+                    if href:
+                        match = re.search(r'/tv/(\d+)/', href)
+                        if match:
+                            tmdb_id = int(match.group(1))
+                            logger.debug(f"从TMDB TV链接提取到TMDB ID: {tmdb_id}")
+                            return tmdb_id
+                
+                logger.debug(f"未能从 Letterboxd 页面提取到 TMDB ID: {letterboxd_url}")
                 return None
                 
             except Exception as e:
