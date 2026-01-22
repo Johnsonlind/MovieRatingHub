@@ -2255,57 +2255,68 @@ class ChartScraper:
                 logger.info(f"使用浏览器访问 Letterboxd 详情页: {letterboxd_url}")
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
                 
-                # 等待页面完全加载，特别是body标签的属性
+                # 等待页面完全加载
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=10000)
+                    await page.wait_for_load_state("networkidle", timeout=15000)
                 except Exception:
                     logger.warning("网络空闲等待超时，继续执行")
                 
-                await asyncio.sleep(2)  # 增加等待时间确保页面完全渲染
-                
-                # 方法1: 尝试从body标签的data-tmdb-id属性获取
-                try:
-                    body = await page.query_selector('body')
-                    if body:
-                        # 获取body标签的所有data-*属性用于调试
-                        body_class = await body.get_attribute('class')
-                        body_data_type = await body.get_attribute('data-type')
-                        body_data_tmdb_type = await body.get_attribute('data-tmdb-type')
-                        tmdb_id_attr = await body.get_attribute('data-tmdb-id')
-                        
-                        logger.info(f"Body标签信息: class={body_class}, data-type={body_data_type}, data-tmdb-type={body_data_tmdb_type}, data-tmdb-id={tmdb_id_attr}")
-                        
-                        if tmdb_id_attr:
+                # 等待body标签有data-tmdb-id属性，或者等待更长时间让JavaScript执行
+                max_wait = 5  # 最多等待5次，每次2秒
+                for wait_attempt in range(max_wait):
+                    await asyncio.sleep(2)
+                    
+                    # 方法1: 优先从HTML中直接搜索data-tmdb-id（最简单直接）
+                    try:
+                        html = await page.content()
+                        # 直接搜索 data-tmdb-id="数字" 或 data-tmdb-id='数字'
+                        pattern = r'data-tmdb-id=["\'](\d+)["\']'
+                        m = re.search(pattern, html)
+                        if m:
                             try:
-                                tmdb_id = int(tmdb_id_attr)
-                                logger.info(f"✓ 从body标签data-tmdb-id属性获取到TMDB ID: {tmdb_id}")
+                                tmdb_id = int(m.group(1))
+                                logger.info(f"✓ 从HTML中直接搜索到TMDB ID: {tmdb_id} (等待了 {wait_attempt + 1} 次)")
                                 return tmdb_id
-                            except ValueError as e:
-                                logger.warning(f"data-tmdb-id属性值无法转换为整数: {tmdb_id_attr}, 错误: {e}")
-                        else:
-                            logger.warning("Body标签存在但未找到data-tmdb-id属性")
-                    else:
-                        logger.warning("未找到body标签")
-                except Exception as e:
-                    logger.warning(f"从body标签获取TMDB ID失败: {e}", exc_info=True)
+                            except ValueError:
+                                pass
+                    except Exception as e:
+                        logger.debug(f"HTML搜索失败: {e}")
+                    
+                    # 方法2: 尝试从body标签的data-tmdb-id属性获取
+                    try:
+                        body = await page.query_selector('body')
+                        if body:
+                            tmdb_id_attr = await body.get_attribute('data-tmdb-id')
+                            if tmdb_id_attr:
+                                try:
+                                    tmdb_id = int(tmdb_id_attr)
+                                    logger.info(f"✓ 从body标签data-tmdb-id属性获取到TMDB ID: {tmdb_id} (等待了 {wait_attempt + 1} 次)")
+                                    return tmdb_id
+                                except ValueError:
+                                    pass
+                    except Exception:
+                        pass
                 
-                # 方法2: 尝试从页面HTML中提取
+                # 如果等待后仍未找到，最后再尝试一次完整的HTML搜索
+                logger.warning("等待后仍未找到data-tmdb-id，进行最后一次完整HTML搜索...")
                 try:
-                    logger.info("尝试从页面HTML中提取TMDB ID...")
                     html = await page.content()
                     html_length = len(html)
                     logger.info(f"页面HTML长度: {html_length} 字符")
                     
-                    # 检查body标签片段
-                    body_start = html.find('<body')
-                    if body_start != -1:
-                        body_snippet = html[body_start:body_start+500]
-                        logger.info(f"Body标签片段: {body_snippet[:200]}...")
+                    # 检查是否是错误页面
+                    if 'letterboxd.com</h1>' in html or 'main-wrapper' in html:
+                        logger.warning("页面可能是错误页面或需要登录")
+                        # 检查body标签片段
+                        body_start = html.find('<body')
+                        if body_start != -1:
+                            body_snippet = html[body_start:body_start+500]
+                            logger.info(f"Body标签片段: {body_snippet[:300]}...")
                     
-                    # 尝试多种模式
+                    # 尝试多种模式（按优先级排序）
                     patterns = [
-                        r'<body[^>]*data-tmdb-id=["\'](\d+)["\']',
-                        r'data-tmdb-id=["\'](\d+)["\']',
+                        r'data-tmdb-id=["\'](\d+)["\']',  # 最直接的匹配
+                        r'<body[^>]*data-tmdb-id=["\'](\d+)["\']',  # body标签中的
                         r'"tmdb_id":\s*(\d+)',
                         r'tmdbId["\']?\s*[:=]\s*["\']?(\d+)',
                     ]
