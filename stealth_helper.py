@@ -5,10 +5,54 @@
 import asyncio
 import random
 import logging
-from typing import Optional
+import os
+from typing import Optional, List, Dict
 from playwright.async_api import Browser, BrowserContext, Page
 
 logger = logging.getLogger(__name__)
+
+# 从环境变量读取 Letterboxd Cookie
+LETTERBOXD_COOKIE = os.getenv("LETTERBOXD_COOKIE", "")
+
+
+def parse_cookie_string(cookie_string: str) -> List[Dict]:
+    """
+    解析 Cookie 字符串为 Playwright Cookie 格式
+    例如: "name1=value1; name2=value2" -> [{"name": "name1", "value": "value1", ...}, ...]
+    """
+    if not cookie_string:
+        return []
+    
+    cookies = []
+    for item in cookie_string.split(';'):
+        item = item.strip()
+        if not item or '=' not in item:
+            continue
+        
+        name, value = item.split('=', 1)
+        name = name.strip()
+        value = value.strip()
+        
+        # 创建 Cookie 对象
+        cookie = {
+            "name": name,
+            "value": value,
+            "domain": ".letterboxd.com",  # 支持子域名
+            "path": "/",
+            "httpOnly": False,
+            "secure": True,
+            "sameSite": "Lax"
+        }
+        
+        # 特殊处理 cf_clearance cookie（Cloudflare 验证通过凭证）
+        if name == "cf_clearance":
+            cookie["httpOnly"] = False
+            cookie["secure"] = True
+            logger.info("✓ 检测到 cf_clearance cookie，将用于绕过 Cloudflare 验证")
+        
+        cookies.append(cookie)
+    
+    return cookies
 
 # 真实的浏览器启动参数（移除所有自动化标志）
 STEALTH_BROWSER_ARGS = [
@@ -143,12 +187,20 @@ REAL_USER_AGENTS = [
 ]
 
 
-async def create_stealth_context(browser: Browser, user_agent: Optional[str] = None) -> BrowserContext:
+async def create_stealth_context(browser: Browser, user_agent: Optional[str] = None, cookie_string: Optional[str] = None) -> BrowserContext:
     """
     创建带有完整反检测设置的浏览器上下文
+    
+    Args:
+        browser: Playwright Browser 实例
+        user_agent: 可选的 User-Agent 字符串
+        cookie_string: 可选的 Cookie 字符串（格式: "name1=value1; name2=value2"）
     """
     if not user_agent:
         user_agent = random.choice(REAL_USER_AGENTS)
+    
+    # 优先使用传入的 cookie_string，否则使用环境变量
+    cookie_str = cookie_string or LETTERBOXD_COOKIE
     
     context = await browser.new_context(
         viewport={'width': 1920, 'height': 1080},
@@ -175,6 +227,16 @@ async def create_stealth_context(browser: Browser, user_agent: Optional[str] = N
             'sec-ch-ua-platform': '"macOS"',
         }
     )
+    
+    # 如果有 Cookie，添加到 context
+    if cookie_str:
+        cookies = parse_cookie_string(cookie_str)
+        if cookies:
+            await context.add_cookies(cookies)
+            cookie_names = [c["name"] for c in cookies]
+            logger.info(f"✓ 已添加 {len(cookies)} 个 Cookie: {', '.join(cookie_names)}")
+            if any(c["name"] == "cf_clearance" for c in cookies):
+                logger.info("✓ 包含 cf_clearance cookie，可绕过 Cloudflare 验证")
     
     # 注入增强的反检测脚本
     await context.add_init_script(ENHANCED_STEALTH_SCRIPT)
