@@ -971,17 +971,8 @@ def get_client_ip(request: Request) -> str:
     
     return request.client.host
 
-async def search_platform(platform, tmdb_info, request=None, douban_cookie=None, letterboxd_cookie=None):
-    """
-    在各平台搜索并返回搜索结果
-    使用多策略搜索：依次尝试所有搜索变体直到找到匹配
-    Args:
-        platform: 平台名称
-        tmdb_info: TMDB信息
-        request: FastAPI请求对象
-        douban_cookie: 用户的豆瓣Cookie（可选）
-        letterboxd_cookie: 用户的Letterboxd Cookie（可选）
-    """
+async def search_platform(platform, tmdb_info, request=None, douban_cookie=None):
+    """在各平台搜索并返回搜索结果"""
     try:
         if request and await request.is_disconnected():
             return {"status": "cancelled"}
@@ -1001,9 +992,11 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None,
 
         is_anthology = tmdb_info.get("is_anthology", False)
         series_info = tmdb_info.get("series_info", {})
+        
         if is_anthology and platform in ("rottentomatoes", "metacritic") and series_info:
             main_series_title = series_info.get("main_series_title") or series_info.get("main_title")
             main_series_year = series_info.get("main_series_year")
+            
             if main_series_title:
                 print(f"[{platform}] 选集剧使用主系列标题搜索: {main_series_title} ({main_series_year})")
                 search_tmdb_info = tmdb_info.copy()
@@ -1019,13 +1012,14 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None,
                     context = None
                     try:
                         selected_user_agent = random.choice(USER_AGENTS)
-                        context = await browser.new_context(
-                            viewport={'width': 1280, 'height': 720},
-                            user_agent=selected_user_agent,
-                            bypass_csp=True,
-                            ignore_https_errors=True,
-                            java_script_enabled=True
-                        )
+                        context_options = {
+                            'viewport': {'width': 1280, 'height': 720},
+                            'user_agent': selected_user_agent,
+                            'bypass_csp': True,
+                            'ignore_https_errors': True,
+                            'java_script_enabled': True,
+                        }
+                        context = await browser.new_context(**context_options)
                         page = await context.new_page()
                         page.set_default_timeout(30000)
                         
@@ -1035,7 +1029,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None,
                             results = await handle_metacritic_search(page, search_url, search_tmdb_info)
                         else:
                             results = []
-
+                        
                         return results
                     finally:
                         if context:
@@ -1043,46 +1037,81 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None,
                                 await context.close()
                             except:
                                 pass
-
+                
                 try:
                     search_results = await browser_pool.execute_in_browser(execute_search)
                     if search_results:
-                        threshold = 60
-                        matched_results = []
-                        for result in search_results:
-                            result["used_main_series"] = True
-                            result["main_series_title"] = main_series_title
-                            result["main_series_year"] = main_series_year
-                            result["search_variant_used"] = {
-                                "title": main_series_title,
-                                "year": main_series_year or "",
-                                "strategy": "anthology_series",
-                                "type": "main_series_with_year" if main_series_year else "main_series_no_year"
-                            }
-                            match_score = result.get("match_score") or await calculate_match_degree(search_tmdb_info, result, platform)
-                            if match_score >= threshold:
-                                matched_results.append(result)
-                        if matched_results:
-                            return matched_results
-                        return None
+                        if isinstance(search_results, list):
+                            threshold = 60
+                            print(f"使用选集剧阈值: {threshold}")
+                            print(f"找到 {len(search_results)} 个 {platform} 搜索结果")
+                            
+                            matched_results = []
+                            for result in search_results:
+                                if isinstance(result, dict):
+                                    result["used_main_series"] = True
+                                    result["main_series_title"] = main_series_title
+                                    result["main_series_year"] = main_series_year
+                                    
+                                    variant_info = {
+                                        "title": main_series_title,
+                                        "year": main_series_year or "",
+                                        "strategy": "anthology_series",
+                                        "type": "main_series_with_year" if main_series_year else "main_series_no_year"
+                                    }
+                                    result["search_variant_used"] = variant_info
+                                    
+                                    if "match_score" not in result:
+                                        match_score = await calculate_match_degree(search_tmdb_info, result, platform)
+                                    else:
+                                        match_score = result["match_score"]
+                                    
+                                    if platform == "metacritic":
+                                        print(f"  Metacritic匹配: '{result.get('title')}' ({result.get('year')}) - 分数: {match_score}, 阈值: {threshold}")
+                                    
+                                    if match_score >= threshold:
+                                        matched_results.append(result)
+                            
+                            if matched_results:
+                                print(f"{platform} 找到 {len(matched_results)} 个匹配结果")
+                                return matched_results
+                            else:
+                                if platform == "metacritic":
+                                    print(f"Metacritic未找到匹配结果（所有结果分数都低于阈值 {threshold}）")
+                                return None
+                        elif isinstance(search_results, dict) and "status" in search_results:
+                            return search_results
+                        else:
+                            return None
                 except Exception as e:
                     print(f"[{platform}] 使用主系列信息搜索失败: {e}")
-
+        
         search_variants = tmdb_info.get("search_variants", [])
+        
         if not search_variants:
             if platform == "douban":
-                search_title = tmdb_info.get("zh_title") or tmdb_info.get("original_title")
+                search_title = tmdb_info["zh_title"] or tmdb_info["original_title"]
             elif platform in ("imdb", "rottentomatoes", "metacritic"):
                 original_title = tmdb_info.get("original_title", "")
                 en_title = tmdb_info.get("en_title", "")
+                
                 def is_english_text(text):
                     if not text:
                         return False
-                    ascii_count = sum(1 for c in text if ord(c) < 128)
-                    return ascii_count / len(text) > 0.8
-                search_title = original_title if is_english_text(original_title) else en_title or original_title
+                    try:
+                        ascii_count = sum(1 for c in text if ord(c) < 128)
+                        return ascii_count / len(text) > 0.8
+                    except:
+                        return False
+                
+                if original_title and is_english_text(original_title):
+                    search_title = original_title
+                elif en_title:
+                    search_title = en_title
+                else:
+                    search_title = original_title or tmdb_info.get("title") or tmdb_info.get("name") or ""
             else:
-                search_title = tmdb_info.get("title") or tmdb_info.get("name") or tmdb_info.get("original_title")
+                search_title = tmdb_info["title"] or tmdb_info.get("name") or tmdb_info["original_title"]
             
             search_variants = [{
                 "title": search_title,
@@ -1093,26 +1122,45 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None,
             }]
         
         media_type = tmdb_info["type"]
-
+        
         async def execute_single_search(search_title, variant_info, browser):
-            """执行单个搜索变体"""
+            """执行单个搜索变体的搜索"""
             context = None
+            search_url_or_urls = construct_search_url(search_title, media_type, platform, tmdb_info)
+            
+            if platform == "letterboxd" and isinstance(search_url_or_urls, list):
+                search_urls = search_url_or_urls
+            else:
+                search_urls = [search_url_or_urls] if search_url_or_urls else []
+            
             try:
-                search_url_or_urls = construct_search_url(search_title, media_type, platform, tmdb_info)
-                search_urls = search_url_or_urls if isinstance(search_url_or_urls, list) else [search_url_or_urls]
-
                 selected_user_agent = random.choice(USER_AGENTS)
-                context = await browser.new_context(
-                    viewport={'width': 1280, 'height': 720},
-                    user_agent=selected_user_agent,
-                    bypass_csp=True,
-                    ignore_https_errors=True,
-                    java_script_enabled=True,
-                    has_touch=False,
-                    is_mobile=False,
-                    locale='zh-CN',
-                    timezone_id='Asia/Shanghai'
-                )
+
+                context_options = {
+                    'viewport': {'width': 1280, 'height': 720},
+                    'user_agent': selected_user_agent,
+                    'bypass_csp': True,
+                    'ignore_https_errors': True,
+                    'java_script_enabled': True,
+                    'has_touch': False,
+                    'is_mobile': False,
+                    'locale': 'zh-CN',
+                    'timezone_id': 'Asia/Shanghai',
+                    'extra_http_headers': {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1'
+                    }
+                }
+
+                context = await browser.new_context(**context_options)
 
                 await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
                 await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
@@ -1121,135 +1169,283 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None,
                 await context.route("**/stats/**", lambda route: route.abort())
 
                 page = await context.new_page()
-                page.set_default_timeout(20000)
+                page.set_default_timeout(20000) 
 
                 if platform == "douban":
                     headers = {}
                     if request:
                         client_ip = get_client_ip(request)
-                        headers.update({'X-Forwarded-For': client_ip, 'X-Real-IP': client_ip})
+                        print(f"豆瓣请求使用IP: {client_ip}")
+                        headers.update({
+                            'X-Forwarded-For': client_ip,
+                            'X-Real-IP': client_ip
+                        })
                     if douban_cookie:
                         headers['Cookie'] = douban_cookie
+                        print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+                    else:
+                        print("⚠️ 未提供豆瓣Cookie，使用默认方式")
                     if headers:
                         await page.set_extra_http_headers(headers)
 
-                if platform == "letterboxd" and letterboxd_cookie:
-                    await page.set_extra_http_headers({
-                        'Cookie': letterboxd_cookie,
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'zh-CN,zh;q=0.9',
-                        'Accept-Encoding': 'gzip, deflate, br',
-                        'DNT': '1',
-                        'Connection': 'keep-alive',
-                        'Upgrade-Insecure-Requests': '1',
-                        'Sec-Fetch-Dest': 'document',
-                        'Sec-Fetch-Mode': 'navigate',
-                        'Sec-Fetch-Site': 'none',
-                        'Sec-Fetch-User': '?1',
-                        'User-Agent': selected_user_agent
-                    })
+                async def log_request(req):
+                    if req.resource_type == "document":
+                        pass
+                    page.remove_listener('request', log_request)
 
+                page.on('request', log_request)
+                
                 results = None
-                for search_url in search_urls:
-                    if not search_url:
-                        continue
-                    if platform == "douban":
-                        results = await handle_douban_search(page, search_url)
-                    elif platform == "imdb":
-                        results = await handle_imdb_search(page, search_url)
-                    elif platform == "letterboxd":
-                        results = await handle_letterboxd_search(page, search_url, tmdb_info)
-                    elif platform == "rottentomatoes":
-                        results = await handle_rt_search(page, search_url, tmdb_info)
-                    elif platform == "metacritic":
-                        results = await handle_metacritic_search(page, search_url, tmdb_info)
-                    if results and not (isinstance(results, dict) and results.get("status") == RATING_STATUS["NO_FOUND"]):
-                        break
+                
+                try:
+                    async def check_request():
+                        if request and await request.is_disconnected():
+                            print("请求已被取消,停止执行")
+                            raise RequestCancelledException()
 
-                if isinstance(results, list):
-                    threshold = 60 if variant_info.get("strategy") == "anthology_series" else 70
+                    if platform == "letterboxd" and len(search_urls) > 1:
+                        for idx, search_url in enumerate(search_urls):
+                            if not search_url:
+                                continue
+                            print(f"{platform} 搜索URL [{idx+1}/{len(search_urls)}]: {search_url}")
+                            await check_request()
+                            results = await handle_letterboxd_search(page, search_url, tmdb_info)
+                            
+                            if results and not (isinstance(results, dict) and results.get("status") == RATING_STATUS["NO_FOUND"]):
+                                break
+                        
+                        if results and isinstance(results, dict) and results.get("status") == RATING_STATUS["NO_FOUND"]:
+                            print(f"Letterboxd所有搜索方式都未找到结果，确认未收录")
+                    else:
+                        if not search_urls:
+                            print(f"{platform} 无法构造搜索URL")
+                            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "无法构造搜索URL"}
+                        search_url = search_urls[0]
+                        if search_url:
+                            print(f"{platform} 搜索URL: {search_url}")
+                            await check_request()
+                            if platform == "douban":
+                                results = await handle_douban_search(page, search_url)
+                            elif platform == "imdb":
+                                results = await handle_imdb_search(page, search_url)
+                            elif platform == "letterboxd":
+                                results = await handle_letterboxd_search(page, search_url, tmdb_info)
+                            elif platform == "rottentomatoes":
+                                results = await handle_rt_search(page, search_url, tmdb_info)
+                            elif platform == "metacritic":
+                                results = await handle_metacritic_search(page, search_url, tmdb_info)
+                            else:
+                                print(f"平台 {platform} 不支持通过搜索页面")
+                                return None
+                        else:
+                            print(f"{platform} 搜索URL为空")
+                            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "搜索URL为空"}
+
+                    await check_request()
+                    if isinstance(results, dict) and "status" in results:
+                        if results["status"] == RATING_STATUS["RATE_LIMIT"]:
+                            print(f"{platform} 访问频率限制")
+                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
+                        elif results["status"] == RATING_STATUS["TIMEOUT"]:
+                            print(f"{platform} 请求超时")
+                            return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+                        elif results["status"] == RATING_STATUS["FETCH_FAILED"]:
+                            print(f"{platform} 获取失败")
+                            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
+                        elif results["status"] == RATING_STATUS["NO_FOUND"]:
+                            print(f"{platform}平台未收录此影视")
+                            return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
+
+                    await check_request()
+                    if not isinstance(results, list):
+                        print(f"{platform} 获取失败")
+                        return create_error_rating_data(platform, media_type)
+
+                    print(f"找到 {len(results)} 个 {platform} 搜索结果")
+
+                    await check_request()
+                    if variant_info.get("strategy") == "anthology_series":
+                        threshold = 60
+                        print(f"使用选集剧阈值: {threshold}")
+                    else:
+                        threshold = {
+                            "douban": 70,
+                            "imdb": 70,
+                            "letterboxd": 70,
+                            "rottentomatoes": 70,
+                            "metacritic": 70
+                        }.get(platform, 70)
+
                     matched_results = []
                     for result in results:
+                        await check_request()
                         result["search_variant_used"] = variant_info
-                        match_score = result.get("match_score") or await calculate_match_degree(tmdb_info, result, platform)
+                        
+                        if "match_score" in result:
+                            match_score = result["match_score"]
+                        else:
+                            match_score = await calculate_match_degree(tmdb_info, result, platform)
+
+                        if platform == "metacritic" and variant_info.get("strategy") == "anthology_series":
+                            print(f"  Metacritic匹配: '{result.get('title')}' ({result.get('year')}) - 分数: {match_score}, 阈值: {threshold}")
+
                         if match_score >= threshold:
                             matched_results.append(result)
-                    return matched_results if matched_results else None
-                return results
+                        else:
+                            pass
+
+                    if not matched_results:
+                        if platform == "metacritic":
+                            print(f"Metacritic未找到匹配结果（所有结果分数都低于阈值 {threshold}）")
+                        return None
+
+                    print(f"{platform} 找到 {len(matched_results)} 个匹配结果")
+                    return matched_results
+
+                except RequestCancelledException:
+                    print("所有请求已取消")
+                    return {"status": "cancelled"}
+                except Exception as e:
+                    print(f"处理搜索时出错: {e}")
+                    print(traceback.format_exc())
+                    if "Timeout" in str(e):
+                        return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"} 
+                    return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
             finally:
                 if context:
                     try:
                         await context.close()
-                    except:
+                    except Exception:
                         pass
-
+        
         for i, variant in enumerate(search_variants, 1):
             if request and await request.is_disconnected():
                 return {"status": "cancelled"}
-            results = await browser_pool.execute_in_browser(
-                lambda browser, st=variant["title"], v=variant: execute_single_search(st, v, browser)
-            )
-            if isinstance(results, list) and results:
-                for r in results:
-                    r['search_variant_used'] = variant
-                return results
-            elif isinstance(results, dict) and "status" in results and i == len(search_variants):
-                return results
-
+            
+            search_title = variant["title"]
+            
+            try:
+                results = await browser_pool.execute_in_browser(
+                    lambda browser, st=search_title, v=variant: execute_single_search(st, v, browser)
+                )
+                
+                if isinstance(results, dict) and "status" in results:
+                    if i == len(search_variants):
+                        return results
+                    continue
+                
+                if isinstance(results, list) and len(results) > 0:
+                    print(f"变体成功！{platform} 找到 {len(results)} 个匹配结果")
+                    for result in results:
+                        result['search_variant_used'] = variant
+                    return results
+                
+            except Exception as e:
+                if i == len(search_variants):
+                    return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": str(e)}
+                continue
+        
+        print(f"\n所有 {len(search_variants)} 个搜索变体都失败")
+        
         if platform == "douban" and tmdb_info.get("imdb_id"):
             imdb_id = tmdb_info["imdb_id"]
-            imdb_search_url = f"https://search.douban.com/movie/subject_search?search_text={imdb_id}"
-
-            async def execute_imdb_search(browser):
-                context = None
-                try:
-                    selected_user_agent = random.choice(USER_AGENTS)
-                    context = await browser.new_context(
-                        viewport={'width': 1280, 'height': 720},
-                        user_agent=selected_user_agent,
-                        bypass_csp=True,
-                        ignore_https_errors=True,
-                        java_script_enabled=True,
-                        has_touch=False,
-                        is_mobile=False,
-                        locale='zh-CN',
-                        timezone_id='Asia/Shanghai'
-                    )
-                    await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
-                    await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
-                    page = await context.new_page()
-                    page.set_default_timeout(20000)
-
-                    headers = {}
-                    if request:
-                        client_ip = get_client_ip(request)
-                        headers.update({'X-Forwarded-For': client_ip, 'X-Real-IP': client_ip})
-                    if douban_cookie:
-                        headers['Cookie'] = douban_cookie
-                    if headers:
-                        await page.set_extra_http_headers(headers)
-
-                    results = await handle_douban_search(page, imdb_search_url)
-                    if isinstance(results, list) and results:
-                        results[0]["match_score"] = 100
-                        results[0]["search_variant_used"] = {
-                            "title": imdb_id,
-                            "strategy": "imdb_id",
-                            "type": "fallback"
+            print(f"\n[豆瓣备用策略] 尝试使用IMDB ID搜索: {imdb_id}")
+            
+            try:
+                imdb_search_url = f"https://search.douban.com/movie/subject_search?search_text={imdb_id}"
+                
+                async def execute_imdb_search(browser):
+                    context = None
+                    try:
+                        selected_user_agent = random.choice(USER_AGENTS)
+                        context_options = {
+                            'viewport': {'width': 1280, 'height': 720},
+                            'user_agent': selected_user_agent,
+                            'bypass_csp': True,
+                            'ignore_https_errors': True,
+                            'java_script_enabled': True,
+                            'has_touch': False,
+                            'is_mobile': False,
+                            'locale': 'zh-CN',
+                            'timezone_id': 'Asia/Shanghai',
+                            'extra_http_headers': {
+                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                                'Accept-Encoding': 'gzip, deflate, br',
+                                'DNT': '1',
+                                'Connection': 'keep-alive',
+                                'Upgrade-Insecure-Requests': '1',
+                                'Sec-Fetch-Dest': 'document',
+                                'Sec-Fetch-Mode': 'navigate',
+                                'Sec-Fetch-Site': 'none',
+                                'Sec-Fetch-User': '?1'
+                            }
                         }
+                        
+                        context = await browser.new_context(**context_options)
+                        await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
+                        await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
+                        await context.route("**/beacon/**", lambda route: route.abort())
+                        await context.route("**/telemetry/**", lambda route: route.abort())
+                        await context.route("**/stats/**", lambda route: route.abort())
+                        
+                        page = await context.new_page()
+                        page.set_default_timeout(20000)
+                        
+                        headers = {}
+                        if request:
+                            client_ip = get_client_ip(request)
+                            print(f"豆瓣请求使用IP: {client_ip}")
+                            headers.update({
+                                'X-Forwarded-For': client_ip,
+                                'X-Real-IP': client_ip
+                            })
+                        if douban_cookie:
+                            headers['Cookie'] = douban_cookie
+                            print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+                        else:
+                            print("⚠️ 未提供豆瓣Cookie，使用默认方式")
+                        if headers:
+                            await page.set_extra_http_headers(headers)
+                        
+                        results = await handle_douban_search(page, imdb_search_url)
+                        
+                        if isinstance(results, dict) and "status" in results:
+                            return results
+                        
+                        if isinstance(results, list) and len(results) > 0:
+                            print(f"IMDB ID搜索成功！找到 {len(results)} 个结果")
+                            if len(results) > 0:
+                                results[0]["match_score"] = 100
+                                results[0]["search_variant_used"] = {
+                                    "title": imdb_id,
+                                    "strategy": "imdb_id",
+                                    "type": "fallback"
+                                }
+                            return results
+                        
+                        return None
+                        
+                    finally:
+                        if context:
+                            try:
+                                await context.close()
+                            except Exception:
+                                pass
+                
+                results = await browser_pool.execute_in_browser(execute_imdb_search)
+                
+                if isinstance(results, list) and len(results) > 0:
                     return results
-                finally:
-                    if context:
-                        try:
-                            await context.close()
-                        except:
-                            pass
-
-            results = await browser_pool.execute_in_browser(execute_imdb_search)
-            if results:
-                return results
-
+                elif isinstance(results, dict) and "status" in results:
+                    print(f"IMDB ID备用策略失败: {results.get('status_reason', results.get('status'))}")
+                else:
+                    print(f"IMDB ID备用策略未找到结果")
+                    
+            except Exception as e:
+                print(f"IMDB ID备用策略出错: {e}")
+        
         return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "所有搜索策略都未找到匹配"}
 
     except Exception as e:
@@ -1701,7 +1897,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
     try:
         async def block_resources(route):
             resource_type = route.request.resource_type
-            if resource_type in ["image", "media"]:
+            if resource_type in ["image", "stylesheet", "font", "media"]:
                 await route.abort()
             else:
                 await route.continue_()
@@ -1710,15 +1906,8 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         
         await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='networkidle', timeout=30000)
-        content = await page.content()
-        if "Just a moment" in content or "cf-challenge" in content or "/cdn-cgi/" in page.url:
-            print("Letterboxd 触发 Cloudflare challenge")
-            return {
-                "status": RATING_STATUS["RATE_LIMIT"],
-                "status_reason": "Cloudflare challenge"
-            }
-        await asyncio.sleep(random.uniform(2.5, 4.0))
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await asyncio.sleep(0.2)
     
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
@@ -1782,15 +1971,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
     
 async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None):
-    """从各平台详情页中提取对应评分数据
-    Args:
-        media_type: 媒体类型
-        platform: 平台名称
-        tmdb_info: TMDB信息
-        search_results: 搜索结果
-        request: FastAPI请求对象
-        douban_cookie: 用户的豆瓣Cookie（可选）
-    """
+    """从各平台详情页中提取对应评分数据 """
     async def _extract_rating_with_retry():
         try:
             await random_delay()
@@ -1975,24 +2156,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                 print("检测到多季剧集，优先进行分季抓取以获取所有季评分")
                                 rating_data = await extract_douban_rating(page, media_type, matched_results)
                             else:
-                                rating_data = None
-                                douban_id = None
-                                
-                                if isinstance(search_results, list) and len(search_results) > 0:
-                                    first_result = search_results[0]
-                                    if isinstance(first_result, dict) and 'url' in first_result:
-                                        url_match = re.search(r'/subject/(\d+)', first_result['url'])
-                                        if url_match:
-                                            douban_id = url_match.group(1)
-                                
-                                if douban_id:
-                                    print(f"尝试使用豆瓣API获取评分 (ID: {douban_id})")
-                                    rating_data = await get_douban_rating_via_api(douban_id, douban_cookie)
-                                
-                                if not rating_data or rating_data.get("status") not in [RATING_STATUS["SUCCESSFUL"], RATING_STATUS["NO_RATING"]]:
-                                    if douban_id:
-                                        print("豆瓣API失败，fallback到网页抓取")
-                                    rating_data = await extract_douban_rating(page, media_type, search_results)
+                                rating_data = await extract_douban_rating(page, media_type, search_results)
                         elif platform == "imdb":
                             imdb_id = tmdb_info.get("imdb_id")
                             rating_data = None
@@ -2061,54 +2225,6 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             return create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
 
     return await _extract_rating_with_retry()
-
-async def get_douban_rating_via_api(douban_id: str, douban_cookie: str = None) -> dict:
-    """使用豆瓣移动端API获取评分（避免限流）"""
-    try:
-        import aiohttp
-        
-        url = f"https://m.douban.com/rexxar/api/v2/movie/{douban_id}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-            'Referer': f'https://m.douban.com/movie/subject/{douban_id}/'
-        }
-        
-        if douban_cookie:
-            headers['Cookie'] = douban_cookie
-            print(f"✅ 豆瓣API使用用户自定义Cookie（长度: {len(douban_cookie)}）")
-        else:
-            print("⚠️ 豆瓣API未提供Cookie，使用默认方式")
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    rating = data.get('rating', {})
-                    rating_value = rating.get('value')
-                    rating_count = rating.get('count')
-                    
-                    if rating_value and rating_count:
-                        print(f"从豆瓣API获取到评分: {rating_value}, 人数: {rating_count}")
-                        return {
-                            "rating": str(rating_value),
-                            "rating_people": str(rating_count),
-                            "status": RATING_STATUS["SUCCESSFUL"]
-                        }
-                    else:
-                        print("豆瓣API返回数据但无评分")
-                        return {
-                            "rating": "暂无",
-                            "rating_people": "暂无",
-                            "status": RATING_STATUS["NO_RATING"]
-                        }
-                else:
-                    print(f"豆瓣API请求失败: {response.status}")
-                    return None
-                    
-    except Exception as e:
-        print(f"豆瓣API调用失败: {e}")
-        return None
 
 async def extract_douban_rating(page, media_type, matched_results):
     """从豆瓣详情页提取评分数据"""
@@ -2311,7 +2427,7 @@ async def extract_douban_rating(page, media_type, matched_results):
         return create_empty_rating_data("douban", media_type, RATING_STATUS["FETCH_FAILED"])
 
 async def get_imdb_rating_via_graphql(imdb_id: str) -> dict:
-    """使用IMDB GraphQL API获取评分（速度更快）"""
+    """使用IMDB GraphQL API获取评分"""
     try:
         import aiohttp
         
@@ -3321,13 +3437,7 @@ def create_empty_rating_data(platform, media_type, status):
         }
 
 def create_error_rating_data(platform, media_type="movie", status=RATING_STATUS["FETCH_FAILED"], status_reason="获取失败"):
-    """为出错的平台创建数据结构    
-    Args:
-        platform: 平台名称
-        media_type: 媒体类型，'movie' 或 'tv'
-        status: 状态码，默认为获取失败
-        status_reason: 状态原因，默认为获取失败
-    """
+    """为出错的平台创建数据结构"""
     if platform == "douban":
         if media_type == "tv":
             return {
@@ -3441,7 +3551,7 @@ def create_error_rating_data(platform, media_type="movie", status=RATING_STATUS[
     }
 
 def format_rating_output(all_ratings, media_type):
-    """格式化所有平台的评分信息（静默模式，只返回数据不打印）"""
+    """格式化所有平台的评分信息"""
     formatted_data = copy.deepcopy(all_ratings)
     
     for platform, data in formatted_data.items():
@@ -3470,13 +3580,7 @@ def format_rating_output(all_ratings, media_type):
     return formatted_data
 
 async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_cookie=None):
-    """并行处理所有平台的评分获取
-    Args:
-        tmdb_info: TMDB信息
-        media_type: 媒体类型
-        request: FastAPI请求对象
-        douban_cookie: 用户的豆瓣Cookie（可选）
-    """
+    """并行处理所有平台的评分获取"""
     import time
     start_time = time.time()
     
