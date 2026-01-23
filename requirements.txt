@@ -1,19 +1,24 @@
-# Web框架
-fastapi
-uvicorn[standard]
+# HTTP客户端
+httpx[http2]
+requests
+aiohttp
 
 # 数据库
 sqlalchemy
 pymysql
 alembic
 
+# Web框架
+fastapi
+uvicorn[standard]
+
 # 认证和安全
 python-jose[cryptography]
-passlib[bcrypt]
+bcrypt==4.0.1
+passlib[bcrypt]==1.7.4
 
-# HTTP客户端
-httpx
-aiohttp
+# 调度任务
+schedule
 
 # 浏览器自动化
 playwright
