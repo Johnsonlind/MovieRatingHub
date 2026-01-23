@@ -107,6 +107,15 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/91.0.864.67 Safari/537.36"
 ]
 
+# Letterboxd 专用的更新 User-Agent（用于绕过 Cloudflare）
+LETTERBOXD_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+]
+
 RATING_STATUS = {
     "NO_FOUND": "No Found",
     "FETCH_FAILED": "Fail",
@@ -899,7 +908,13 @@ async def check_rate_limit(page, platform: str) -> dict | None:
                 '.rate-limit-message',
                 '.blocked-content',
                 '.captcha-container',
+                '#challenge-error-text',
+                '.cf-browser-verification',
+                '.cf-challenge',
                 'h1:has-text("Access Denied")',
+                'h1:has-text("请稍候")',
+                'h1:has-text("Just a moment")',
+                'h1:has-text("Checking your browser")',
                'div:has-text("You are being rate limited")'
             ],
             "phrases": [
@@ -908,7 +923,13 @@ async def check_rate_limit(page, platform: str) -> dict | None:
                 "you are being rate limited",
                 "access denied",
                 "please wait and try again",
-                "temporarily blocked"
+                "temporarily blocked",
+                "请稍候",
+                "just a moment",
+                "checking your browser",
+                "cf-browser-verification",
+                "challenge-error-text",
+                "ray id"
             ]
         },
         "metacritic": {
@@ -936,6 +957,33 @@ async def check_rate_limit(page, platform: str) -> dict | None:
         if "error code: 008" in page_text:
             print("豆瓣访问频率限制: error code 008")
             return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"}
+    
+    if platform == "letterboxd":
+        # 检查页面标题
+        try:
+            page_title = await page.title()
+            if "请稍候" in page_title or "Just a moment" in page_title or "Checking your browser" in page_title:
+                print("Letterboxd 访问限制: 检测到 Cloudflare 挑战页面标题")
+                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 挑战页面"}
+        except Exception:
+            pass
+        
+        # 检查页面内容中的 Cloudflare 特征
+        try:
+            page_content = await page.content()
+            cloudflare_indicators = [
+                "challenge-error-text",
+                "cf-browser-verification",
+                "cf-challenge",
+                "ray id"
+            ]
+            content_lower = page_content.lower()
+            for indicator in cloudflare_indicators:
+                if indicator in content_lower:
+                    print(f"Letterboxd 访问限制: 检测到 Cloudflare 特征 '{indicator}'")
+                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 挑战页面"}
+        except Exception:
+            pass
     
     page_text = await page.locator('body').text_content()
     if any(phrase in page_text for phrase in rules["phrases"]):
@@ -1134,39 +1182,71 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                 search_urls = [search_url_or_urls] if search_url_or_urls else []
             
             try:
-                selected_user_agent = random.choice(USER_AGENTS)
-
-                context_options = {
-                    'viewport': {'width': 1280, 'height': 720},
-                    'user_agent': selected_user_agent,
-                    'bypass_csp': True,
-                    'ignore_https_errors': True,
-                    'java_script_enabled': True,
-                    'has_touch': False,
-                    'is_mobile': False,
-                    'locale': 'zh-CN',
-                    'timezone_id': 'Asia/Shanghai',
-                    'extra_http_headers': {
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                        'Accept-Encoding': 'gzip, deflate, br',
-                        'DNT': '1',
-                        'Connection': 'keep-alive',
-                        'Upgrade-Insecure-Requests': '1',
-                        'Sec-Fetch-Dest': 'document',
-                        'Sec-Fetch-Mode': 'navigate',
-                        'Sec-Fetch-Site': 'none',
-                        'Sec-Fetch-User': '?1'
+                # Letterboxd 使用更新的 User-Agent 和更真实的配置
+                if platform == "letterboxd":
+                    selected_user_agent = random.choice(LETTERBOXD_USER_AGENTS)
+                    context_options = {
+                        'viewport': {'width': 1920, 'height': 1080},
+                        'user_agent': selected_user_agent,
+                        'bypass_csp': True,
+                        'ignore_https_errors': True,
+                        'java_script_enabled': True,
+                        'has_touch': False,
+                        'is_mobile': False,
+                        'locale': 'en-US',
+                        'timezone_id': 'America/New_York',
+                        'extra_http_headers': {
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                            'Accept-Encoding': 'gzip, deflate, br',
+                            'DNT': '1',
+                            'Connection': 'keep-alive',
+                            'Upgrade-Insecure-Requests': '1',
+                            'Sec-Fetch-Dest': 'document',
+                            'Sec-Fetch-Mode': 'navigate',
+                            'Sec-Fetch-Site': 'none',
+                            'Sec-Fetch-User': '?1',
+                            'Cache-Control': 'max-age=0',
+                            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                            'sec-ch-ua-mobile': '?0',
+                            'sec-ch-ua-platform': '"Windows"'
+                        }
                     }
-                }
-
-                context = await browser.new_context(**context_options)
-
-                await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
-                await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
-                await context.route("**/beacon/**", lambda route: route.abort())
-                await context.route("**/telemetry/**", lambda route: route.abort())
-                await context.route("**/stats/**", lambda route: route.abort())
+                    # Letterboxd 不拦截太多资源，让页面更真实
+                    context = await browser.new_context(**context_options)
+                    # 只拦截明显的广告和追踪，保留必要的资源
+                    await context.route("**/(analytics|tracking|advertisement|ads)", lambda route: route.abort())
+                else:
+                    selected_user_agent = random.choice(USER_AGENTS)
+                    context_options = {
+                        'viewport': {'width': 1280, 'height': 720},
+                        'user_agent': selected_user_agent,
+                        'bypass_csp': True,
+                        'ignore_https_errors': True,
+                        'java_script_enabled': True,
+                        'has_touch': False,
+                        'is_mobile': False,
+                        'locale': 'zh-CN',
+                        'timezone_id': 'Asia/Shanghai',
+                        'extra_http_headers': {
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                            'Accept-Encoding': 'gzip, deflate, br',
+                            'DNT': '1',
+                            'Connection': 'keep-alive',
+                            'Upgrade-Insecure-Requests': '1',
+                            'Sec-Fetch-Dest': 'document',
+                            'Sec-Fetch-Mode': 'navigate',
+                            'Sec-Fetch-Site': 'none',
+                            'Sec-Fetch-User': '?1'
+                        }
+                    }
+                    context = await browser.new_context(**context_options)
+                    await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
+                    await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
+                    await context.route("**/beacon/**", lambda route: route.abort())
+                    await context.route("**/telemetry/**", lambda route: route.abort())
+                    await context.route("**/stats/**", lambda route: route.abort())
 
                 page = await context.new_page()
                 page.set_default_timeout(20000) 
@@ -1895,34 +1975,95 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     try:
-        async def block_resources(route):
-            resource_type = route.request.resource_type
-            if resource_type in ["image", "stylesheet", "font", "media"]:
+        # Letterboxd 不拦截资源，让 Cloudflare 验证能够正常进行
+        # 只拦截明显的广告和追踪脚本
+        async def block_tracking_only(route):
+            url = route.request.url.lower()
+            # 只拦截明显的广告和追踪
+            if any(tracker in url for tracker in ['analytics', 'tracking', 'advertisement', 'ads', 'doubleclick', 'googlesyndication']):
                 await route.abort()
             else:
                 await route.continue_()
         
-        await page.route("**/*", block_resources)
+        await page.route("**/*", block_tracking_only)
         
         await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
-        response = await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        
+        # 使用 networkidle 等待页面完全加载，包括 Cloudflare 挑战
+        response = await page.goto(search_url, wait_until='networkidle', timeout=30000)
         
         # 记录响应状态
         if response:
             print(f"Letterboxd 页面响应状态: {response.status}")
             print(f"Letterboxd 最终URL: {response.url}")
+            
+            # 检测 403 Forbidden 状态码
+            if response.status == 403:
+                print("Letterboxd 检测到 403 Forbidden，等待 Cloudflare 挑战完成...")
+                # 等待 Cloudflare 挑战完成（最多等待 15 秒）
+                try:
+                    # 等待页面标题不再是挑战页面
+                    await page.wait_for_function(
+                        '''() => {
+                            const title = document.title.toLowerCase();
+                            return !title.includes("请稍候") && 
+                                   !title.includes("just a moment") && 
+                                   !title.includes("checking your browser");
+                        }''',
+                        timeout=15000
+                    )
+                    print("Letterboxd Cloudflare 挑战完成")
+                    await asyncio.sleep(1)  # 额外等待确保页面渲染完成
+                except Exception as e:
+                    print(f"Letterboxd 等待 Cloudflare 挑战超时: {e}")
+                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 挑战超时"}
         else:
             print("Letterboxd 警告: 未获取到响应对象")
         
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)  # 增加等待时间确保页面稳定
         
-        # 记录页面基本信息
-        try:
-            page_title = await page.title()
-            print(f"Letterboxd 页面标题: {page_title}")
-        except Exception as e:
-            print(f"Letterboxd 获取页面标题失败: {e}")
+        # 记录页面基本信息并检测 Cloudflare 挑战
+        max_wait_time = 20  # 最多等待 20 秒
+        wait_interval = 2   # 每 2 秒检查一次
+        waited_time = 0
+        
+        while waited_time < max_wait_time:
+            try:
+                page_title = await page.title()
+                print(f"Letterboxd 页面标题: {page_title}")
+                
+                # 检测 Cloudflare 挑战页面
+                is_challenge = (
+                    "请稍候" in page_title or 
+                    "Just a moment" in page_title or 
+                    "Checking your browser" in page_title
+                )
+                
+                if is_challenge:
+                    if waited_time == 0:
+                        print("Letterboxd 检测到 Cloudflare 挑战页面，等待挑战完成...")
+                    await asyncio.sleep(wait_interval)
+                    waited_time += wait_interval
+                    continue  # 继续等待
+                else:
+                    # 挑战已完成，跳出循环
+                    if waited_time > 0:
+                        print(f"Letterboxd Cloudflare 挑战完成（等待了 {waited_time} 秒）")
+                    break
+            except Exception as e:
+                print(f"Letterboxd 获取页面标题失败: {e}")
+                break
+        
+        # 如果等待超时，再次检查
+        if waited_time >= max_wait_time:
+            try:
+                page_title = await page.title()
+                if "请稍候" in page_title or "Just a moment" in page_title or "Checking your browser" in page_title:
+                    print("Letterboxd Cloudflare 挑战等待超时")
+                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 挑战超时"}
+            except:
+                pass
         
         # 记录页面内容片段用于调试
         try:
@@ -1930,8 +2071,29 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             content_preview = page_content[:1000] if len(page_content) > 1000 else page_content
             print(f"Letterboxd 页面内容预览 (前1000字符): {content_preview}")
             
+            # 再次检测 Cloudflare 挑战页面特征（如果还在挑战页面）
+            cloudflare_indicators = [
+                "challenge-error-text",
+                "cf-browser-verification",
+                "cf-challenge"
+            ]
+            
+            content_lower = page_content.lower()
+            for indicator in cloudflare_indicators:
+                if indicator in content_lower:
+                    print(f"Letterboxd 检测到 Cloudflare 挑战页面特征: {indicator}，等待中...")
+                    # 再等待一段时间
+                    await asyncio.sleep(5)
+                    # 重新加载页面内容检查
+                    page_content = await page.content()
+                    content_lower = page_content.lower()
+                    if indicator in content_lower:
+                        print(f"Letterboxd Cloudflare 挑战仍未完成")
+                        return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 挑战未完成"}
+                    break
+            
             # 检查是否有错误信息
-            if "not found" in page_content.lower() or "no results" in page_content.lower():
+            if "not found" in content_lower or "no results" in content_lower:
                 print("Letterboxd 检测到页面包含 'not found' 或 'no results' 文本")
         except Exception as e:
             print(f"Letterboxd 获取页面内容失败: {e}")
