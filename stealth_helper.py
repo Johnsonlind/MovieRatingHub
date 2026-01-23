@@ -276,21 +276,51 @@ async def simulate_human_behavior(page: Page):
         logger.debug(f"模拟用户行为时出错（可忽略）: {e}")
 
 
-async def navigate_with_stealth(page: Page, url: str, wait_until: str = 'domcontentloaded', timeout: int = 30000):
+async def navigate_with_stealth(page: Page, url: str, wait_until: str = 'domcontentloaded', timeout: int = 30000, wait_for_verification: bool = True):
     """
-    使用反检测技术导航到页面
+    使用反检测技术导航到页面，支持等待 Cloudflare 验证
+    
+    Args:
+        page: Playwright Page 实例
+        url: 目标 URL
+        wait_until: 等待条件
+        timeout: 超时时间（毫秒）
+        wait_for_verification: 是否等待 Cloudflare 验证完成
     """
     try:
-        # 先访问主页建立会话（可选，但有助于建立信任）
-        if 'letterboxd.com' in url and not url.endswith('/'):
-            # 可以访问一次主页建立 cookies
-            pass
+        # 如果是 Letterboxd 的搜索页，先访问主页建立会话
+        if 'letterboxd.com' in url and '/search/' in url:
+            try:
+                logger.info("先访问 Letterboxd 主页建立会话...")
+                await page.goto('https://letterboxd.com/', wait_until='domcontentloaded', timeout=15000)
+                await asyncio.sleep(random.uniform(1.0, 2.0))
+                
+                # 检查主页是否也需要验证
+                if wait_for_verification:
+                    is_verification = await check_verification_page(page)
+                    if is_verification:
+                        await wait_for_cloudflare_verification(page, max_wait=15)
+                
+                logger.info("主页访问完成，继续访问搜索页...")
+            except Exception as e:
+                logger.warning(f"访问主页时出错（继续执行）: {e}")
         
         # 导航到目标页面
         await page.goto(url, wait_until=wait_until, timeout=timeout)
         
         # 等待页面加载
         await asyncio.sleep(random.uniform(0.5, 1.0))
+        
+        # 如果检测到验证页面，等待验证完成
+        if wait_for_verification:
+            is_verification = await check_verification_page(page)
+            if is_verification:
+                verification_passed = await wait_for_cloudflare_verification(page, max_wait=20)
+                if not verification_passed:
+                    logger.warning("验证可能未完成，但继续尝试访问页面...")
+                    # 再次尝试访问
+                    await page.reload(wait_until='domcontentloaded', timeout=timeout)
+                    await asyncio.sleep(2)
         
         # 模拟用户行为
         await simulate_human_behavior(page)
@@ -313,6 +343,50 @@ def get_stealth_browser_args() -> list:
     获取反检测浏览器启动参数
     """
     return STEALTH_BROWSER_ARGS.copy()
+
+
+async def wait_for_cloudflare_verification(page: Page, max_wait: int = 20) -> bool:
+    """
+    等待 Cloudflare 验证页面自动完成验证
+    
+    Returns:
+        True: 验证通过，页面已加载
+        False: 超时或验证失败
+    """
+    logger.info("检测到 Cloudflare 验证页面，等待自动验证完成...")
+    
+    for attempt in range(max_wait):
+        try:
+            # 检查是否还在验证页面
+            is_verification = await check_verification_page(page)
+            
+            if not is_verification:
+                logger.info(f"✓ Cloudflare 验证完成（等待了 {attempt + 1} 秒）")
+                # 等待页面完全加载
+                await asyncio.sleep(1)
+                return True
+            
+            # 检查是否有特定的验证完成标识
+            try:
+                # 检查是否出现了正常页面内容
+                content = await page.content()
+                # 如果页面包含 letterboxd 的正常内容，说明验证通过了
+                if 'letterboxd.com' in content and 'verify you are human' not in content.lower():
+                    logger.info(f"✓ 检测到正常页面内容，验证可能已完成（等待了 {attempt + 1} 秒）")
+                    await asyncio.sleep(1)
+                    return True
+            except Exception:
+                pass
+            
+            # 等待 1 秒后重试
+            await asyncio.sleep(1)
+            
+        except Exception as e:
+            logger.debug(f"等待验证时出错: {e}")
+            await asyncio.sleep(1)
+    
+    logger.warning(f"⚠️ Cloudflare 验证等待超时（{max_wait} 秒），继续尝试...")
+    return False
 
 
 async def check_verification_page(page: Page) -> bool:
