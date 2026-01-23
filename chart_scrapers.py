@@ -2146,7 +2146,7 @@ class ChartScraper:
     async def get_letterboxd_tmdb_id(self, letterboxd_url: str) -> Optional[int]:
         """从 Letterboxd 详情页获取 TMDB ID（使用增强反检测）"""
         async def get_with_browser(browser):
-            # 使用增强的反检测上下文
+            # 使用增强的反检测上下文（自动从环境变量读取 Cookie）
             context = await create_stealth_context(browser)
             page = await context.new_page()
             
