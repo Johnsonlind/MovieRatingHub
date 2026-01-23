@@ -23,7 +23,7 @@ async def test_letterboxd_verification():
         from stealth_helper import get_stealth_browser_args
         
         browser = await p.chromium.launch(
-            headless=False,  # 使用有头模式，方便观察
+            headless=True,  # 使用有头模式，方便观察
             args=get_stealth_browser_args()
         )
         
