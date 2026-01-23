@@ -972,7 +972,7 @@ def get_client_ip(request: Request) -> str:
     
     return request.client.host
 
-async def search_platform(platform, tmdb_info, request=None, douban_cookie=None):
+async def search_platform(platform, tmdb_info, request=None, douban_cookie=None, letterboxd_cookie=None):
     """在各平台搜索并返回搜索结果"""
     try:
         if request and await request.is_disconnected():
@@ -1137,7 +1137,8 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
             try:
                 # Letterboxd 使用增强的反检测上下文
                 if platform == "letterboxd":
-                    context = await create_stealth_context(browser)
+                    # 优先使用传入的 cookie，否则使用环境变量（在 create_stealth_context 中处理）
+                    context = await create_stealth_context(browser, cookie_string=letterboxd_cookie)
                 else:
                     # 其他平台使用原有配置
                     selected_user_agent = random.choice(USER_AGENTS)
@@ -1981,7 +1982,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
     
-async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None):
+async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None, letterboxd_cookie=None):
     """从各平台详情页中提取对应评分数据 """
     async def _extract_rating_with_retry():
         try:
@@ -2091,33 +2092,36 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             async def extract_with_browser(browser):
                 context = None
                 try:
-                    selected_user_agent = random.choice(USER_AGENTS)
-
-                    context_options = {
-                        'viewport': {'width': 1280, 'height': 720},
-                        'user_agent': selected_user_agent,
-                        'bypass_csp': True,
-                        'ignore_https_errors': True,
-                        'java_script_enabled': True,
-                        'has_touch': False,
-                        'is_mobile': False,
-                        'locale': 'en-US',
-                        'timezone_id': 'America/New_York',
-                        'extra_http_headers': {
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                            'Accept-Language': 'en-US,en;q=0.5',
-                            'Accept-Encoding': 'gzip, deflate, br',
-                            'DNT': '1',
-                            'Connection': 'keep-alive',
-                            'Upgrade-Insecure-Requests': '1',
-                            'Sec-Fetch-Dest': 'document',
-                            'Sec-Fetch-Mode': 'navigate',
-                            'Sec-Fetch-Site': 'none',
-                            'Sec-Fetch-User': '?1'
+                    # Letterboxd 使用增强的反检测上下文
+                    if platform == "letterboxd":
+                        context = await create_stealth_context(browser, cookie_string=letterboxd_cookie)
+                    else:
+                        # 其他平台使用原有配置
+                        selected_user_agent = random.choice(USER_AGENTS)
+                        context_options = {
+                            'viewport': {'width': 1280, 'height': 720},
+                            'user_agent': selected_user_agent,
+                            'bypass_csp': True,
+                            'ignore_https_errors': True,
+                            'java_script_enabled': True,
+                            'has_touch': False,
+                            'is_mobile': False,
+                            'locale': 'en-US',
+                            'timezone_id': 'America/New_York',
+                            'extra_http_headers': {
+                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                                'Accept-Language': 'en-US,en;q=0.5',
+                                'Accept-Encoding': 'gzip, deflate, br',
+                                'DNT': '1',
+                                'Connection': 'keep-alive',
+                                'Upgrade-Insecure-Requests': '1',
+                                'Sec-Fetch-Dest': 'document',
+                                'Sec-Fetch-Mode': 'navigate',
+                                'Sec-Fetch-Site': 'none',
+                                'Sec-Fetch-User': '?1'
+                            }
                         }
-                    }
-
-                    context = await browser.new_context(**context_options)
+                        context = await browser.new_context(**context_options)
                     page = await context.new_page()
                     page.set_default_timeout(30000)
 
@@ -3590,7 +3594,7 @@ def format_rating_output(all_ratings, media_type):
     
     return formatted_data
 
-async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_cookie=None):
+async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_cookie=None, letterboxd_cookie=None):
     """并行处理所有平台的评分获取"""
     import time
     start_time = time.time()
@@ -3609,13 +3613,14 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_c
                 return platform, {"status": "cancelled"}
                 
             cookie = douban_cookie if platform == "douban" else None
-            search_results = await search_platform(platform, tmdb_info, request, cookie)
+            lb_cookie = letterboxd_cookie if platform == "letterboxd" else None
+            search_results = await search_platform(platform, tmdb_info, request, cookie, lb_cookie)
             if isinstance(search_results, dict) and "status" in search_results:
                 elapsed = time.time() - platform_start
                 print(log.error(f"{platform}: {search_results.get('status_reason', search_results.get('status'))} ({elapsed:.1f}s)"))
                 return platform, search_results
                 
-            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request, cookie)
+            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request, cookie, lb_cookie)
             
             elapsed = time.time() - platform_start
             status = rating_data.get('status', 'Unknown')
