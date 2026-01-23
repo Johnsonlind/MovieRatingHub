@@ -5,6 +5,7 @@ import asyncio
 import logging
 from typing import List, Optional
 from playwright.async_api import async_playwright, Browser, Playwright
+from stealth_helper import get_stealth_browser_args
 
 logger = logging.getLogger(__name__)
 
@@ -36,21 +37,10 @@ class BrowserPool:
             
             for i in range(self.max_browsers):
                 try:
+                    # 使用增强的反检测浏览器参数
                     browser = await self.playwright.chromium.launch(
                         headless=True,
-                        args=[
-                            '--no-sandbox',
-                            '--disable-setuid-sandbox',
-                            '--disable-dev-shm-usage',
-                            '--disable-gpu',
-                            '--disable-extensions',
-                            '--disable-audio-output',
-                            '--disable-web-security',
-                            '--disable-features=site-per-process',
-                            '--disable-site-isolation-trials',
-                            '--blink-settings=imagesEnabled=false',
-                            '--disable-remote-fonts'
-                        ]
+                        args=get_stealth_browser_args()
                     )
                     self.browsers.append(browser)
                     await self.available_browsers.put(browser)
@@ -94,13 +84,7 @@ class BrowserPool:
                     self.browsers.remove(browser)
                     new_browser = await self.playwright.chromium.launch(
                         headless=True,
-                        args=[
-                            '--no-sandbox',
-                            '--disable-setuid-sandbox',
-                            '--disable-dev-shm-usage',
-                            '--blink-settings=imagesEnabled=false',
-                            '--disable-remote-fonts'
-                        ]
+                        args=get_stealth_browser_args()
                     )
                     self.browsers.append(new_browser)
                     browser = new_browser
