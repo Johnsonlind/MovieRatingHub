@@ -32,3 +32,6 @@ redis
 # 字符串匹配
 fuzzywuzzy
 python-Levenshtein
+
+# HTML 解析
+beautifulsoup4
