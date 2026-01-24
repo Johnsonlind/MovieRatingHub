@@ -16,7 +16,6 @@ import unicodedata
 from datetime import datetime
 from browser_pool import browser_pool
 from anthology_handler import anthology_handler
-from stealth_helper import create_stealth_context, navigate_with_stealth, check_verification_page, simulate_human_behavior
 
 # 日志美化工具
 class LogFormatter:
@@ -972,7 +971,7 @@ def get_client_ip(request: Request) -> str:
     
     return request.client.host
 
-async def search_platform(platform, tmdb_info, request=None, douban_cookie=None, letterboxd_cookie=None):
+async def search_platform(platform, tmdb_info, request=None, douban_cookie=None):
     """在各平台搜索并返回搜索结果"""
     try:
         if request and await request.is_disconnected():
@@ -1135,37 +1134,33 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None,
                 search_urls = [search_url_or_urls] if search_url_or_urls else []
             
             try:
-                # Letterboxd 使用增强的反检测上下文
-                if platform == "letterboxd":
-                    # 优先使用传入的 cookie，否则使用环境变量（在 create_stealth_context 中处理）
-                    context = await create_stealth_context(browser, cookie_string=letterboxd_cookie)
-                else:
-                    # 其他平台使用原有配置
-                    selected_user_agent = random.choice(USER_AGENTS)
-                    context_options = {
-                        'viewport': {'width': 1280, 'height': 720},
-                        'user_agent': selected_user_agent,
-                        'bypass_csp': True,
-                        'ignore_https_errors': True,
-                        'java_script_enabled': True,
-                        'has_touch': False,
-                        'is_mobile': False,
-                        'locale': 'zh-CN',
-                        'timezone_id': 'Asia/Shanghai',
-                        'extra_http_headers': {
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                            'Accept-Encoding': 'gzip, deflate, br',
-                            'DNT': '1',
-                            'Connection': 'keep-alive',
-                            'Upgrade-Insecure-Requests': '1',
-                            'Sec-Fetch-Dest': 'document',
-                            'Sec-Fetch-Mode': 'navigate',
-                            'Sec-Fetch-Site': 'none',
-                            'Sec-Fetch-User': '?1'
-                        }
+                selected_user_agent = random.choice(USER_AGENTS)
+
+                context_options = {
+                    'viewport': {'width': 1280, 'height': 720},
+                    'user_agent': selected_user_agent,
+                    'bypass_csp': True,
+                    'ignore_https_errors': True,
+                    'java_script_enabled': True,
+                    'has_touch': False,
+                    'is_mobile': False,
+                    'locale': 'zh-CN',
+                    'timezone_id': 'Asia/Shanghai',
+                    'extra_http_headers': {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1'
                     }
-                    context = await browser.new_context(**context_options)
+                }
+
+                context = await browser.new_context(**context_options)
 
                 await context.route("**/*.{png,jpg,jpeg,gif,svg,woff,woff2,ttf}", lambda route: route.abort())
                 await context.route("**/(analytics|tracking|advertisement)", lambda route: route.abort())
@@ -1190,6 +1185,17 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None,
                         print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
                     else:
                         print("⚠️ 未提供豆瓣Cookie，使用默认方式")
+                    if headers:
+                        await page.set_extra_http_headers(headers)
+                elif platform == "letterboxd":
+                    headers = {}
+                    if request:
+                        client_ip = get_client_ip(request)
+                        print(f"Letterboxd 请求使用用户 IP: {client_ip}")
+                        headers.update({
+                            'X-Forwarded-For': client_ip,
+                            'X-Real-IP': client_ip
+                        })
                     if headers:
                         await page.set_extra_http_headers(headers)
 
@@ -1898,7 +1904,7 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
 async def handle_letterboxd_search(page, search_url, tmdb_info):
-    """处理Letterboxd搜索（使用增强反检测）"""
+    """处理Letterboxd搜索"""
     try:
         async def block_resources(route):
             resource_type = route.request.resource_type
@@ -1910,17 +1916,10 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         await page.route("**/*", block_resources)
         
         await random_delay()
-        print(f"🔍 使用增强反检测访问 Letterboxd 搜索页面: {search_url}")
-        
-        # 使用反检测导航
-        await navigate_with_stealth(page, search_url, wait_until='domcontentloaded', timeout=30000)
+        print(f"访问 Letterboxd 搜索页面: {search_url}")
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await asyncio.sleep(0.2)
     
-        # 检查是否是验证页面
-        is_verification = await check_verification_page(page)
-        if is_verification:
-            print("⚠️ 检测到Letterboxd验证页面，但会继续尝试提取数据")
-            # 继续尝试，有时验证页面也会包含数据
-        
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
             print("检测到Letterboxd访问限制")
@@ -1982,7 +1981,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
     
-async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None, letterboxd_cookie=None):
+async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None):
     """从各平台详情页中提取对应评分数据 """
     async def _extract_rating_with_retry():
         try:
@@ -2092,36 +2091,33 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             async def extract_with_browser(browser):
                 context = None
                 try:
-                    # Letterboxd 使用增强的反检测上下文
-                    if platform == "letterboxd":
-                        context = await create_stealth_context(browser, cookie_string=letterboxd_cookie)
-                    else:
-                        # 其他平台使用原有配置
-                        selected_user_agent = random.choice(USER_AGENTS)
-                        context_options = {
-                            'viewport': {'width': 1280, 'height': 720},
-                            'user_agent': selected_user_agent,
-                            'bypass_csp': True,
-                            'ignore_https_errors': True,
-                            'java_script_enabled': True,
-                            'has_touch': False,
-                            'is_mobile': False,
-                            'locale': 'en-US',
-                            'timezone_id': 'America/New_York',
-                            'extra_http_headers': {
-                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                                'Accept-Language': 'en-US,en;q=0.5',
-                                'Accept-Encoding': 'gzip, deflate, br',
-                                'DNT': '1',
-                                'Connection': 'keep-alive',
-                                'Upgrade-Insecure-Requests': '1',
-                                'Sec-Fetch-Dest': 'document',
-                                'Sec-Fetch-Mode': 'navigate',
-                                'Sec-Fetch-Site': 'none',
-                                'Sec-Fetch-User': '?1'
-                            }
+                    selected_user_agent = random.choice(USER_AGENTS)
+
+                    context_options = {
+                        'viewport': {'width': 1280, 'height': 720},
+                        'user_agent': selected_user_agent,
+                        'bypass_csp': True,
+                        'ignore_https_errors': True,
+                        'java_script_enabled': True,
+                        'has_touch': False,
+                        'is_mobile': False,
+                        'locale': 'en-US',
+                        'timezone_id': 'America/New_York',
+                        'extra_http_headers': {
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.5',
+                            'Accept-Encoding': 'gzip, deflate, br',
+                            'DNT': '1',
+                            'Connection': 'keep-alive',
+                            'Upgrade-Insecure-Requests': '1',
+                            'Sec-Fetch-Dest': 'document',
+                            'Sec-Fetch-Mode': 'navigate',
+                            'Sec-Fetch-Site': 'none',
+                            'Sec-Fetch-User': '?1'
                         }
-                        context = await browser.new_context(**context_options)
+                    }
+
+                    context = await browser.new_context(**context_options)
                     page = await context.new_page()
                     page.set_default_timeout(30000)
 
@@ -2141,6 +2137,17 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                             print("⚠️ 未提供豆瓣Cookie，使用默认方式")
                         if headers:
                             await page.set_extra_http_headers(headers)
+                    elif platform == "letterboxd":
+                        headers = {}
+                        if request:
+                            client_ip = get_client_ip(request)
+                            print(f"Letterboxd 请求使用用户 IP: {client_ip}")
+                            headers.update({
+                                'X-Forwarded-For': client_ip,
+                                'X-Real-IP': client_ip
+                            })
+                        if headers:
+                            await page.set_extra_http_headers(headers)
 
                     if request and await request.is_disconnected():
                         print("请求已被取消,停止执行")
@@ -2153,8 +2160,8 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
                         await asyncio.sleep(0.3)
                     elif platform == "letterboxd":
-                        # 使用反检测导航
-                        await navigate_with_stealth(page, detail_url, wait_until="domcontentloaded", timeout=30000)
+                        await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                        await asyncio.sleep(0.3)
                     elif platform == "rottentomatoes":
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
                         await asyncio.sleep(0.3)
@@ -3594,7 +3601,7 @@ def format_rating_output(all_ratings, media_type):
     
     return formatted_data
 
-async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_cookie=None, letterboxd_cookie=None):
+async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_cookie=None):
     """并行处理所有平台的评分获取"""
     import time
     start_time = time.time()
@@ -3613,14 +3620,13 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_c
                 return platform, {"status": "cancelled"}
                 
             cookie = douban_cookie if platform == "douban" else None
-            lb_cookie = letterboxd_cookie if platform == "letterboxd" else None
-            search_results = await search_platform(platform, tmdb_info, request, cookie, lb_cookie)
+            search_results = await search_platform(platform, tmdb_info, request, cookie)
             if isinstance(search_results, dict) and "status" in search_results:
                 elapsed = time.time() - platform_start
                 print(log.error(f"{platform}: {search_results.get('status_reason', search_results.get('status'))} ({elapsed:.1f}s)"))
                 return platform, search_results
                 
-            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request, cookie, lb_cookie)
+            rating_data = await extract_rating_info(media_type, platform, tmdb_info, search_results, request, cookie)
             
             elapsed = time.time() - platform_start
             status = rating_data.get('status', 'Unknown')
