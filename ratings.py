@@ -1,6 +1,7 @@
 # ==========================================
 # 评分获取模块
 # ==========================================
+import os
 import re
 import json
 import random
@@ -905,6 +906,7 @@ async def check_rate_limit(page, platform: str) -> dict | None:
             "phrases": [
                 "rate limit exceeded",
                 "too many requests",
+                "Just a moment",
                 "you are being rate limited",
                 "access denied",
                 "please wait and try again",
@@ -1190,7 +1192,13 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                 await context.route("**/stats/**", lambda route: route.abort())
 
                 page = await context.new_page()
-                page.set_default_timeout(20000) 
+                page.set_default_timeout(20000)
+                if platform == "letterboxd":
+                    try:
+                        from playwright_stealth import stealth_async  # type: ignore[reportMissingImports]
+                        await stealth_async(page)
+                    except Exception:
+                        pass
 
                 if platform == "douban":
                     headers = {}
@@ -1946,12 +1954,49 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
         await asyncio.sleep(0.5)
     
-        # 检测 Cloudflare 安全验证页：若命中则多等 5 秒看是否自动通过，仍为验证页则返回 RATE_LIMIT
+        # Cloudflare 验证页：先等 5 秒看能否自动通过，否则尝试 FlareSolverr（若已配置）
         if await _is_cloudflare_challenge(page):
             print("Letterboxd: 检测到 Cloudflare 安全验证页，等待 5 秒尝试自动通过…")
             await asyncio.sleep(5)
             if await _is_cloudflare_challenge(page):
-                print("Letterboxd: 遭遇 Cloudflare 安全验证，返回 RateLimit（非平台未收录）")
+                fs_url = os.environ.get("FLARESOLVERR_URL", "").strip()
+                if fs_url:
+                    if not fs_url.endswith("/v1"):
+                        fs_url = fs_url.rstrip("/") + "/v1"
+                    try:
+                        print("Letterboxd: 使用 FlareSolverr 尝试绕过 Cloudflare…")
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                fs_url,
+                                json={"cmd": "request.get", "url": search_url, "maxTimeout": 60000},
+                                timeout=aiohttp.ClientTimeout(total=65),
+                            ) as resp:
+                                data = await resp.json()
+                        if data.get("status") == "ok" and data.get("solution"):
+                            sol = data["solution"]
+                            cookies = sol.get("cookies") or []
+                            if cookies:
+                                pw = [{"name": c.get("name"), "value": c.get("value"), "domain": c.get("domain", ".letterboxd.com"), "path": c.get("path", "/")} for c in cookies if c.get("name") and c.get("value")]
+                                if pw:
+                                    await page.context.add_cookies(pw)
+                                    await page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
+                                    await asyncio.sleep(0.5)
+                                    if not await _is_cloudflare_challenge(page):
+                                        print("Letterboxd: FlareSolverr 成功绕过 Cloudflare，继续解析")
+                                        # 落向下方的 check_rate_limit 和后续逻辑
+                                    else:
+                                        print("Letterboxd: FlareSolverr 注入 cookie 后仍为验证页，返回 RateLimit")
+                                        return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                                else:
+                                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                            else:
+                                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                        else:
+                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                    except Exception as e:
+                        print(f"Letterboxd: FlareSolverr 请求失败: {e}")
+                        return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                print("Letterboxd: 遭遇 Cloudflare 安全验证，返回 RateLimit（未配置 FLARESOLVERR_URL）")
                 return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
     
         rate_limit = await check_rate_limit(page, "letterboxd")
@@ -1968,7 +2013,6 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             items = await page.query_selector_all('div[data-item-link]')
             
             if not items:
-                # 等待超时且无结果时，先区分是 Cloudflare 验证页还是真的未收录
                 if await _is_cloudflare_challenge(page):
                     print("Letterboxd: 等待超时且为 Cloudflare 验证页，返回 RateLimit（非平台未收录）")
                     return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
