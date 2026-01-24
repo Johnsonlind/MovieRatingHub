@@ -1939,6 +1939,7 @@ async def _is_cloudflare_challenge(page) -> bool:
 
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
+    new_ctx = None
     try:
         async def block_resources(route):
             resource_type = route.request.resource_type
@@ -1978,15 +1979,35 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                             if cookies:
                                 pw = [{"name": c.get("name"), "value": c.get("value"), "domain": c.get("domain", ".letterboxd.com"), "path": c.get("path", "/")} for c in cookies if c.get("name") and c.get("value")]
                                 if pw:
-                                    await page.context.add_cookies(pw)
-                                    await page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
-                                    await asyncio.sleep(0.5)
-                                    if not await _is_cloudflare_challenge(page):
+                                    ua = sol.get("userAgent") or ""
+                                    if ua:
+                                        # 必须用 FlareSolverr 的 User-Agent，否则 cf_clearance 无效
+                                        browser = page.context.browser
+                                        new_ctx = await browser.new_context(
+                                            viewport={"width": 1280, "height": 720},
+                                            user_agent=ua,
+                                        )
+                                        await new_ctx.add_cookies(pw)
+                                        new_page = await new_ctx.new_page()
+                                        await new_page.route("**/*", block_resources)
+                                        await new_page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
+                                        await asyncio.sleep(0.5)
+                                        if await _is_cloudflare_challenge(new_page):
+                                            await new_ctx.close()
+                                            new_ctx = None
+                                            print("Letterboxd: FlareSolverr 注入 cookie 后仍为验证页，返回 RateLimit")
+                                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
                                         print("Letterboxd: FlareSolverr 成功绕过 Cloudflare，继续解析")
-                                        # 落向下方的 check_rate_limit 和后续逻辑
+                                        page = new_page
                                     else:
-                                        print("Letterboxd: FlareSolverr 注入 cookie 后仍为验证页，返回 RateLimit")
-                                        return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                                        await page.context.add_cookies(pw)
+                                        await page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
+                                        await asyncio.sleep(0.5)
+                                        if not await _is_cloudflare_challenge(page):
+                                            print("Letterboxd: FlareSolverr 成功绕过 Cloudflare，继续解析")
+                                        else:
+                                            print("Letterboxd: FlareSolverr 注入 cookie 后仍为验证页，返回 RateLimit")
+                                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
                                 else:
                                     return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
                             else:
@@ -2062,6 +2083,12 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         if "Timeout" in str(e):
             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
+    finally:
+        if new_ctx:
+            try:
+                await new_ctx.close()
+            except Exception:
+                pass
     
 async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None):
     """从各平台详情页中提取对应评分数据
