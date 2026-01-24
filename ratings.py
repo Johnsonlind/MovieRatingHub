@@ -1969,7 +1969,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                             async with session.post(
                                 fs_url,
                                 json={"cmd": "request.get", "url": search_url, "maxTimeout": 60000},
-                                timeout=aiohttp.ClientTimeout(total=65),
+                                timeout=aiohttp.ClientTimeout(total=95),
                             ) as resp:
                                 data = await resp.json()
                         if data.get("status") == "ok" and data.get("solution"):
@@ -2014,7 +2014,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                         else:
                             return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
                     except Exception as e:
-                        print(f"Letterboxd: FlareSolverr 请求失败: {e}")
+                        print(f"Letterboxd: FlareSolverr 请求失败: {type(e).__name__}: {e}")
                         return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
                 else:
                     print("Letterboxd: 遭遇 Cloudflare 安全验证，返回 RateLimit（未配置 FLARESOLVERR_URL）")
@@ -2280,7 +2280,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                         async with session.post(
                                             fs_url,
                                             json={"cmd": "request.get", "url": detail_url, "maxTimeout": 60000},
-                                            timeout=aiohttp.ClientTimeout(total=65),
+                                            timeout=aiohttp.ClientTimeout(total=95),
                                         ) as resp:
                                             data = await resp.json()
                                     if data.get("status") == "ok" and data.get("solution"):
@@ -2316,7 +2316,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                         ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
                                         return ret
                                 except Exception as e:
-                                    print(f"Letterboxd 详情页 FlareSolverr 请求失败: {e}")
+                                    print(f"Letterboxd 详情页 FlareSolverr 请求失败: {type(e).__name__}: {e}")
                                     ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
                                     ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
                                     return ret
