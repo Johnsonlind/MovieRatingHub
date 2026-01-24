@@ -1908,7 +1908,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
     try:
         async def block_resources(route):
             resource_type = route.request.resource_type
-            if resource_type in ["image", "stylesheet", "font", "media"]:
+            if resource_type in ["image", "font", "media"]:
                 await route.abort()
             else:
                 await route.continue_()
@@ -1918,7 +1918,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
     
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
@@ -1927,7 +1927,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         
         try:
             try:
-                await page.wait_for_selector('ul.results li.search-result', timeout=5000)
+                await page.wait_for_selector('ul.results li.search-result', state='attached', timeout=12000)
             except Exception as e:
                 print(f"Letterboxd等待搜索结果超时: {e}")
             
