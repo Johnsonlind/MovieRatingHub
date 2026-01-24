@@ -1649,7 +1649,6 @@ async def handle_imdb_search(page, search_url):
 async def handle_rt_search(page, search_url, tmdb_info):
     """处理Rotten Tomatoes搜索"""
     try:
-        # 拦截不必要的资源以加速页面加载
         async def block_resources(route):
             resource_type = route.request.resource_type
             if resource_type in ["image", "stylesheet", "font", "media"]:
@@ -1940,7 +1939,7 @@ async def _is_cloudflare_challenge(page) -> bool:
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     new_ctx = None
-    letterboxd_fs = None  # 成功用 FlareSolverr 时存 {cookies, userAgent}，供详情页使用
+    letterboxd_fs = None
     try:
         async def block_resources(route):
             resource_type = route.request.resource_type
@@ -1956,7 +1955,6 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
         await asyncio.sleep(0.5)
     
-        # Cloudflare 验证页：先等 5 秒看能否自动通过，否则尝试 FlareSolverr（若已配置）
         if await _is_cloudflare_challenge(page):
             print("Letterboxd: 检测到 Cloudflare 安全验证页，等待 5 秒尝试自动通过…")
             await asyncio.sleep(5)
@@ -1982,7 +1980,6 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                                 if pw:
                                     ua = sol.get("userAgent") or ""
                                     if ua:
-                                        # 必须用 FlareSolverr 的 User-Agent，否则 cf_clearance 无效
                                         browser = page.context.browser
                                         new_ctx = await browser.new_context(
                                             viewport={"width": 1280, "height": 720},
@@ -2306,7 +2303,6 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                                     ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
                                                     ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
                                                     return ret
-                                                # 已通过验证，继续到下方 extract_letterboxd_rating
                                             else:
                                                 ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
                                                 ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
