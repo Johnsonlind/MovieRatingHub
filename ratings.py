@@ -972,7 +972,15 @@ def get_client_ip(request: Request) -> str:
     return request.client.host
 
 async def search_platform(platform, tmdb_info, request=None, douban_cookie=None):
-    """在各平台搜索并返回搜索结果"""
+    """
+    在各平台搜索并返回搜索结果
+    使用多策略搜索：依次尝试所有搜索变体直到找到匹配
+    Args:
+        platform: 平台名称
+        tmdb_info: TMDB信息
+        request: FastAPI请求对象
+        douban_cookie: 用户的豆瓣Cookie（可选）
+    """
     try:
         if request and await request.is_disconnected():
             return {"status": "cancelled"}
@@ -1185,17 +1193,6 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                         print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
                     else:
                         print("⚠️ 未提供豆瓣Cookie，使用默认方式")
-                    if headers:
-                        await page.set_extra_http_headers(headers)
-                elif platform == "letterboxd":
-                    headers = {}
-                    if request:
-                        client_ip = get_client_ip(request)
-                        print(f"Letterboxd 请求使用用户 IP: {client_ip}")
-                        headers.update({
-                            'X-Forwarded-For': client_ip,
-                            'X-Real-IP': client_ip
-                        })
                     if headers:
                         await page.set_extra_http_headers(headers)
 
@@ -1908,7 +1905,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
     try:
         async def block_resources(route):
             resource_type = route.request.resource_type
-            if resource_type in ["image", "font", "media"]:
+            if resource_type in ["image", "stylesheet", "font", "media"]:
                 await route.abort()
             else:
                 await route.continue_()
@@ -1918,7 +1915,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.2)
     
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
@@ -1927,13 +1924,11 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         
         try:
             try:
-                await page.wait_for_selector('ul.results li.search-result', state='attached', timeout=12000)
+                await page.wait_for_selector('.results li', timeout=5000)
             except Exception as e:
                 print(f"Letterboxd等待搜索结果超时: {e}")
             
-            items = await page.query_selector_all('li.search-result.-production div[data-item-link]')
-            if not items:
-                items = await page.query_selector_all('div[data-item-link]')
+            items = await page.query_selector_all('div[data-item-link]')
             
             if not items:
                 print("Letterboxd未找到搜索结果")
@@ -1984,7 +1979,15 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
     
 async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None):
-    """从各平台详情页中提取对应评分数据 """
+    """从各平台详情页中提取对应评分数据
+    Args:
+        media_type: 媒体类型
+        platform: 平台名称
+        tmdb_info: TMDB信息
+        search_results: 搜索结果
+        request: FastAPI请求对象
+        douban_cookie: 用户的豆瓣Cookie（可选）
+    """
     async def _extract_rating_with_retry():
         try:
             await random_delay()
@@ -2139,17 +2142,6 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                             print("⚠️ 未提供豆瓣Cookie，使用默认方式")
                         if headers:
                             await page.set_extra_http_headers(headers)
-                    elif platform == "letterboxd":
-                        headers = {}
-                        if request:
-                            client_ip = get_client_ip(request)
-                            print(f"Letterboxd 请求使用用户 IP: {client_ip}")
-                            headers.update({
-                                'X-Forwarded-For': client_ip,
-                                'X-Real-IP': client_ip
-                            })
-                        if headers:
-                            await page.set_extra_http_headers(headers)
 
                     if request and await request.is_disconnected():
                         print("请求已被取消,停止执行")
@@ -2180,7 +2172,24 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                 print("检测到多季剧集，优先进行分季抓取以获取所有季评分")
                                 rating_data = await extract_douban_rating(page, media_type, matched_results)
                             else:
-                                rating_data = await extract_douban_rating(page, media_type, search_results)
+                                rating_data = None
+                                douban_id = None
+                                
+                                if isinstance(search_results, list) and len(search_results) > 0:
+                                    first_result = search_results[0]
+                                    if isinstance(first_result, dict) and 'url' in first_result:
+                                        url_match = re.search(r'/subject/(\d+)', first_result['url'])
+                                        if url_match:
+                                            douban_id = url_match.group(1)
+                                
+                                if douban_id:
+                                    print(f"尝试使用豆瓣API获取评分 (ID: {douban_id})")
+                                    rating_data = await get_douban_rating_via_api(douban_id, douban_cookie)
+                                
+                                if not rating_data or rating_data.get("status") not in [RATING_STATUS["SUCCESSFUL"], RATING_STATUS["NO_RATING"]]:
+                                    if douban_id:
+                                        print("豆瓣API失败，fallback到网页抓取")
+                                    rating_data = await extract_douban_rating(page, media_type, search_results)
                         elif platform == "imdb":
                             imdb_id = tmdb_info.get("imdb_id")
                             rating_data = None
@@ -2249,6 +2258,54 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             return create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
 
     return await _extract_rating_with_retry()
+
+async def get_douban_rating_via_api(douban_id: str, douban_cookie: str = None) -> dict:
+    """使用豆瓣移动端API获取评分（避免限流）"""
+    try:
+        import aiohttp
+        
+        url = f"https://m.douban.com/rexxar/api/v2/movie/{douban_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+            'Referer': f'https://m.douban.com/movie/subject/{douban_id}/'
+        }
+        
+        if douban_cookie:
+            headers['Cookie'] = douban_cookie
+            print(f"✅ 豆瓣API使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+        else:
+            print("⚠️ 豆瓣API未提供Cookie，使用默认方式")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    rating = data.get('rating', {})
+                    rating_value = rating.get('value')
+                    rating_count = rating.get('count')
+                    
+                    if rating_value and rating_count:
+                        print(f"从豆瓣API获取到评分: {rating_value}, 人数: {rating_count}")
+                        return {
+                            "rating": str(rating_value),
+                            "rating_people": str(rating_count),
+                            "status": RATING_STATUS["SUCCESSFUL"]
+                        }
+                    else:
+                        print("豆瓣API返回数据但无评分")
+                        return {
+                            "rating": "暂无",
+                            "rating_people": "暂无",
+                            "status": RATING_STATUS["NO_RATING"]
+                        }
+                else:
+                    print(f"豆瓣API请求失败: {response.status}")
+                    return None
+                    
+    except Exception as e:
+        print(f"豆瓣API调用失败: {e}")
+        return None
 
 async def extract_douban_rating(page, media_type, matched_results):
     """从豆瓣详情页提取评分数据"""
@@ -2451,7 +2508,7 @@ async def extract_douban_rating(page, media_type, matched_results):
         return create_empty_rating_data("douban", media_type, RATING_STATUS["FETCH_FAILED"])
 
 async def get_imdb_rating_via_graphql(imdb_id: str) -> dict:
-    """使用IMDB GraphQL API获取评分"""
+    """使用IMDB GraphQL API获取评分（速度更快）"""
     try:
         import aiohttp
         
@@ -3461,7 +3518,13 @@ def create_empty_rating_data(platform, media_type, status):
         }
 
 def create_error_rating_data(platform, media_type="movie", status=RATING_STATUS["FETCH_FAILED"], status_reason="获取失败"):
-    """为出错的平台创建数据结构"""
+    """为出错的平台创建数据结构    
+    Args:
+        platform: 平台名称
+        media_type: 媒体类型，'movie' 或 'tv'
+        status: 状态码，默认为获取失败
+        status_reason: 状态原因，默认为获取失败
+    """
     if platform == "douban":
         if media_type == "tv":
             return {
@@ -3575,7 +3638,7 @@ def create_error_rating_data(platform, media_type="movie", status=RATING_STATUS[
     }
 
 def format_rating_output(all_ratings, media_type):
-    """格式化所有平台的评分信息"""
+    """格式化所有平台的评分信息（静默模式，只返回数据不打印）"""
     formatted_data = copy.deepcopy(all_ratings)
     
     for platform, data in formatted_data.items():
@@ -3604,7 +3667,13 @@ def format_rating_output(all_ratings, media_type):
     return formatted_data
 
 async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_cookie=None):
-    """并行处理所有平台的评分获取"""
+    """并行处理所有平台的评分获取
+    Args:
+        tmdb_info: TMDB信息
+        media_type: 媒体类型
+        request: FastAPI请求对象
+        douban_cookie: 用户的豆瓣Cookie（可选）
+    """
     import time
     start_time = time.time()
     
