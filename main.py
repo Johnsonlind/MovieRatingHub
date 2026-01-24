@@ -2597,7 +2597,6 @@ async def get_chart_detail(
 
 @app.post("/api/charts/auto-update")
 async def auto_update_charts(
-    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2611,7 +2610,7 @@ async def auto_update_charts(
         results = {}
         results['烂番茄电影'] = await scraper.update_rotten_movies()
         results['烂番茄TV'] = await scraper.update_rotten_tv()
-        results['Letterboxd'] = await scraper.update_letterboxd_popular(request=request)
+        results['Letterboxd'] = await scraper.update_letterboxd_popular()
         results['Metacritic电影'] = await scraper.update_metacritic_movies()
         results['Metacritic剧集'] = await scraper.update_metacritic_shows()
         results['TMDB趋势'] = await scraper.update_tmdb_trending_all_week()
@@ -2656,7 +2655,6 @@ async def auto_update_charts(
 @app.post("/api/charts/auto-update/{platform}")
 async def auto_update_platform_charts(
     platform: str,
-    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2686,7 +2684,7 @@ async def auto_update_platform_charts(
         
         results = {}
         for i, updater in enumerate(platform_updaters[platform]):
-            count = await updater(request=request) if platform == "Letterboxd" else await updater()
+            count = await updater()
             results[f"{platform}_{i+1}"] = count
         
         return {
@@ -2758,8 +2756,6 @@ async def update_top250_chart(
         if platform == "豆瓣" and chart_name == "豆瓣 Top 250":
             douban_cookie = current_user.douban_cookie if current_user.douban_cookie else None
             count = await updater(douban_cookie=douban_cookie, request=request)
-        elif platform == "Letterboxd":
-            count = await updater(request=request)
         else:
             count = await updater()
         
