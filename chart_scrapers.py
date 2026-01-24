@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from browser_pool import browser_pool
 from models import ChartEntry, SessionLocal
-from stealth_helper import create_stealth_context, navigate_with_stealth, check_verification_page, simulate_human_behavior
+from ratings import get_client_ip
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -382,10 +382,17 @@ class ChartScraper:
             logger.error(traceback.format_exc())
             return []
 
-    async def scrape_letterboxd_popular(self) -> List[Dict]:
+    async def scrape_letterboxd_popular(self, request=None) -> List[Dict]:
         """抓取Letterboxd Popular films this week"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
+            if request:
+                try:
+                    client_ip = get_client_ip(request)
+                    logger.info(f"Letterboxd Popular 请求使用用户 IP: {client_ip}")
+                    await page.set_extra_http_headers({'X-Forwarded-For': client_ip, 'X-Real-IP': client_ip})
+                except Exception as e:
+                    logger.debug(f"获取用户 IP 失败: {e}")
             try:
                 url = "https://letterboxd.com/films/"
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
@@ -629,7 +636,7 @@ class ChartScraper:
         logger.info(f"烂番茄 Popular Streaming Movies 入库 {saved} 条")
         return saved
 
-    async def update_letterboxd_popular(self) -> int:
+    async def update_letterboxd_popular(self, request=None) -> int:
         """Letterboxd Popular films this week：进入详情解析 data-tmdb-id，匹配 TMDB 并入库"""
         logger.info("开始更新 Letterboxd Popular films this week 榜单")
         
@@ -640,7 +647,7 @@ class ChartScraper:
         logger.info(f"清空旧数据 {deleted} 条")
         
         matcher = TMDBMatcher(self.db)
-        items = await self.scrape_letterboxd_popular()
+        items = await self.scrape_letterboxd_popular(request=request)
         
         if not items:
             logger.error("未获取到任何数据，无法继续处理")
@@ -660,7 +667,7 @@ class ChartScraper:
             
             tmdb_id = None
             try:
-                tmdb_id = await self.get_letterboxd_tmdb_id(url)
+                tmdb_id = await self.get_letterboxd_tmdb_id(url, request=request)
             except Exception as e:
                 logger.error(f"访问详情页时出错: {e}", exc_info=True)
                 tmdb_id = None
@@ -2050,10 +2057,17 @@ class ChartScraper:
         logger.info(f"豆瓣 Top 250 入库完成，共 {saved}/{total} 条")
         return saved
 
-    async def scrape_letterboxd_top250(self) -> List[Dict]:
+    async def scrape_letterboxd_top250(self, request=None) -> List[Dict]:
         """抓取 Letterboxd Top 250 榜单，获取电影链接和排名"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
+            if request:
+                try:
+                    client_ip = get_client_ip(request)
+                    logger.info(f"Letterboxd Top 250 请求使用用户 IP: {client_ip}")
+                    await page.set_extra_http_headers({'X-Forwarded-For': client_ip, 'X-Real-IP': client_ip})
+                except Exception as e:
+                    logger.debug(f"获取用户 IP 失败: {e}")
             try:
                 all_movies = []
                 base_url = "https://letterboxd.com/dave/list/official-top-250-narrative-feature-films"
@@ -2143,24 +2157,69 @@ class ChartScraper:
             logger.error(f"Letterboxd Top 250 抓取失败: {e}")
             return []
 
-    async def get_letterboxd_tmdb_id(self, letterboxd_url: str) -> Optional[int]:
-        """从 Letterboxd 详情页获取 TMDB ID（使用增强反检测）"""
+    async def get_letterboxd_tmdb_id(self, letterboxd_url: str, request=None) -> Optional[int]:
+        """从 Letterboxd 详情页获取 TMDB ID"""
         async def get_with_browser(browser):
-            # 使用增强的反检测上下文（自动从环境变量读取 Cookie）
-            context = await create_stealth_context(browser)
-            page = await context.new_page()
+            # 创建带有反检测设置的context和page
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+                extra_http_headers={
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Cache-Control': 'max-age=0',
+                }
+            )
             
+            # 注入脚本隐藏webdriver属性
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                window.chrome = {
+                    runtime: {}
+                };
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en']
+                });
+            """)
+            
+            page = await context.new_page()
+            if request:
+                try:
+                    client_ip = get_client_ip(request)
+                    logger.info(f"Letterboxd 详情页请求使用用户 IP: {client_ip}")
+                    await page.set_extra_http_headers({'X-Forwarded-For': client_ip, 'X-Real-IP': client_ip})
+                except Exception as e:
+                    logger.debug(f"获取用户 IP 失败: {e}")
             try:
-                logger.info(f"使用增强反检测访问 Letterboxd 详情页: {letterboxd_url}")
+                logger.info(f"使用浏览器访问 Letterboxd 详情页: {letterboxd_url}")
+                await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
                 
-                # 使用反检测导航
-                await navigate_with_stealth(page, letterboxd_url, wait_until="domcontentloaded", timeout=30000)
+                # 等待页面完全加载
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    logger.warning("网络空闲等待超时，继续执行")
                 
                 # 检查是否是验证页面
-                is_verification = await check_verification_page(page)
-                if is_verification:
-                    logger.warning(f"⚠️ 检测到Letterboxd验证页面，URL: {letterboxd_url}")
-                    logger.warning("页面可能检测到自动化访问，但会继续尝试提取数据")
+                page_content = await page.content()
+                if 'Verify you are human' in page_content or 'verify you are human' in page_content.lower():
+                    logger.warning(f"检测到Letterboxd验证页面，URL: {letterboxd_url}")
+                    logger.warning("页面可能检测到自动化访问，需要人工验证")
                     # 即使有验证页面，也尝试搜索一下，有时候验证页面也会包含数据
                 
                 # 等待body标签有data-tmdb-id属性，或者等待更长时间让JavaScript执行
@@ -2173,11 +2232,9 @@ class ChartScraper:
                         html = await page.content()
                         
                         # 再次检查是否是验证页面
-                        if wait_attempt == max_wait - 1:
-                            is_verification = await check_verification_page(page)
-                            if is_verification:
-                                logger.error("页面仍然是验证页面，无法获取TMDB ID")
-                                return None
+                        if 'Verify you are human' in html and wait_attempt == max_wait - 1:
+                            logger.error("页面仍然是验证页面，无法获取TMDB ID")
+                            return None
                         
                         # 直接搜索 data-tmdb-id="数字" 或 data-tmdb-id='数字'
                         pattern = r'data-tmdb-id=["\'](\d+)["\']'
@@ -2289,7 +2346,7 @@ class ChartScraper:
             logger.error(f"获取 Letterboxd TMDB ID 失败: {e}", exc_info=True)
             return None
 
-    async def update_letterboxd_top250(self) -> int:
+    async def update_letterboxd_top250(self, request=None) -> int:
         """Letterboxd Top 250 → 'Letterboxd / Letterboxd Official Top 250'"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'Letterboxd',
@@ -2297,7 +2354,7 @@ class ChartScraper:
         ).delete()
         logger.info(f"Letterboxd Top 250: 清空旧数据 {deleted} 条")
         
-        movies = await self.scrape_letterboxd_top250()
+        movies = await self.scrape_letterboxd_top250(request=request)
         
         if not movies:
             logger.error("未能获取到 Letterboxd Top 250 数据")
@@ -2321,7 +2378,7 @@ class ChartScraper:
                     return None
                 
                 try:
-                    tmdb_id = await self.get_letterboxd_tmdb_id(letterboxd_url)
+                    tmdb_id = await self.get_letterboxd_tmdb_id(letterboxd_url, request=request)
                     
                     if not tmdb_id:
                         logger.warning(f"Letterboxd Top 250 rank {rank} ({title}): 未能获取 TMDB ID")
