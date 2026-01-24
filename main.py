@@ -1640,8 +1640,6 @@ async def get_all_platform_ratings(
             return None
         
         douban_cookie = None
-        letterboxd_cookie = None
-        
         if current_user:
             db.refresh(current_user)
             if current_user.douban_cookie:
@@ -1651,11 +1649,6 @@ async def get_all_platform_ratings(
                 print(f"⚠️ 用户 {current_user.id} 未设置豆瓣Cookie")
         else:
             print("⚠️ 未登录用户，无法使用豆瓣Cookie")
-        
-        # Letterboxd Cookie 从环境变量读取
-        letterboxd_cookie = os.getenv("LETTERBOXD_COOKIE", "")
-        if letterboxd_cookie:
-            print(f"✅ 已从环境变量获取 Letterboxd Cookie（长度: {len(letterboxd_cookie)}）")
         
         cache_key = f"ratings:all:{type}:{id}"
         cached_data = await get_cache(cache_key)
@@ -1678,7 +1671,7 @@ async def get_all_platform_ratings(
         
         try:
             all_ratings = await asyncio.wait_for(
-                parallel_extract_ratings(tmdb_info, tmdb_info["type"], request, douban_cookie, letterboxd_cookie),
+                parallel_extract_ratings(tmdb_info, tmdb_info["type"], request, douban_cookie),
                 timeout=20.0
             )
         except asyncio.TimeoutError:
@@ -1730,8 +1723,6 @@ async def get_platform_rating(
             return None
         
         douban_cookie = None
-        letterboxd_cookie = None
-        
         if platform == "douban":
             if current_user:
                 db.refresh(current_user)
@@ -1742,13 +1733,6 @@ async def get_platform_rating(
                     print(f"⚠️ 用户 {current_user.id} 未设置豆瓣Cookie")
             else:
                 print("⚠️ 未登录用户，无法使用豆瓣Cookie")
-        elif platform == "letterboxd":
-            # Letterboxd Cookie 优先从环境变量读取（全局配置）
-            letterboxd_cookie = os.getenv("LETTERBOXD_COOKIE", "")
-            if letterboxd_cookie:
-                print(f"✅ 已从环境变量获取 Letterboxd Cookie（长度: {len(letterboxd_cookie)}）")
-            else:
-                print("⚠️ 未设置 LETTERBOXD_COOKIE 环境变量，将使用默认方式（可能遇到验证）")
         
         cache_key = f"rating:{platform}:{type}:{id}"
         cached_data = await get_cache(cache_key)
@@ -1768,7 +1752,7 @@ async def get_platform_rating(
             return None
 
         search_start_time = time.time()
-        search_results = await search_platform(platform, tmdb_info, request, douban_cookie, letterboxd_cookie)
+        search_results = await search_platform(platform, tmdb_info, request, douban_cookie)
 
         if await request.is_disconnected():
             print(f"{platform} 请求在搜索平台后被取消")
@@ -1779,7 +1763,7 @@ async def get_platform_rating(
             return None
 
         extract_start_time = time.time()
-        rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request, douban_cookie, letterboxd_cookie)
+        rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request, douban_cookie)
 
         if await request.is_disconnected():
             print(f"{platform} 请求在获取评分信息后被取消")
@@ -2613,6 +2597,7 @@ async def get_chart_detail(
 
 @app.post("/api/charts/auto-update")
 async def auto_update_charts(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2626,7 +2611,7 @@ async def auto_update_charts(
         results = {}
         results['烂番茄电影'] = await scraper.update_rotten_movies()
         results['烂番茄TV'] = await scraper.update_rotten_tv()
-        results['Letterboxd'] = await scraper.update_letterboxd_popular()
+        results['Letterboxd'] = await scraper.update_letterboxd_popular(request=request)
         results['Metacritic电影'] = await scraper.update_metacritic_movies()
         results['Metacritic剧集'] = await scraper.update_metacritic_shows()
         results['TMDB趋势'] = await scraper.update_tmdb_trending_all_week()
@@ -2671,6 +2656,7 @@ async def auto_update_charts(
 @app.post("/api/charts/auto-update/{platform}")
 async def auto_update_platform_charts(
     platform: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2700,7 +2686,7 @@ async def auto_update_platform_charts(
         
         results = {}
         for i, updater in enumerate(platform_updaters[platform]):
-            count = await updater()
+            count = await updater(request=request) if platform == "Letterboxd" else await updater()
             results[f"{platform}_{i+1}"] = count
         
         return {
@@ -2772,6 +2758,8 @@ async def update_top250_chart(
         if platform == "豆瓣" and chart_name == "豆瓣 Top 250":
             douban_cookie = current_user.douban_cookie if current_user.douban_cookie else None
             count = await updater(douban_cookie=douban_cookie, request=request)
+        elif platform == "Letterboxd":
+            count = await updater(request=request)
         else:
             count = await updater()
         
