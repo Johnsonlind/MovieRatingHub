@@ -1901,18 +1901,11 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
 async def handle_letterboxd_search(page, search_url, tmdb_info):
-    """处理Letterboxd搜索
-    
-    生产环境与本地差异常见原因：
-    - 服务器到 Letterboxd 网络延迟更高，需更长超时
-    - 阻塞 stylesheet 会导致部分页面依赖 CSS 的渲染/可见性异常，故仅阻塞 image/font/media
-    - 搜索结果为 JS 动态加载，.results li 在无结果时不存在；改为等待 div[data-item-link] 并延长超时
-    """
+    """处理Letterboxd搜索"""
     try:
         async def block_resources(route):
             resource_type = route.request.resource_type
-            # 不阻塞 stylesheet：Letterboxd 需 CSS 正确渲染，生产环境阻塞后易导致 .results 等不可见或布局异常
-            if resource_type in ["image", "font", "media"]:
+            if resource_type in ["image", "stylesheet", "font", "media"]:
                 await route.abort()
             else:
                 await route.continue_()
@@ -1921,8 +1914,8 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         
         await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=15000)
-        await asyncio.sleep(0.5)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await asyncio.sleep(0.2)
     
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
@@ -1930,10 +1923,8 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
-            # 等待实际用于解析的 div[data-item-link]；无结果时不存在会超时，再 query 为空即 NO_FOUND
-            # 生产环境网络延迟大，超时从 5s 提到 14s；.results li 在无结果时不存在且易误判
             try:
-                await page.wait_for_selector('div[data-item-link]', timeout=14000)
+                await page.wait_for_selector('.results li', timeout=5000)
             except Exception as e:
                 print(f"Letterboxd等待搜索结果超时: {e}")
             
