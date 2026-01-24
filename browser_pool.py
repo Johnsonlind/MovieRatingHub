@@ -49,7 +49,9 @@ class BrowserPool:
                             '--disable-features=site-per-process',
                             '--disable-site-isolation-trials',
                             '--blink-settings=imagesEnabled=false',
-                            '--disable-remote-fonts'
+                            '--disable-remote-fonts',
+                            '--disable-blink-features=AutomationControlled',
+                            '--window-size=1280,720',
                         ]
                     )
                     self.browsers.append(browser)
@@ -99,7 +101,9 @@ class BrowserPool:
                             '--disable-setuid-sandbox',
                             '--disable-dev-shm-usage',
                             '--blink-settings=imagesEnabled=false',
-                            '--disable-remote-fonts'
+                            '--disable-remote-fonts',
+                            '--disable-blink-features=AutomationControlled',
+                            '--window-size=1280,720',
                         ]
                     )
                     self.browsers.append(new_browser)
