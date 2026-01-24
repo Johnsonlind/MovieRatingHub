@@ -52,23 +52,23 @@ async def _is_cloudflare_challenge(page) -> bool:
 
 
 async def _letterboxd_flaresolverr(url: str) -> Optional[Dict]:
-    """调用 FlareSolverr 获取 Letterboxd 的 cookies 与 userAgent。固定请求首页 letterboxd.com/（更轻、更快），
-    cf_clearance 同域通用。失败返回 None。"""
+    """调用 FlareSolverr 获取 Letterboxd 的 cookies 与 userAgent，失败返回 None"""
     fs_url = os.environ.get("FLARESOLVERR_URL", "").strip()
     if not fs_url:
         return None
     if not fs_url.endswith("/v1"):
         fs_url = fs_url.rstrip("/") + "/v1"
-    solve_url = "https://letterboxd.com/"
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 fs_url,
-                json={"cmd": "request.get", "url": solve_url, "maxTimeout": 60000},
-                timeout=aiohttp.ClientTimeout(total=65),
+                json={"cmd": "request.get", "url": url, "maxTimeout": 120000},
+                timeout=aiohttp.ClientTimeout(total=135),
             ) as resp:
                 data = await resp.json()
         if data.get("status") != "ok" or not data.get("solution"):
+            msg = data.get("message") or data.get("error") or "unknown"
+            logger.warning(f"Letterboxd FlareSolverr 返回异常: status={data.get('status')}, message={msg}")
             return None
         sol = data["solution"]
         cookies = sol.get("cookies") or []
@@ -86,6 +86,22 @@ async def _letterboxd_flaresolverr(url: str) -> Optional[Dict]:
     except Exception as e:
         logger.warning(f"Letterboxd FlareSolverr 请求失败: {type(e).__name__}: {e}")
         return None
+
+
+def _parse_letterboxd_cookie_string(s: str) -> list:
+    """将 .env 中的 LETTERBOXD_COOKIE 解析为 Playwright add_cookies 所需的列表。格式: name1=value1; name2=value2"""
+    if not s or not s.strip():
+        return []
+    out = []
+    for part in s.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        name, value = name.strip(), value.strip()
+        if name:
+            out.append({"name": name, "value": value, "domain": ".letterboxd.com", "path": "/"})
+    return out
 
 
 class ChartScraper:
@@ -440,28 +456,29 @@ class ChartScraper:
             ctx_to_close = None
             page = await browser.new_page()
             try:
+                letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+                if letterboxd_cookie:
+                    cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
+                    if cookies:
+                        await page.context.add_cookies(cookies)
+                        logger.info("Letterboxd Popular: 已注入 LETTERBOXD_COOKIE")
                 await page.goto(films_url, wait_until="domcontentloaded")
                 await asyncio.sleep(2)
                 if await _is_cloudflare_challenge(page):
                     logger.warning("Letterboxd Popular: 检测到 Cloudflare 验证，尝试 FlareSolverr…")
                     fs = await _letterboxd_flaresolverr(films_url)
                     if not fs:
-                        logger.warning("Letterboxd Popular: FlareSolverr 未返回，等待 15 秒看页面是否自行通过 CF…")
-                        await asyncio.sleep(15)
-                        if await _is_cloudflare_challenge(page):
-                            logger.warning("Letterboxd Popular: 仍为 CF，返回空")
-                            return []
-                        logger.info("Letterboxd Popular: 页面已通过 CF，继续解析")
-                    else:
-                        await page.close()
-                        ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
-                        await ctx_to_close.add_cookies(fs["cookies"])
-                        page = await ctx_to_close.new_page()
-                        await page.goto(films_url, wait_until="domcontentloaded", timeout=15000)
-                        await asyncio.sleep(2)
-                        if await _is_cloudflare_challenge(page):
-                            logger.warning("Letterboxd Popular: FlareSolverr 后仍为 CF，返回空")
-                            return []
+                        logger.warning("Letterboxd Popular: 未配置或 FlareSolverr 失败，返回空")
+                        return []
+                    await page.close()
+                    ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
+                    await ctx_to_close.add_cookies(fs["cookies"])
+                    page = await ctx_to_close.new_page()
+                    await page.goto(films_url, wait_until="domcontentloaded", timeout=15000)
+                    await asyncio.sleep(2)
+                    if await _is_cloudflare_challenge(page):
+                        logger.warning("Letterboxd Popular: FlareSolverr 后仍为 CF，返回空")
+                        return []
                 popular_items = await page.query_selector_all('#popular-films .poster-list li')
                 results = []
                 
@@ -2033,6 +2050,12 @@ class ChartScraper:
             ctx_to_close = None
             page = await browser.new_page()
             try:
+                letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+                if letterboxd_cookie:
+                    cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
+                    if cookies:
+                        await page.context.add_cookies(cookies)
+                        logger.info("Letterboxd Top 250: 已注入 LETTERBOXD_COOKIE")
                 all_movies = []
                 base_url = "https://letterboxd.com/dave/list/official-top-250-narrative-feature-films"
                 
@@ -2050,24 +2073,19 @@ class ChartScraper:
                         logger.warning(f"Letterboxd Top 250 第 {page_num} 页: 检测到 Cloudflare，尝试 FlareSolverr…")
                         fs = await _letterboxd_flaresolverr(url)
                         if not fs:
-                            logger.warning("Letterboxd Top 250: FlareSolverr 未返回，等待 15 秒看页面是否自行通过 CF…")
-                            await asyncio.sleep(15)
-                            if await _is_cloudflare_challenge(page):
-                                logger.warning("Letterboxd Top 250: 仍为 CF，返回空")
-                                return []
-                            logger.info("Letterboxd Top 250: 页面已通过 CF，继续解析")
-                        else:
-                            await page.close()
-                            if ctx_to_close:
-                                await ctx_to_close.close()
-                            ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
-                            await ctx_to_close.add_cookies(fs["cookies"])
-                            page = await ctx_to_close.new_page()
-                            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                            await asyncio.sleep(1)
-                            if await _is_cloudflare_challenge(page):
-                                logger.warning("Letterboxd Top 250: FlareSolverr 后仍为 CF，返回空")
-                                return []
+                            logger.warning("Letterboxd Top 250: FlareSolverr 未配置或失败，返回空")
+                            return []
+                        await page.close()
+                        if ctx_to_close:
+                            await ctx_to_close.close()
+                        ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
+                        await ctx_to_close.add_cookies(fs["cookies"])
+                        page = await ctx_to_close.new_page()
+                        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                        await asyncio.sleep(1)
+                        if await _is_cloudflare_challenge(page):
+                            logger.warning("Letterboxd Top 250: FlareSolverr 后仍为 CF，返回空")
+                            return []
                     
                     try:
                         await page.wait_for_selector('li.posteritem.numbered-list-item', timeout=3000)
@@ -2152,25 +2170,27 @@ class ChartScraper:
             ctx_to_close = None
             page = await browser.new_page()
             try:
+                letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+                if letterboxd_cookie:
+                    cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
+                    if cookies:
+                        await page.context.add_cookies(cookies)
+                        logger.debug("Letterboxd 详情: 已注入 LETTERBOXD_COOKIE")
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
                 await asyncio.sleep(1)
                 if await _is_cloudflare_challenge(page):
                     logger.warning(f"Letterboxd 详情页 CF: {letterboxd_url}，尝试 FlareSolverr…")
                     fs = await _letterboxd_flaresolverr(letterboxd_url)
                     if not fs:
-                        logger.warning("Letterboxd 详情: FlareSolverr 未返回，等待 15 秒看页面是否自行通过 CF…")
-                        await asyncio.sleep(15)
-                        if await _is_cloudflare_challenge(page):
-                            return None
-                    else:
-                        await page.close()
-                        ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
-                        await ctx_to_close.add_cookies(fs["cookies"])
-                        page = await ctx_to_close.new_page()
-                        await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
-                        await asyncio.sleep(1)
-                        if await _is_cloudflare_challenge(page):
-                            return None
+                        return None
+                    await page.close()
+                    ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
+                    await ctx_to_close.add_cookies(fs["cookies"])
+                    page = await ctx_to_close.new_page()
+                    await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
+                    await asyncio.sleep(1)
+                    if await _is_cloudflare_challenge(page):
+                        return None
                 content = await page.content()
                 m = re.search(r'data-tmdb-id=["\']?(\d+)', content)
                 if m:
