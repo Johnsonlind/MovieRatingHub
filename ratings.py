@@ -1940,6 +1940,7 @@ async def _is_cloudflare_challenge(page) -> bool:
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     new_ctx = None
+    letterboxd_fs = None  # 成功用 FlareSolverr 时存 {cookies, userAgent}，供详情页使用
     try:
         async def block_resources(route):
             resource_type = route.request.resource_type
@@ -1999,6 +2000,7 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                                             return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
                                         print("Letterboxd: FlareSolverr 成功绕过 Cloudflare，继续解析")
                                         page = new_page
+                                        letterboxd_fs = {"cookies": pw, "userAgent": ua}
                                     else:
                                         await page.context.add_cookies(pw)
                                         await page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
@@ -2060,12 +2062,10 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                 
                 print(f"Letterboxd找到匹配结果: {title}")
                 
-                return [{
-                    "title": title,
-                    "year": tmdb_info.get("year", ""),
-                    "url": detail_url,
-                    "match_score": 100
-                }]
+                r = {"title": title, "year": tmdb_info.get("year", ""), "url": detail_url, "match_score": 100}
+                if letterboxd_fs:
+                    r["_flaresolverr"] = letterboxd_fs
+                return [r]
                 
             except Exception as e:
                 print(f"处理Letterboxd搜索结果项时出错: {e}")
@@ -2209,7 +2209,8 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             async def extract_with_browser(browser):
                 context = None
                 try:
-                    selected_user_agent = random.choice(USER_AGENTS)
+                    fs_data = best_match.get("_flaresolverr") if platform == "letterboxd" else None
+                    selected_user_agent = (fs_data.get("userAgent") or random.choice(USER_AGENTS)) if (platform == "letterboxd" and fs_data) else random.choice(USER_AGENTS)
 
                     context_options = {
                         'viewport': {'width': 1280, 'height': 720},
@@ -2267,8 +2268,66 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
                         await asyncio.sleep(0.3)
                     elif platform == "letterboxd":
+                        if fs_data and fs_data.get("cookies"):
+                            await context.add_cookies(fs_data["cookies"])
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
                         await asyncio.sleep(0.3)
+                        if await _is_cloudflare_challenge(page):
+                            print("Letterboxd: 详情页触发 Cloudflare 安全验证，尝试用 FlareSolverr 拉取详情页…")
+                            fs_url = os.environ.get("FLARESOLVERR_URL", "").strip()
+                            if fs_url:
+                                if not fs_url.endswith("/v1"):
+                                    fs_url = fs_url.rstrip("/") + "/v1"
+                                try:
+                                    async with aiohttp.ClientSession() as session:
+                                        async with session.post(
+                                            fs_url,
+                                            json={"cmd": "request.get", "url": detail_url, "maxTimeout": 60000},
+                                            timeout=aiohttp.ClientTimeout(total=65),
+                                        ) as resp:
+                                            data = await resp.json()
+                                    if data.get("status") == "ok" and data.get("solution"):
+                                        sol = data["solution"]
+                                        cookies = sol.get("cookies") or []
+                                        ua = sol.get("userAgent") or ""
+                                        if cookies and ua:
+                                            pw = [{"name": c.get("name"), "value": c.get("value"), "domain": c.get("domain", ".letterboxd.com"), "path": c.get("path", "/")} for c in cookies if c.get("name") and c.get("value")]
+                                            if pw:
+                                                if context:
+                                                    await context.close()
+                                                opts = {**context_options, "user_agent": ua}
+                                                context = await browser.new_context(**opts)
+                                                page = await context.new_page()
+                                                page.set_default_timeout(30000)
+                                                await context.add_cookies(pw)
+                                                await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                                                await asyncio.sleep(0.3)
+                                                if await _is_cloudflare_challenge(page):
+                                                    ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                                    ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                                    return ret
+                                                # 已通过验证，继续到下方 extract_letterboxd_rating
+                                            else:
+                                                ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                                ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                                return ret
+                                        else:
+                                            ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                            ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                            return ret
+                                    else:
+                                        ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                        ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                        return ret
+                                except Exception as e:
+                                    print(f"Letterboxd 详情页 FlareSolverr 请求失败: {e}")
+                                    ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                    ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                    return ret
+                            else:
+                                ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                return ret
                     elif platform == "rottentomatoes":
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
                         await asyncio.sleep(0.3)
