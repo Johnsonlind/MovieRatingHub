@@ -1927,11 +1927,13 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         
         try:
             try:
-                await page.wait_for_selector('.results li', timeout=5000)
+                await page.wait_for_selector('ul.results li.search-result', timeout=5000)
             except Exception as e:
                 print(f"Letterboxd等待搜索结果超时: {e}")
             
-            items = await page.query_selector_all('div[data-item-link]')
+            items = await page.query_selector_all('li.search-result.-production div[data-item-link]')
+            if not items:
+                items = await page.query_selector_all('div[data-item-link]')
             
             if not items:
                 print("Letterboxd未找到搜索结果")
