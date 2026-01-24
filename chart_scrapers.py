@@ -63,7 +63,7 @@ async def _letterboxd_flaresolverr(url: str) -> Optional[Dict]:
             async with session.post(
                 fs_url,
                 json={"cmd": "request.get", "url": url, "maxTimeout": 60000},
-                timeout=aiohttp.ClientTimeout(total=65),
+                timeout=aiohttp.ClientTimeout(total=95),
             ) as resp:
                 data = await resp.json()
         if data.get("status") != "ok" or not data.get("solution"):
@@ -82,7 +82,7 @@ async def _letterboxd_flaresolverr(url: str) -> Optional[Dict]:
             return None
         return {"cookies": pw, "userAgent": ua}
     except Exception as e:
-        logger.warning(f"Letterboxd FlareSolverr 请求失败: {e}")
+        logger.warning(f"Letterboxd FlareSolverr 请求失败: {type(e).__name__}: {e}")
         return None
 
 
