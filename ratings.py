@@ -2017,8 +2017,9 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
                     except Exception as e:
                         print(f"Letterboxd: FlareSolverr 请求失败: {e}")
                         return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
-                print("Letterboxd: 遭遇 Cloudflare 安全验证，返回 RateLimit（未配置 FLARESOLVERR_URL）")
-                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                else:
+                    print("Letterboxd: 遭遇 Cloudflare 安全验证，返回 RateLimit（未配置 FLARESOLVERR_URL）")
+                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
     
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
