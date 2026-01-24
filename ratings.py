@@ -937,6 +937,19 @@ async def check_rate_limit(page, platform: str) -> dict | None:
             print("豆瓣访问频率限制: error code 008")
             return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"}
     
+    if platform == "letterboxd":
+        try:
+            title = await page.title()
+            content = await page.content()
+            if title and "Just a moment" in title:
+                print("Letterboxd: 检测到 Cloudflare 安全验证页 (title)")
+                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+            if "Enable JavaScript and cookies to continue" in content or "cf_chl_opt" in content or "challenge-platform" in content:
+                print("Letterboxd: 检测到 Cloudflare 安全验证页 (content)")
+                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+        except Exception as e:
+            print(f"Letterboxd Cloudflare 检测异常: {e}")
+    
     page_text = await page.locator('body').text_content()
     if any(phrase in page_text for phrase in rules["phrases"]):
         print(f"{platform} 访问频率限制: 检测到限制文本")
@@ -1252,8 +1265,9 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                     await check_request()
                     if isinstance(results, dict) and "status" in results:
                         if results["status"] == RATING_STATUS["RATE_LIMIT"]:
-                            print(f"{platform} 访问频率限制")
-                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
+                            reason = results.get("status_reason") or "访问频率限制"
+                            print(f"{platform} 访问频率限制: {reason}")
+                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": reason} 
                         elif results["status"] == RATING_STATUS["TIMEOUT"]:
                             print(f"{platform} 请求超时")
                             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
@@ -1900,6 +1914,21 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
+
+async def _is_cloudflare_challenge(page) -> bool:
+    """检测当前页面是否为 Cloudflare 安全验证（Just a moment...）"""
+    try:
+        title = await page.title()
+        if title and "Just a moment" in title:
+            return True
+        content = await page.content()
+        if "Enable JavaScript and cookies to continue" in content or "cf_chl_opt" in content or "challenge-platform" in content:
+            return True
+        return False
+    except Exception:
+        return False
+
+
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     try:
@@ -1915,12 +1944,20 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         await random_delay()
         print(f"访问 Letterboxd 搜索页面: {search_url}")
         await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
+    
+        # 检测 Cloudflare 安全验证页：若命中则多等 5 秒看是否自动通过，仍为验证页则返回 RATE_LIMIT
+        if await _is_cloudflare_challenge(page):
+            print("Letterboxd: 检测到 Cloudflare 安全验证页，等待 5 秒尝试自动通过…")
+            await asyncio.sleep(5)
+            if await _is_cloudflare_challenge(page):
+                print("Letterboxd: 遭遇 Cloudflare 安全验证，返回 RateLimit（非平台未收录）")
+                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
     
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
             print("检测到Letterboxd访问限制")
-            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
+            return rate_limit
         
         try:
             try:
@@ -1931,6 +1968,10 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
             items = await page.query_selector_all('div[data-item-link]')
             
             if not items:
+                # 等待超时且无结果时，先区分是 Cloudflare 验证页还是真的未收录
+                if await _is_cloudflare_challenge(page):
+                    print("Letterboxd: 等待超时且为 Cloudflare 验证页，返回 RateLimit（非平台未收录）")
+                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
                 print("Letterboxd未找到搜索结果")
                 return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
             
@@ -2043,7 +2084,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                 if status == "cancelled":
                     return search_results
                 elif status == RATING_STATUS["RATE_LIMIT"]:
-                    return create_rating_data(RATING_STATUS["RATE_LIMIT"], "频率限制")
+                    return create_rating_data(RATING_STATUS["RATE_LIMIT"], search_results.get("status_reason") or "频率限制")
                 elif status == RATING_STATUS["TIMEOUT"]:
                     return create_rating_data(RATING_STATUS["TIMEOUT"], "获取超时")
                 elif status == RATING_STATUS["FETCH_FAILED"]:
