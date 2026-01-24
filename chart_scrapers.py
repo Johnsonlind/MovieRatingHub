@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from browser_pool import browser_pool
 from models import ChartEntry, SessionLocal
-from ratings import get_client_ip
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -382,109 +381,36 @@ class ChartScraper:
             logger.error(traceback.format_exc())
             return []
 
-    async def scrape_letterboxd_popular(self, request=None) -> List[Dict]:
+    async def scrape_letterboxd_popular(self) -> List[Dict]:
         """抓取Letterboxd Popular films this week"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
-            if request:
-                try:
-                    client_ip = get_client_ip(request)
-                    logger.info(f"Letterboxd Popular 请求使用用户 IP: {client_ip}")
-                    await page.set_extra_http_headers({'X-Forwarded-For': client_ip, 'X-Real-IP': client_ip})
-                except Exception as e:
-                    logger.debug(f"获取用户 IP 失败: {e}")
             try:
-                url = "https://letterboxd.com/films/"
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await page.goto("https://letterboxd.com/films/", wait_until="domcontentloaded")
                 await asyncio.sleep(2)
                 
-                popular_container = await page.query_selector('#popular-films')
-                if not popular_container:
-                    logger.error("未找到 #popular-films 容器")
-                    alternative_selectors = [
-                        '#popular-films',
-                        '.popular-films',
-                        '[data-section="popular"]',
-                        '.section-popular',
-                        'section[data-section="popular"]'
-                    ]
-                    for selector in alternative_selectors:
-                        elem = await page.query_selector(selector)
-                        if elem:
-                            break
-                    else:
-                        logger.error("未找到任何popular相关的容器")
-                
                 popular_items = await page.query_selector_all('#popular-films .poster-list li')
-                
-                if len(popular_items) == 0:
-                    alternative_patterns = [
-                        '#popular-films li',
-                        '.popular-films li',
-                        '#popular-films .poster',
-                        '#popular-films article',
-                        '[data-section="popular"] li'
-                    ]
-                    for pattern in alternative_patterns:
-                        items = await page.query_selector_all(pattern)
-                        if len(items) > 0:
-                            popular_items = items
-                            break
-                
                 results = []
                 
-                if len(popular_items) == 0:
-                    logger.error("未找到任何榜单项，可能页面结构已改变")
-                else:
-                    for i, item in enumerate(popular_items[:10], 1):
-                        try:
-                            title_elem = await item.query_selector('[data-item-name]')
-                            if not title_elem:
-                                alt_selectors = [
-                                    'a[data-item-name]',
-                                    '.film-poster[data-item-name]',
-                                    '[data-film-id]',
-                                    'a[data-film-id]'
-                                ]
-                                for alt_sel in alt_selectors:
-                                    alt_elem = await item.query_selector(alt_sel)
-                                    if alt_elem:
-                                        title_elem = alt_elem
-                                        break
+                for i, item in enumerate(popular_items[:10], 1):
+                    try:
+                        title_elem = await item.query_selector('[data-item-name]')
+                        if title_elem:
+                            title = await title_elem.get_attribute('data-item-name')
+                            link = await title_elem.get_attribute('data-item-link')
+                            film_id = await title_elem.get_attribute('data-film-id')
                             
-                            if title_elem:
-                                title = await title_elem.get_attribute('data-item-name')
-                                link = await title_elem.get_attribute('data-item-link')
-                                film_id = await title_elem.get_attribute('data-film-id')
-                                
-                                if not link:
-                                    href = await title_elem.get_attribute('href')
-                                    if href:
-                                        link = href
-                                
-                                if not film_id:
-                                    if link:
-                                        match = re.search(r'/film/([^/]+)/', link)
-                                        if match:
-                                            film_id = match.group(1)
-                                
-                                if title and link and film_id:
-                                    full_url = f"https://letterboxd.com{link}" if not link.startswith('http') else link
-                                    results.append({
-                                        'rank': i,
-                                        'title': title,
-                                        'letterboxd_id': film_id,
-                                        'url': full_url
-                                    })
-                                else:
-                                    logger.warning(f"第 {i} 项: 缺少必要属性")
-                            else:
-                                logger.warning(f"第 {i} 项: 未找到任何可用的标题元素")
-                        except Exception as e:
-                            logger.error(f"处理Letterboxd榜单项 {i} 时出错: {e}", exc_info=True)
-                            continue
-                
-                logger.info(f"Letterboxd Popular films this week 抓取完成，共获取 {len(results)} 条数据")
+                            if title and link and film_id:
+                                results.append({
+                                    'rank': i,
+                                    'title': title,
+                                    'letterboxd_id': film_id,
+                                    'url': f"https://letterboxd.com{link}"
+                                })
+                    except Exception as e:
+                        logger.error(f"处理Letterboxd榜单项时出错: {e}")
+                        continue
+                        
                 return results
             finally:
                 await page.close()
@@ -636,42 +562,36 @@ class ChartScraper:
         logger.info(f"烂番茄 Popular Streaming Movies 入库 {saved} 条")
         return saved
 
-    async def update_letterboxd_popular(self, request=None) -> int:
+    async def update_letterboxd_popular(self) -> int:
         """Letterboxd Popular films this week：进入详情解析 data-tmdb-id，匹配 TMDB 并入库"""
-        logger.info("开始更新 Letterboxd Popular films this week 榜单")
-        
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='Letterboxd',
             ChartEntry.chart_name=='Popular films this week'
         ).delete()
-        logger.info(f"清空旧数据 {deleted} 条")
+        logger.info(f"Letterboxd榜单: 清空旧数据 {deleted} 条")
         
         matcher = TMDBMatcher(self.db)
-        items = await self.scrape_letterboxd_popular(request=request)
-        
-        if not items:
-            logger.error("未获取到任何数据，无法继续处理")
-            return 0
-        
+        items = await self.scrape_letterboxd_popular()
         saved = 0
         rank = 1
-        
+        import urllib3, requests
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
+        }
         for it in items[:10]:
             title = it.get('title') or ''
             url = it.get('url') or ''
-            
             if not url:
-                logger.warning(f"跳过第 {rank} 项: URL为空")
                 rank += 1
                 continue
-            
             tmdb_id = None
             try:
-                tmdb_id = await self.get_letterboxd_tmdb_id(url, request=request)
-            except Exception as e:
-                logger.error(f"访问详情页时出错: {e}", exc_info=True)
+                r = requests.get(url, headers=headers, timeout=20, verify=False)
+                m = re.search(r'<body[^>]*data-tmdb-id=\"(\d+)\"', r.text)
+                tmdb_id = int(m.group(1)) if m else None
+            except Exception:
                 tmdb_id = None
-            
             match = None
             actual_media_type = 'movie'
             if tmdb_id:
@@ -693,9 +613,6 @@ class ChartScraper:
                             'media_type': 'tv'
                         }
                         actual_media_type = 'tv'
-                    else:
-                        logger.warning(f"TMDB ID {tmdb_id} 在movie和tv中都未找到信息")
-            
             if not match:
                 for attempt in range(3):
                     try:
@@ -712,10 +629,9 @@ class ChartScraper:
                             'media_type': 'movie'
                         }
                         break
-                    except Exception as e:
+                    except Exception:
                         if attempt < 2:
                             await asyncio.sleep(2 ** attempt)
-                
                 if not match:
                     for attempt in range(3):
                         try:
@@ -733,38 +649,27 @@ class ChartScraper:
                             }
                             actual_media_type = 'tv'
                             break
-                        except Exception as e:
+                        except Exception:
                             if attempt < 2:
                                 await asyncio.sleep(2 ** attempt)
-            
             if not match:
-                logger.warning(f"未匹配: {title} (URL: {url})")
+                logger.warning(f"Letterboxd未匹配: {title}")
                 rank += 1
                 continue
             
-            try:
-                self.db.add(ChartEntry(
-                    platform='Letterboxd',
-                    chart_name='Popular films this week',
-                    media_type=match.get('media_type', 'movie'),
-                    rank=rank,
-                    tmdb_id=match['tmdb_id'],
-                    title=match['title'],
-                    poster=match.get('poster','')
-                ))
-                saved += 1
-            except Exception as e:
-                logger.error(f"入库时出错: {e}", exc_info=True)
-            
+            self.db.add(ChartEntry(
+                platform='Letterboxd',
+                chart_name='Popular films this week',
+                media_type=match.get('media_type', 'movie'),
+                rank=rank,
+                tmdb_id=match['tmdb_id'],
+                title=match['title'],
+                poster=match.get('poster','')
+            ))
+            saved += 1
             rank += 1
-        
-        try:
-            self.db.commit()
-            logger.info(f"Letterboxd Popular films this week 入库完成，共 {saved}/{len(items)} 条")
-        except Exception as e:
-            logger.error(f"提交数据库时出错: {e}", exc_info=True)
-            self.db.rollback()
-        
+        self.db.commit()
+        logger.info(f"Letterboxd Popular films this week 入库 {saved} 条")
         return saved
 
     async def _extract_imdb_from_metacritic(self, url: str) -> Optional[str]:
@@ -1970,8 +1875,7 @@ class ChartScraper:
         
         matcher = TMDBMatcher(self.db)
         saved = 0
-        movies = movies[:250]
-        total = len(movies)
+        total = len(movies[:250])
         
         semaphore = asyncio.Semaphore(3)
         
@@ -1979,7 +1883,8 @@ class ChartScraper:
             """处理单个电影，返回匹配结果或None"""
             nonlocal saved
             async with semaphore:
-                pass
+                if request and await request.is_disconnected():
+                    return None
                 
                 rank = movie.get('rank')
                 title = movie.get('title') or ''
@@ -2017,10 +1922,10 @@ class ChartScraper:
         
         batch_size = 10
         for batch_start in range(0, total, batch_size):
-            #if request and await request.is_disconnected():
-            #    logger.warning(f"请求已被取消，已处理 {saved}/{total} 条")
-            #    self.db.commit()
-            #    return saved
+            if request and await request.is_disconnected():
+                logger.warning(f"请求已被取消，已处理 {saved}/{total} 条")
+                self.db.commit()
+                return saved
             
             batch = movies[batch_start:batch_start + batch_size]
             results = await asyncio.gather(*[process_movie(movie) for movie in batch], return_exceptions=True)
@@ -2057,17 +1962,10 @@ class ChartScraper:
         logger.info(f"豆瓣 Top 250 入库完成，共 {saved}/{total} 条")
         return saved
 
-    async def scrape_letterboxd_top250(self, request=None) -> List[Dict]:
+    async def scrape_letterboxd_top250(self) -> List[Dict]:
         """抓取 Letterboxd Top 250 榜单，获取电影链接和排名"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
-            if request:
-                try:
-                    client_ip = get_client_ip(request)
-                    logger.info(f"Letterboxd Top 250 请求使用用户 IP: {client_ip}")
-                    await page.set_extra_http_headers({'X-Forwarded-For': client_ip, 'X-Real-IP': client_ip})
-                except Exception as e:
-                    logger.debug(f"获取用户 IP 失败: {e}")
             try:
                 all_movies = []
                 base_url = "https://letterboxd.com/dave/list/official-top-250-narrative-feature-films"
@@ -2157,155 +2055,18 @@ class ChartScraper:
             logger.error(f"Letterboxd Top 250 抓取失败: {e}")
             return []
 
-    async def get_letterboxd_tmdb_id(self, letterboxd_url: str, request=None) -> Optional[int]:
-        """从 Letterboxd 详情页获取 TMDB ID"""
+    async def get_letterboxd_tmdb_id(self, letterboxd_url: str) -> Optional[int]:
+        """从 Letterboxd 详情页获取 TMDB ID（优化版）"""
         async def get_with_browser(browser):
-            # 创建带有反检测设置的context和page
-            context = await browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                locale='en-US',
-                timezone_id='America/New_York',
-                extra_http_headers={
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'DNT': '1',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                    'Sec-Fetch-Dest': 'document',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Sec-Fetch-User': '?1',
-                    'Cache-Control': 'max-age=0',
-                }
-            )
-            
-            # 注入脚本隐藏webdriver属性
-            await context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-                window.chrome = {
-                    runtime: {}
-                };
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5]
-                });
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-US', 'en']
-                });
-            """)
-            
-            page = await context.new_page()
-            if request:
-                try:
-                    client_ip = get_client_ip(request)
-                    logger.info(f"Letterboxd 详情页请求使用用户 IP: {client_ip}")
-                    await page.set_extra_http_headers({'X-Forwarded-For': client_ip, 'X-Real-IP': client_ip})
-                except Exception as e:
-                    logger.debug(f"获取用户 IP 失败: {e}")
+            page = await browser.new_page()
             try:
-                logger.info(f"使用浏览器访问 Letterboxd 详情页: {letterboxd_url}")
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
+                await asyncio.sleep(1)
                 
-                # 等待页面完全加载
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=15000)
-                except Exception:
-                    logger.warning("网络空闲等待超时，继续执行")
-                
-                # 检查是否是验证页面
-                page_content = await page.content()
-                if 'Verify you are human' in page_content or 'verify you are human' in page_content.lower():
-                    logger.warning(f"检测到Letterboxd验证页面，URL: {letterboxd_url}")
-                    logger.warning("页面可能检测到自动化访问，需要人工验证")
-                    # 即使有验证页面，也尝试搜索一下，有时候验证页面也会包含数据
-                
-                # 等待body标签有data-tmdb-id属性，或者等待更长时间让JavaScript执行
-                max_wait = 5  # 最多等待5次，每次2秒
-                for wait_attempt in range(max_wait):
-                    await asyncio.sleep(2)
-                    
-                    # 方法1: 优先从HTML中直接搜索data-tmdb-id（最简单直接）
-                    try:
-                        html = await page.content()
-                        
-                        # 再次检查是否是验证页面
-                        if 'Verify you are human' in html and wait_attempt == max_wait - 1:
-                            logger.error("页面仍然是验证页面，无法获取TMDB ID")
-                            return None
-                        
-                        # 直接搜索 data-tmdb-id="数字" 或 data-tmdb-id='数字'
-                        pattern = r'data-tmdb-id=["\'](\d+)["\']'
-                        m = re.search(pattern, html)
-                        if m:
-                            try:
-                                tmdb_id = int(m.group(1))
-                                logger.info(f"✓ 从HTML中直接搜索到TMDB ID: {tmdb_id} (等待了 {wait_attempt + 1} 次)")
-                                return tmdb_id
-                            except ValueError:
-                                pass
-                    except Exception as e:
-                        logger.debug(f"HTML搜索失败: {e}")
-                    
-                    # 方法2: 尝试从body标签的data-tmdb-id属性获取
-                    try:
-                        body = await page.query_selector('body')
-                        if body:
-                            tmdb_id_attr = await body.get_attribute('data-tmdb-id')
-                            if tmdb_id_attr:
-                                try:
-                                    tmdb_id = int(tmdb_id_attr)
-                                    logger.info(f"✓ 从body标签data-tmdb-id属性获取到TMDB ID: {tmdb_id} (等待了 {wait_attempt + 1} 次)")
-                                    return tmdb_id
-                                except ValueError:
-                                    pass
-                    except Exception:
-                        pass
-                
-                # 如果等待后仍未找到，最后再尝试一次完整的HTML搜索
-                logger.warning("等待后仍未找到data-tmdb-id，进行最后一次完整HTML搜索...")
-                try:
-                    html = await page.content()
-                    html_length = len(html)
-                    logger.info(f"页面HTML长度: {html_length} 字符")
-                    
-                    # 检查是否是错误页面
-                    if 'letterboxd.com</h1>' in html or 'main-wrapper' in html:
-                        logger.warning("页面可能是错误页面或需要登录")
-                        # 检查body标签片段
-                        body_start = html.find('<body')
-                        if body_start != -1:
-                            body_snippet = html[body_start:body_start+500]
-                            logger.info(f"Body标签片段: {body_snippet[:300]}...")
-                    
-                    # 尝试多种模式（按优先级排序）
-                    patterns = [
-                        r'data-tmdb-id=["\'](\d+)["\']',  # 最直接的匹配
-                        r'<body[^>]*data-tmdb-id=["\'](\d+)["\']',  # body标签中的
-                        r'"tmdb_id":\s*(\d+)',
-                        r'tmdbId["\']?\s*[:=]\s*["\']?(\d+)',
-                    ]
-                    for pattern in patterns:
-                        m = re.search(pattern, html)
-                        if m:
-                            try:
-                                tmdb_id = int(m.group(1))
-                                logger.info(f"✓ 使用模式 '{pattern}' 从HTML提取到TMDB ID: {tmdb_id}")
-                                return tmdb_id
-                            except ValueError:
-                                continue
-                    logger.warning("所有HTML模式都未匹配到TMDB ID")
-                except Exception as e:
-                    logger.warning(f"从HTML提取TMDB ID失败: {e}", exc_info=True)
-                
-                # 方法3: 尝试从TMDB链接中提取
-                try:
-                    logger.info("尝试从TMDB链接中提取...")
                     await page.wait_for_selector('a[href*="themoviedb.org/movie/"]', timeout=3000)
                 except Exception:
-                    logger.info("未找到TMDB movie链接选择器，继续尝试其他方法")
+                    pass
                 
                 tmdb_link = await page.query_selector('a[href*="themoviedb.org/movie/"]')
                 
@@ -2314,39 +2075,23 @@ class ChartScraper:
                     if href:
                         match = re.search(r'/movie/(\d+)/', href)
                         if match:
-                            tmdb_id = int(match.group(1))
-                            logger.info(f"✓ 从TMDB movie链接提取到TMDB ID: {tmdb_id}")
-                            return tmdb_id
+                            return int(match.group(1))
                 
-                # 方法4: 尝试TV链接
-                logger.info("尝试从TMDB TV链接中提取...")
-                tmdb_tv_link = await page.query_selector('a[href*="themoviedb.org/tv/"]')
-                if tmdb_tv_link:
-                    href = await tmdb_tv_link.get_attribute('href')
-                    if href:
-                        match = re.search(r'/tv/(\d+)/', href)
-                        if match:
-                            tmdb_id = int(match.group(1))
-                            logger.info(f"✓ 从TMDB TV链接提取到TMDB ID: {tmdb_id}")
-                            return tmdb_id
-                
-                logger.warning(f"✗ 未能从 Letterboxd 页面提取到 TMDB ID: {letterboxd_url}")
                 return None
                 
             except Exception as e:
-                logger.error(f"获取 Letterboxd TMDB ID 失败 (url: {letterboxd_url}): {e}", exc_info=True)
+                logger.debug(f"获取 Letterboxd TMDB ID 失败 (url: {letterboxd_url}): {e}")
                 return None
             finally:
                 await page.close()
-                await context.close()
         
         try:
             return await browser_pool.execute_in_browser(get_with_browser)
         except Exception as e:
-            logger.error(f"获取 Letterboxd TMDB ID 失败: {e}", exc_info=True)
+            logger.debug(f"获取 Letterboxd TMDB ID 失败: {e}")
             return None
 
-    async def update_letterboxd_top250(self, request=None) -> int:
+    async def update_letterboxd_top250(self) -> int:
         """Letterboxd Top 250 → 'Letterboxd / Letterboxd Official Top 250'"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform == 'Letterboxd',
@@ -2354,7 +2099,7 @@ class ChartScraper:
         ).delete()
         logger.info(f"Letterboxd Top 250: 清空旧数据 {deleted} 条")
         
-        movies = await self.scrape_letterboxd_top250(request=request)
+        movies = await self.scrape_letterboxd_top250()
         
         if not movies:
             logger.error("未能获取到 Letterboxd Top 250 数据")
@@ -2378,7 +2123,7 @@ class ChartScraper:
                     return None
                 
                 try:
-                    tmdb_id = await self.get_letterboxd_tmdb_id(letterboxd_url, request=request)
+                    tmdb_id = await self.get_letterboxd_tmdb_id(letterboxd_url)
                     
                     if not tmdb_id:
                         logger.warning(f"Letterboxd Top 250 rank {rank} ({title}): 未能获取 TMDB ID")
