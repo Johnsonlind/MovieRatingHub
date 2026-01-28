@@ -2714,7 +2714,7 @@ class ChartScraper:
         self.db.commit(); logger.info(f"Trakt Movies weekly 入库 {saved} 条"); return saved
 
     async def update_trakt_shows_weekly(self) -> int:
-        """Trakt Shows most watched weekly → 'Trakt / Top TV Shows Last Week'"""
+        """Trakt Shows trending → 'Trakt / Top TV Shows Last Week'"""
         # 先清空该榜单的旧数据
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='Trakt',
@@ -2731,8 +2731,10 @@ class ChartScraper:
             'User-Agent': 'Mozilla/5.0'
         }
         try:
-            r = requests.get('https://api.trakt.tv/shows/watched/weekly', params={'limit':10}, headers=headers, timeout=25, verify=False)
-            logger.info(f"Trakt剧集API响应状态: {r.status_code}")
+            # 使用 trending 端点（watched/weekly 需要 OAuth + VIP）
+            r = requests.get('https://api.trakt.tv/shows/trending', params={'limit':10}, headers=headers, timeout=25, verify=False)
+            logger.info(f"Trakt剧集 trending API响应状态: {r.status_code}")
+            
             if r.status_code != 200:
                 logger.error(f"Trakt剧集API请求失败: {r.status_code}, 响应: {r.text[:200]}")
                 return 0
