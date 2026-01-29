@@ -19,7 +19,7 @@ export const TMDB = {
 } as const;
 
 export const TRAKT = {
-  clientId: '859d1ad30074136a934c47ba2083cda83620b17b0db8f2d0ec554922116c60a8',
-  clientSecret: '9bf4e89fd8753de50375c8e2e17114a141f5ae2dba5c736f6212197bd4229681',
+  clientId: 'db74b025288459dc36589f6207fb96aabd83be8ea5d502810a049c29ffd9bff0',
+  clientSecret: '2f98dc6b1a35c090c244fcfc683510547ff63d1404742e32e74403a56378dce9',
   baseUrl: '/api/trakt-proxy',
 } as const;
