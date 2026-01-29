@@ -22,7 +22,7 @@ class AnthologyHandler:
     
     def __init__(self):
         self.tmdb_api_key = "4f681fa7b5ab7346a4e184bbf2d41715"
-        self.trakt_api_key = "859d1ad30074136a934c47ba2083cda83620b17b0db8f2d0ec554922116c60a8"
+        self.trakt_api_key = "db74b025288459dc36589f6207fb96aabd83be8ea5d502810a049c29ffd9bff0"
     
     def is_anthology_series(self, tmdb_info: Dict[str, Any]) -> bool:
         """
