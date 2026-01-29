@@ -1975,7 +1975,7 @@ async def trakt_proxy(path: str, request: Request):
         headers = {
             'Content-Type': 'application/json',
             'trakt-api-version': '2',
-            'trakt-api-key': '859d1ad30074136a934c47ba2083cda83620b17b0db8f2d0ec554922116c60a8'
+            'trakt-api-key': 'db74b025288459dc36589f6207fb96aabd83be8ea5d502810a049c29ffd9bff0'
         }
         
         async with aiohttp.ClientSession() as session:
