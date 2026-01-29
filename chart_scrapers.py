@@ -2671,7 +2671,7 @@ class ChartScraper:
         headers = {
             'Content-Type': 'application/json',
             'trakt-api-version': '2',
-            'trakt-api-key': '859d1ad30074136a934c47ba2083cda83620b17b0db8f2d0ec554922116c60a8',
+            'trakt-api-key': 'db74b025288459dc36589f6207fb96aabd83be8ea5d502810a049c29ffd9bff0',
             'User-Agent': 'Mozilla/5.0'
         }
         r = requests.get('https://api.trakt.tv/movies/watched/weekly', params={'limit':10}, headers=headers, timeout=25, verify=False)
@@ -2714,8 +2714,7 @@ class ChartScraper:
         self.db.commit(); logger.info(f"Trakt Movies weekly 入库 {saved} 条"); return saved
 
     async def update_trakt_shows_weekly(self) -> int:
-        """Trakt Shows trending → 'Trakt / Top TV Shows Last Week'"""
-        # 先清空该榜单的旧数据
+        """Trakt Shows most watched weekly → 'Trakt / Top TV Shows Last Week'"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='Trakt',
             ChartEntry.chart_name=='Top TV Shows Last Week'
@@ -2727,31 +2726,18 @@ class ChartScraper:
         headers = {
             'Content-Type': 'application/json',
             'trakt-api-version': '2',
-            'trakt-api-key': '859d1ad30074136a934c47ba2083cda83620b17b0db8f2d0ec554922116c60a8',
+            'trakt-api-key': 'db74b025288459dc36589f6207fb96aabd83be8ea5d502810a049c29ffd9bff0',
             'User-Agent': 'Mozilla/5.0'
         }
-        try:
-            # 使用 trending 端点（watched/weekly 需要 OAuth + VIP）
-            r = requests.get('https://api.trakt.tv/shows/trending', params={'limit':10}, headers=headers, timeout=25, verify=False)
-            logger.info(f"Trakt剧集 trending API响应状态: {r.status_code}")
-            
-            if r.status_code != 200:
-                logger.error(f"Trakt剧集API请求失败: {r.status_code}, 响应: {r.text[:200]}")
-                return 0
-        except Exception as e:
-            logger.error(f"Trakt剧集API请求异常: {e}")
+        r = requests.get('https://api.trakt.tv/shows/watched/weekly', params={'limit':10}, headers=headers, timeout=25, verify=False)
+        if r.status_code != 200:
             return 0
         from chart_scrapers import TMDBMatcher
         matcher = TMDBMatcher(self.db)
         saved = 0
-        shows_data = r.json()
-        logger.info(f"Trakt剧集API返回数据条数: {len(shows_data)}")
-        
-        for idx, it in enumerate(shows_data[:10], 1):
+        for idx, it in enumerate(r.json()[:10], 1):
             title = (it.get('show') or {}).get('title') or ''
             year = (it.get('show') or {}).get('year')
-            logger.info(f"处理Trakt剧集 #{idx}: {title} ({year})")
-            
             match = None
             for attempt in range(3):
                 try:
@@ -2762,14 +2748,11 @@ class ChartScraper:
                     if not info:
                         raise RuntimeError('no info')
                     match = {'tmdb_id': tmdb_id, 'title': self._safe_get_title(info, title), 'poster': info.get('poster_url',''), 'media_type': 'tv'}
-                    logger.info(f"成功匹配TMDB: {title} -> ID {tmdb_id}")
                     break
-                except Exception as e:
-                    logger.warning(f"匹配失败 (尝试 {attempt+1}/3): {title} - {e}")
+                except Exception:
                     if attempt<2:
                         await asyncio.sleep(2**attempt)
             if not match:
-                logger.warning(f"跳过未匹配的剧集: {title}")
                 continue
             
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
