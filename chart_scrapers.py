@@ -372,10 +372,12 @@ class ChartScraper:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             
             api_url = "https://api.graphql.imdb.com/"
+
+            today_date = datetime.now().strftime("%Y-%m-%d")
             
             params = {
                 "operationName": "BatchPage_HomeMain",
-                "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
+                "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10",today": today_date}',
                 "extensions": '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
             }
             
