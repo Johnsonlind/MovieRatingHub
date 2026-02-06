@@ -23,7 +23,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, PublicChartEntry, SchedulerStatus
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
 from redis import asyncio as aioredis
 import json
@@ -194,8 +194,13 @@ async def get_cache(key: str):
         
         if data:
             data = json.loads(data)
-            if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
-                return data
+            # 单平台评分缓存：仅在状态为 SUCCESSFUL 时返回，避免缓存错误状态
+            if isinstance(data, dict) and "status" in data:
+                if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+                    return data
+                return None
+            # 其他类型的数据（多平台汇总、TMDB/TRAKT 代理结果等）直接返回
+            return data
         return None
     except Exception as e:
         logger.error(f"获取缓存出错: {e}")
@@ -206,7 +211,12 @@ async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
     if not redis:
         return
     try:
-        if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+        # 单平台评分缓存：仅在状态为 SUCCESSFUL 时写入
+        if isinstance(data, dict) and "status" in data:
+            if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+                await redis.setex(key, expire, json.dumps(data))
+        else:
+            # 多平台评分汇总或其他结构的数据，按原样缓存
             await redis.setex(key, expire, json.dumps(data))
     except Exception as e:
         logger.error(f"设置缓存出错: {e}")
@@ -730,65 +740,82 @@ async def get_favorite_lists(
     db: Session = Depends(get_db)
 ):
     try:
-        lists = db.query(FavoriteList).filter(
-            FavoriteList.user_id == current_user.id
-        ).all()
-        
-        result = []
-        for list in lists:
-            # 获取排序后的收藏项
-            favorites = db.query(Favorite).filter(
-                Favorite.list_id == list.id
-            ).order_by(
-                Favorite.sort_order.is_(None),
-                Favorite.sort_order,
-                Favorite.id
-            ).all()
-            
-            original_creator = None
-            if list.original_list_id:
-                original_list = db.query(FavoriteList).filter(
-                    FavoriteList.id == list.original_list_id
-                ).first()
-                if original_list:
-                    original_creator_user = db.query(User).filter(
-                        User.id == original_list.user_id
-                    ).first()
-                    if original_creator_user:
-                        original_creator = {
-                            "id": original_creator_user.id,
-                            "username": original_creator_user.username,
-                            "avatar": original_creator_user.avatar
-                        }
-            
-            creator = {
-                "id": current_user.id,
-                "username": current_user.username,
-                "avatar": current_user.avatar
-            }
+        # 预加载收藏项，避免 N+1 查询
+        lists = (
+            db.query(FavoriteList)
+            .options(selectinload(FavoriteList.favorites))
+            .filter(FavoriteList.user_id == current_user.id)
+            .all()
+        )
 
-            result.append({
-            "id": list.id,
-            "name": list.name,
-            "description": list.description,
-            "is_public": list.is_public,
-            "created_at": list.created_at,
-                "original_list_id": list.original_list_id,
-                "original_creator": original_creator,
-                "creator": creator,
-            "favorites": [{
-                "id": fav.id,
-                "media_id": fav.media_id,
-                "media_type": fav.media_type,
-                "title": fav.title,
-                "poster": fav.poster,
-                "year": fav.year,
-                "overview": fav.overview,
-                    "note": fav.note,
-                    "sort_order": fav.sort_order
-                } for fav in favorites]
-            })
-        
+        # 一次性获取所有原始列表及其创建者，避免在循环中多次查询
+        original_list_ids = {lst.original_list_id for lst in lists if lst.original_list_id}
+        original_lists_map = {}
+        original_creators_map = {}
+
+        if original_list_ids:
+            original_lists = (
+                db.query(FavoriteList)
+                .options(selectinload(FavoriteList.user))
+                .filter(FavoriteList.id.in_(original_list_ids))
+                .all()
+            )
+            for ol in original_lists:
+                original_lists_map[ol.id] = ol
+                if ol.user:
+                    original_creators_map[ol.id] = {
+                        "id": ol.user.id,
+                        "username": ol.user.username,
+                        "avatar": ol.user.avatar,
+                    }
+
+        creator = {
+            "id": current_user.id,
+            "username": current_user.username,
+            "avatar": current_user.avatar,
+        }
+
+        result = []
+        for lst in lists:
+            original_creator = original_creators_map.get(lst.original_list_id)
+
+            # 使用已预加载的 favorites 并在 Python 中排序，避免额外查询
+            favorites = sorted(
+                lst.favorites or [],
+                key=lambda fav: (
+                    fav.sort_order is None,
+                    fav.sort_order if fav.sort_order is not None else 0,
+                    fav.id,
+                ),
+            )
+
+            result.append(
+                {
+                    "id": lst.id,
+                    "name": lst.name,
+                    "description": lst.description,
+                    "is_public": lst.is_public,
+                    "created_at": lst.created_at,
+                    "original_list_id": lst.original_list_id,
+                    "original_creator": original_creator,
+                    "creator": creator,
+                    "favorites": [
+                        {
+                            "id": fav.id,
+                            "media_id": fav.media_id,
+                            "media_type": fav.media_type,
+                            "title": fav.title,
+                            "poster": fav.poster,
+                            "year": fav.year,
+                            "overview": fav.overview,
+                            "note": fav.note,
+                            "sort_order": fav.sort_order,
+                        }
+                        for fav in favorites
+                    ],
+                }
+            )
+
         return result
     except Exception as e:
         logger.error(f"获取收藏列表失败: {str(e)}")
@@ -1349,19 +1376,25 @@ async def get_following(
     db: Session = Depends(get_db)
 ):
     try:
-        follows = db.query(Follow).filter(Follow.follower_id == current_user.id).all()
-        result = []
-        for follow in follows:
-            user = db.query(User).filter(User.id == follow.following_id).first()
-            if user:
-                result.append({
-                    "id": user.id,
-                    "username": user.username,
-                    "avatar": user.avatar,
-                    "note": follow.note,
-                    "created_at": follow.created_at
-                })
-        return result
+        # 预加载被关注用户，避免 N+1 查询
+        follows = (
+            db.query(Follow)
+            .options(selectinload(Follow.following))
+            .filter(Follow.follower_id == current_user.id)
+            .all()
+        )
+
+        return [
+            {
+                "id": follow.following.id,
+                "username": follow.following.username,
+                "avatar": follow.following.avatar,
+                "note": follow.note,
+                "created_at": follow.created_at,
+            }
+            for follow in follows
+            if follow.following is not None
+        ]
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -1487,8 +1520,8 @@ async def get_batch_ratings(
         
         douban_cookie = None
         if current_user:
-            db.refresh(current_user)
             if current_user.douban_cookie:
+                # 对于仅仅读取 cookie 的场景，不需要额外 refresh，避免多余 SQL
                 douban_cookie = current_user.douban_cookie
                 print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
             else:
@@ -1638,10 +1671,9 @@ async def get_all_platform_ratings(
         if await request.is_disconnected():
             print("请求已在开始时被取消")
             return None
-        
+
         douban_cookie = None
         if current_user:
-            db.refresh(current_user)
             if current_user.douban_cookie:
                 douban_cookie = current_user.douban_cookie
                 print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
@@ -1725,7 +1757,6 @@ async def get_platform_rating(
         douban_cookie = None
         if platform == "douban":
             if current_user:
-                db.refresh(current_user)
                 if current_user.douban_cookie:
                     douban_cookie = current_user.douban_cookie
                     print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
@@ -2234,11 +2265,18 @@ async def list_chart_entries(
 ):
     if media_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="media_type 必须为 movie 或 tv")
-    items = db.query(ChartEntry).filter(
-        ChartEntry.platform == platform,
-        ChartEntry.chart_name == chart_name,
-        ChartEntry.media_type == media_type,
-    ).order_by(ChartEntry.rank.asc()).all()
+    # 为单个榜单增加合理的最大条目数，避免一次性加载过多记录
+    items = (
+        db.query(ChartEntry)
+        .filter(
+            ChartEntry.platform == platform,
+            ChartEntry.chart_name == chart_name,
+            ChartEntry.media_type == media_type,
+        )
+        .order_by(ChartEntry.rank.asc())
+        .limit(500)
+        .all()
+    )
     return [
         {
             "id": e.id,
