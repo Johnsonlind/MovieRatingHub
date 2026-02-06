@@ -1978,8 +1978,9 @@ async def handle_letterboxd_search(page, search_url, tmdb_info):
         await asyncio.sleep(0.5)
     
         if await _is_cloudflare_challenge(page):
-            print("Letterboxd: 检测到 Cloudflare 安全验证页，等待 5 秒尝试自动通过…")
-            await asyncio.sleep(5)
+            # 等待时间适当缩短，以提升整体响应速度
+            print("Letterboxd: 检测到 Cloudflare 安全验证页，短暂等待后尝试自动通过…")
+            await asyncio.sleep(2)
             if await _is_cloudflare_challenge(page):
                 fs_url = os.environ.get("FLARESOLVERR_URL", "").strip()
                 if fs_url:
@@ -3875,8 +3876,19 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_c
     """
     import time
     start_time = time.time()
-    
+
+    # 需要获取评分的平台列表
     platforms = ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]
+
+    # 为每个平台设置一个“整体时间上限”，避免单个平台长时间拖慢整体体验
+    # 注意：这里只是兜底超时，不会影响已有的请求级别超时配置
+    platform_timeouts = {
+        "douban": 20.0,          # 豆瓣页面结构复杂，适当给多一点时间
+        "imdb": 12.0,
+        "letterboxd": 18.0,      # 可能会触发 Cloudflare 验证
+        "rottentomatoes": 12.0,
+        "metacritic": 12.0,
+    }
     
     title = tmdb_info.get('zh_title') or tmdb_info.get('title', 'Unknown')
     print(log.section(f"并行获取评分: {title} ({media_type})"))
@@ -3921,10 +3933,21 @@ async def parallel_extract_ratings(tmdb_info, media_type, request=None, douban_c
                 return platform, create_error_rating_data(platform, media_type)
     
     sem = asyncio.Semaphore(5)
-    
+
     async def process_with_semaphore(platform):
+        timeout = platform_timeouts.get(platform, 15.0)
         async with sem:
-            return await process_platform(platform)
+            try:
+                return await asyncio.wait_for(process_platform(platform), timeout=timeout)
+            except asyncio.TimeoutError:
+                elapsed = time.time() - start_time
+                print(log.error(f"{platform}: overall timeout after {timeout:.1f}s (elapsed {elapsed:.1f}s)"))
+                return platform, create_error_rating_data(
+                    platform,
+                    media_type,
+                    RATING_STATUS["TIMEOUT"],
+                    f"整体超时 {timeout:.1f} 秒",
+                )
     
     if is_anthology and media_type == "tv":
         print("检测到选集剧，先执行IMDB，然后执行其他平台...")
