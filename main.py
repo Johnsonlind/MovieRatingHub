@@ -1745,16 +1745,8 @@ async def get_platform_rating(
         cache_key = f"rating:{platform}:{type}:{id}"
         cached_data = await get_cache(cache_key)
         if cached_data:
-            if (
-                platform == "douban"
-                and type == "tv"
-                and isinstance(cached_data, dict)
-                and "seasons" not in cached_data
-            ):
-                print("检测到旧版豆瓣剧集缓存（仅整剧评分，无分季信息），忽略缓存并重新抓取最新分季评分")
-            else:
-                print(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
-                return cached_data
+            print(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
+            return cached_data
 
         tmdb_info = await get_tmdb_info(id, type, request)
         if not tmdb_info:
@@ -1780,23 +1772,6 @@ async def get_platform_rating(
 
         extract_start_time = time.time()
         rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request, douban_cookie)
-
-        # 调试日志：检查豆瓣剧集评分结构，确认是否包含分季信息
-        if platform == "douban" and type == "tv" and isinstance(rating_info, dict):
-            try:
-                preview = json.dumps(
-                    {
-                        "keys": list(rating_info.keys()),
-                        "has_seasons": "seasons" in rating_info,
-                        "seasons_len": len(rating_info.get("seasons", [])) if isinstance(rating_info.get("seasons"), list) else None,
-                        "status": rating_info.get("status"),
-                        "rating": rating_info.get("rating"),
-                    },
-                    ensure_ascii=False
-                )
-                print(f"豆瓣剧集评分结构预览: {preview}")
-            except Exception:
-                pass
 
         if await request.is_disconnected():
             print(f"{platform} 请求在获取评分信息后被取消")
