@@ -2564,7 +2564,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                                 if people_match:
                                     season_rating_people = people_match.group(1)
                             
-                            print(f"豆瓣使用备选方法提取第{season_number}季评分成功")
+                            print(f"豆瓣使用备选方法提取第{season_number}季评分成功，评分：{season_rating}，评分人数：{season_rating_people}")
                         
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
                             break
