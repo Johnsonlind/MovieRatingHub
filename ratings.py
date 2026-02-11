@@ -18,7 +18,6 @@ from datetime import datetime
 from browser_pool import browser_pool
 from anthology_handler import anthology_handler
 
-# 日志美化工具
 class LogFormatter:
     """结构化日志输出"""
     COLORS = {
@@ -71,11 +70,9 @@ class LogFormatter:
 
 log = LogFormatter()
 
-# TMDB API 配置
 TMDB_API_BASE_URL = "https://api.themoviedb.org/3/"
 TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
 
-# 创建全局 httpx 客户端用于 TMDB API
 import httpx
 _tmdb_http_client = None
 
@@ -212,7 +209,7 @@ def construct_search_url(title, media_type, platform, tmdb_info):
     return result
 
 def _get_letterboxd_search_urls(tmdb_id, year, imdb_id):
-    """为Letterboxd生成多种搜索URL"""
+    """为Letterboxd生成多种搜索URL：tmdb+year、imdbid、tmdb"""
     urls = []
     if tmdb_id and year:
         urls.append(f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/")
@@ -1893,7 +1890,7 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
             
             if results:
                 print(f"Metacritic找到 {len(results)} 个搜索结果:")
-                for i, r in enumerate(results[:5], 1):  # 只打印前5个
+                for i, r in enumerate(results[:5], 1):
                     print(f"  {i}. {r['title']} ({r['year']})")
             else:
                 print("Metacritic未找到任何搜索结果")
@@ -2351,27 +2348,10 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     try:
                         if platform == "douban":
                             if media_type == "tv" and len(tmdb_info.get("seasons", [])) > 1 and matched_results:
-                                print("检测到多季剧集，优先进行分季抓取以获取所有季评分")
+                                print("检测到多季剧集，优先进行分季抓取以获取所有季评分（网页抓取）")
                                 rating_data = await extract_douban_rating(page, media_type, matched_results)
                             else:
-                                rating_data = None
-                                douban_id = None
-                                
-                                if isinstance(search_results, list) and len(search_results) > 0:
-                                    first_result = search_results[0]
-                                    if isinstance(first_result, dict) and 'url' in first_result:
-                                        url_match = re.search(r'/subject/(\d+)', first_result['url'])
-                                        if url_match:
-                                            douban_id = url_match.group(1)
-                                
-                                if douban_id:
-                                    print(f"尝试使用豆瓣API获取评分 (ID: {douban_id})")
-                                    rating_data = await get_douban_rating_via_api(douban_id, douban_cookie)
-                                
-                                if not rating_data or rating_data.get("status") not in [RATING_STATUS["SUCCESSFUL"], RATING_STATUS["NO_RATING"]]:
-                                    if douban_id:
-                                        print("豆瓣API失败，fallback到网页抓取")
-                                    rating_data = await extract_douban_rating(page, media_type, search_results)
+                                rating_data = await extract_douban_rating(page, media_type, search_results)
                         elif platform == "imdb":
                             imdb_id = tmdb_info.get("imdb_id")
                             rating_data = None
@@ -2440,54 +2420,6 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             return create_empty_rating_data(platform, media_type, RATING_STATUS["FETCH_FAILED"])
 
     return await _extract_rating_with_retry()
-
-async def get_douban_rating_via_api(douban_id: str, douban_cookie: str = None) -> dict:
-    """使用豆瓣移动端API获取评分"""
-    try:
-        import aiohttp
-        
-        url = f"https://m.douban.com/rexxar/api/v2/movie/{douban_id}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-            'Referer': f'https://m.douban.com/movie/subject/{douban_id}/'
-        }
-        
-        if douban_cookie:
-            headers['Cookie'] = douban_cookie
-            print(f"✅ 豆瓣API使用用户自定义Cookie（长度: {len(douban_cookie)}）")
-        else:
-            print("⚠️ 豆瓣API未提供Cookie，使用默认方式")
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=10, ssl=False) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    rating = data.get('rating', {})
-                    rating_value = rating.get('value')
-                    rating_count = rating.get('count')
-                    
-                    if rating_value and rating_count:
-                        print(f"从豆瓣API获取到评分: {rating_value}, 人数: {rating_count}")
-                        return {
-                            "rating": str(rating_value),
-                            "rating_people": str(rating_count),
-                            "status": RATING_STATUS["SUCCESSFUL"]
-                        }
-                    else:
-                        print("豆瓣API返回数据但无评分")
-                        return {
-                            "rating": "暂无",
-                            "rating_people": "暂无",
-                            "status": RATING_STATUS["NO_RATING"]
-                        }
-                else:
-                    print(f"豆瓣API请求失败: {response.status}")
-                    return None
-                    
-    except Exception as e:
-        print(f"豆瓣API调用失败: {e}")
-        return None
 
 async def extract_douban_rating(page, media_type, matched_results):
     """从豆瓣详情页提取评分数据"""
