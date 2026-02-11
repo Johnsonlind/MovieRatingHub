@@ -1480,8 +1480,8 @@ async def handle_douban_search(page, search_url):
         
         try:
             await page.wait_for_load_state('networkidle', timeout=3000)
-        except Exception as e:
-            print(f"豆瓣等待网络空闲超时: {e}")
+        except Exception:
+            pass
         
         await asyncio.sleep(0.2)
         
