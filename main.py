@@ -1781,6 +1781,23 @@ async def get_platform_rating(
         extract_start_time = time.time()
         rating_info = await extract_rating_info(type, platform, tmdb_info, search_results, request, douban_cookie)
 
+        # 调试日志：检查豆瓣剧集评分结构，确认是否包含分季信息
+        if platform == "douban" and type == "tv" and isinstance(rating_info, dict):
+            try:
+                preview = json.dumps(
+                    {
+                        "keys": list(rating_info.keys()),
+                        "has_seasons": "seasons" in rating_info,
+                        "seasons_len": len(rating_info.get("seasons", [])) if isinstance(rating_info.get("seasons"), list) else None,
+                        "status": rating_info.get("status"),
+                        "rating": rating_info.get("rating"),
+                    },
+                    ensure_ascii=False
+                )
+                print(f"豆瓣剧集评分结构预览: {preview}")
+            except Exception:
+                pass
+
         if await request.is_disconnected():
             print(f"{platform} 请求在获取评分信息后被取消")
             return None
