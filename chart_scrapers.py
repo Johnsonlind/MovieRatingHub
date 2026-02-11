@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 尝试导入可选依赖
 try:
     import schedule
     SCHEDULE_AVAILABLE = True
@@ -38,7 +37,7 @@ except ImportError:
 
 
 async def _is_cloudflare_challenge(page) -> bool:
-    """检测当前页面是否为 Cloudflare 安全验证（Just a moment...）"""
+    """检测当前页面是否为 Cloudflare 安全验证"""
     try:
         title = await page.title()
         if title and "Just a moment" in title:
@@ -52,7 +51,7 @@ async def _is_cloudflare_challenge(page) -> bool:
 
 
 async def _letterboxd_flaresolverr(url: str) -> Optional[Dict]:
-    """调用 FlareSolverr 获取 Letterboxd 的 cookies 与 userAgent，失败返回 None"""
+    """调用 FlareSolverr"""
     fs_url = os.environ.get("FLARESOLVERR_URL", "").strip()
     if not fs_url:
         return None
@@ -89,7 +88,7 @@ async def _letterboxd_flaresolverr(url: str) -> Optional[Dict]:
 
 
 def _parse_letterboxd_cookie_string(s: str) -> list:
-    """将 .env 中的 LETTERBOXD_COOKIE 解析为 Playwright add_cookies 所需的列表。格式: name1=value1; name2=value2"""
+    """解析 .env 中的 LETTERBOXD_COOKIE"""
     if not s or not s.strip():
         return []
     out = []
@@ -110,14 +109,14 @@ class ChartScraper:
     
     @staticmethod
     def _safe_get_title(info: Dict, fallback_title: str = '') -> str:
-        """安全获取标题：从 TMDB info 中获取标题，去除空格，确保不为空"""
+        """安全获取标题"""
         zh_title = (info.get('zh_title') or '').strip()
         tmdb_title = (info.get('title') or '').strip()
         tmdb_name = (info.get('name') or '').strip()
         return zh_title or tmdb_title or tmdb_name or fallback_title
 
     async def scrape_douban_weekly_movie_chart(self) -> List[Dict]:
-        """抓取豆瓣一周口碑榜（电影）"""
+        """豆瓣一周口碑榜"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
             try:
@@ -188,7 +187,7 @@ class ChartScraper:
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
     async def scrape_douban_weekly_global_tv_chart(self) -> List[Dict]:
-        """抓取豆瓣一周全球剧集口碑榜 - 使用 requests 并统一返回字段"""
+        """豆瓣一周全球剧集口碑榜"""
         try:
             import requests, urllib3, json
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -270,7 +269,6 @@ class ChartScraper:
                             logger.info(f"从豆瓣详情页获取到IMDb ID: {imdb_id}")
                             return imdb_id
                 
-                # 如果没找到链接，尝试从文本中提取
                 imdb_spans = soup.find_all('span', class_='pl')
                 for span in imdb_spans:
                     if span.get_text().strip() == 'IMDb:':
@@ -307,7 +305,7 @@ class ChartScraper:
             return None
 
     async def scrape_douban_weekly_chinese_tv_chart(self) -> List[Dict]:
-        """抓取豆瓣一周华语剧集口碑榜 - 使用 requests 并统一返回字段"""
+        """豆瓣一周华语剧集口碑榜"""
         try:
             import requests, urllib3, json
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -363,7 +361,7 @@ class ChartScraper:
             return []
 
     async def scrape_imdb_top_10(self) -> List[Dict]:
-        """抓取IMDB Top 10 this week - 使用GraphQL API"""
+        """IMDB Top 10 this week"""
         try:
             logger.info("开始爬取IMDB Top 10榜单")
             
@@ -450,7 +448,7 @@ class ChartScraper:
             return []
 
     async def scrape_letterboxd_popular(self) -> List[Dict]:
-        """抓取Letterboxd Popular films this week"""
+        """Letterboxd Popular films this week"""
         films_url = "https://letterboxd.com/films/"
         async def scrape_with_browser(browser):
             ctx_to_close = None
@@ -511,20 +509,17 @@ class ChartScraper:
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
     async def _rt_extract_itemlist(self, url: str, item_type: str) -> List[Dict]:
-        """使用浏览器读取 JSON-LD ItemList，并返回标准化的条目数组
-        item_type: 'Movie' | 'TVSeries'
-        返回: { position:int|None, name:str, year:int|None, url:str|None }
-        """
+        """使用浏览器读取 JSON-LD ItemList"""
         async def scrape(browser):
             page = await browser.new_page()
             try:
                 page.set_default_timeout(120000)
                 await page.goto(url, wait_until="domcontentloaded", timeout=120000)
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=60000)
+                    await page.wait_for_load_state("networkidle", timeout=3000)
                 except Exception:
-                    logger.warning("网络空闲等待超时，继续执行")
-                await asyncio.sleep(3)
+                    pass
+                await asyncio.sleep(0.2)
                 
                 handles = await page.query_selector_all('script[type="application/ld+json"]')
                 for h in handles:
@@ -586,7 +581,7 @@ class ChartScraper:
         return await browser_pool.execute_in_browser(scrape)
 
     async def update_rotten_movies(self) -> int:
-        """烂番茄 Popular Streaming Movies：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
+        """烂番茄 Popular Streaming Movies"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='烂番茄',
             ChartEntry.chart_name=='Popular Streaming Movies'
@@ -656,7 +651,7 @@ class ChartScraper:
         return saved
 
     async def update_letterboxd_popular(self) -> int:
-        """Letterboxd Popular films this week：进入详情解析 data-tmdb-id，匹配 TMDB 并入库"""
+        """Letterboxd Popular films this week"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='Letterboxd',
             ChartEntry.chart_name=='Popular films this week'
@@ -773,6 +768,7 @@ class ChartScraper:
             return None
 
     async def update_metacritic_movies(self) -> int:
+        """Metacritic Trending Movies This Week"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='MTC',
             ChartEntry.chart_name=='Trending Movies This Week'
@@ -820,6 +816,7 @@ class ChartScraper:
         return saved
 
     async def update_metacritic_shows(self) -> int:
+        """Metacritic Trending Shows This Week"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='MTC',
             ChartEntry.chart_name=='Trending Shows This Week'
@@ -867,7 +864,7 @@ class ChartScraper:
         return saved
 
     async def update_tmdb_trending_all_week(self) -> int:
-        """TMDB 趋势本周（页面顺序）。优先抓取网页 remote/panel 顺序，失败回退官方 API。"""
+        """TMDB 趋势本周"""
         import urllib3, requests, re
         from bs4 import BeautifulSoup
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -971,7 +968,7 @@ class ChartScraper:
         return saved
 
     async def update_tmdb_top250_movies(self) -> int:
-        """TMDB 高分电影 Top 250：使用官方 API 获取，保存前 250 条"""
+        """TMDB 高分电影 Top 250"""
         import requests
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1056,7 +1053,7 @@ class ChartScraper:
         return saved
 
     async def update_tmdb_top250_tv(self) -> int:
-        """TMDB 高分剧集 Top 250：使用官方 API 获取，保存前 250 条"""
+        """TMDB 高分剧集 Top 250"""
         import requests
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1141,7 +1138,7 @@ class ChartScraper:
         return saved
 
     async def scrape_imdb_top250(self, chart_url: str, media_type: str) -> List[Dict]:
-        """抓取 IMDb Top 250 榜单（电影或剧集），直接从页面 DOM 提取数据"""
+        """IMDb Top 250 榜单"""
         async def scrape_with_browser(browser):
             context = None
             page = None
@@ -1613,12 +1610,11 @@ class ChartScraper:
         return saved
 
     async def scrape_douban_top250(self, douban_cookie: Optional[str] = None) -> List[Dict]:
-        """抓取豆瓣 Top 250 榜单，获取电影链接"""
+        """豆瓣 Top 250 榜单"""
         async def scrape_with_browser(browser):
             context = None
             page = None
             try:
-                # 创建浏览器上下文，设置真实的 User-Agent 和 headers（避免被识别为自动化工具）
                 context_options = {
                     'viewport': {'width': 1280, 'height': 720},
                     'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -1786,14 +1782,13 @@ class ChartScraper:
             return []
 
     async def get_douban_imdb_id_with_cookie(self, douban_id: str, douban_cookie: Optional[str] = None, max_retries: int = 2) -> Optional[str]:
-        """从豆瓣详情页获取IMDb ID（支持 Cookie，优化版，带反爬虫规避和重试机制）"""
+        """从豆瓣详情页获取IMDb ID"""
         import random
         
         async def get_with_browser(browser):
             context = None
             page = None
             try:
-                # 创建浏览器上下文，设置真实的 User-Agent 和 headers（避免被识别为自动化工具）
                 context_options = {
                     'viewport': {'width': 1280, 'height': 720},
                     'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -1822,7 +1817,6 @@ class ChartScraper:
                 page = await context.new_page()
                 page.set_default_timeout(30000)
                 
-                # 如果提供了 cookie，设置 cookie（在创建上下文后设置）
                 if douban_cookie:
                     cookies = []
                     for cookie_pair in douban_cookie.split(';'):
@@ -2045,7 +2039,7 @@ class ChartScraper:
         return saved
 
     async def scrape_letterboxd_top250(self) -> List[Dict]:
-        """抓取 Letterboxd Top 250 榜单，获取电影链接和排名"""
+        """Letterboxd Top 250 榜单"""
         async def scrape_with_browser(browser):
             ctx_to_close = None
             page = await browser.new_page()
@@ -2309,12 +2303,11 @@ class ChartScraper:
         return saved
 
     async def scrape_metacritic_top250(self, media_type: str) -> List[Dict]:
-        """抓取 Metacritic Top 250 榜单（电影或剧集），获取排名、名称和年份"""
+        """Metacritic Top 250 榜单"""
         async def scrape_with_browser(browser):
             context = None
             page = None
             try:
-                # 创建浏览器上下文，设置真实的 User-Agent 和 headers（避免被识别为自动化工具）
                 context_options = {
                     'viewport': {'width': 1280, 'height': 720},
                     'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -2801,7 +2794,7 @@ class ChartScraper:
         self.db.commit(); logger.info(f"IMDb Top 10 入库 {saved} 条"); return saved
 
     async def update_douban_weekly_movie(self) -> int:
-        """豆瓣一周口碑榜（电影）：进入详情页取 IMDb ID 匹配 TMDB 并入库，失败时使用原标题匹配"""
+        """豆瓣一周口碑榜"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='豆瓣',
             ChartEntry.chart_name=='一周口碑榜'
@@ -2905,7 +2898,7 @@ class ChartScraper:
         saved = 0; rank = 1
         for it in items[:10]:
             title = it.get('title') or ''
-            douban_id = it.get('douban_id') or ''  # 修复字段名
+            douban_id = it.get('douban_id') or ''
             match = None
             original_title = None
             
@@ -2947,7 +2940,7 @@ class ChartScraper:
         self.db.commit(); logger.info(f"豆瓣 一周全球剧集口碑榜 入库 {saved} 条"); return saved
     
     async def update_rotten_tv(self) -> int:
-        """烂番茄 Popular TV：解析 JSON-LD，匹配 TMDB 并入库，返回写入条数"""
+        """烂番茄 Popular TV"""
         deleted = self.db.query(ChartEntry).filter(
             ChartEntry.platform=='烂番茄',
             ChartEntry.chart_name=='Popular TV'
@@ -2970,7 +2963,7 @@ class ChartScraper:
                 if attempt == max_retries - 1:
                     logger.error("烂番茄TV榜单抓取最终失败")
                     return 0
-                await asyncio.sleep(5 * (attempt + 1))  # 递增等待时间
+                await asyncio.sleep(5 * (attempt + 1))
         
         saved = 0
         rank = 1
@@ -3018,7 +3011,7 @@ class ChartScraper:
         return saved
     
     async def scrape_metacritic_trending_movies(self) -> List[Dict]:
-        """抓取Metacritic Trending Movies This Week"""
+        """Metacritic Trending Movies This Week"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
             try:
@@ -3073,7 +3066,7 @@ class ChartScraper:
         return await browser_pool.execute_in_browser(scrape_with_browser)
     
     async def scrape_metacritic_trending_shows(self) -> List[Dict]:
-        """抓取Metacritic Trending Shows This Week"""
+        """Metacritic Trending Shows This Week"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
             try:
@@ -3134,14 +3127,14 @@ class TMDBMatcher:
     
     @staticmethod
     def _safe_get_title(info: Dict, fallback_title: str = '') -> str:
-        """安全获取标题：从 TMDB info 中获取标题，去除空格，确保不为空"""
+        """安全获取标题"""
         zh_title = (info.get('zh_title') or '').strip()
         tmdb_title = (info.get('title') or '').strip()
         tmdb_name = (info.get('name') or '').strip()
         return zh_title or tmdb_title or tmdb_name or fallback_title
         
     async def match_imdb_with_tmdb(self, imdb_id: str, title: str, media_type: str, max_retries: int = 3) -> Optional[Dict]:
-        """通过IMDB ID匹配TMDB ID，返回包含海报信息的字典，支持重试机制"""
+        """通过IMDB ID匹配TMDB ID"""
         for attempt in range(max_retries):
             try:
                 logger.info(f"尝试匹配IMDB ID {imdb_id} ({title}) - 第 {attempt + 1} 次尝试")
@@ -3199,7 +3192,7 @@ class TMDBMatcher:
                 
                 if attempt < max_retries - 1:
                     logger.warning(f"第 {attempt + 1} 次尝试失败，等待 {2 ** attempt} 秒后重试...")
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    await asyncio.sleep(2 ** attempt)
                 else:
                     logger.error(f"经过 {max_retries} 次尝试后，仍无法匹配: {title}")
                     return None
@@ -3207,14 +3200,14 @@ class TMDBMatcher:
             except Exception as e:
                 logger.error(f"IMDB匹配失败 (第 {attempt + 1} 次尝试): {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    await asyncio.sleep(2 ** attempt)
                 else:
                     return None
             
         return None
         
     async def match_douban_with_tmdb(self, douban_id: str, title: str, media_type: str, max_retries: int = 3) -> Optional[Dict]:
-        """通过豆瓣ID和标题匹配TMDB ID，返回包含海报信息的字典，支持重试机制"""
+        """通过豆瓣ID和标题匹配TMDB ID"""
         for attempt in range(max_retries):
             try:
                 logger.info(f"尝试匹配豆瓣ID {douban_id} ({title}) - 第 {attempt + 1} 次尝试")
@@ -3268,7 +3261,7 @@ class TMDBMatcher:
             except Exception as e:
                 logger.error(f"豆瓣匹配失败 (第 {attempt + 1} 次尝试): {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    await asyncio.sleep(2 ** attempt)
                 else:
                     return None
         
@@ -3277,7 +3270,7 @@ class TMDBMatcher:
     
     
     async def extract_douban_original_title(self, douban_id: str) -> Optional[str]:
-        """通用的豆瓣原名提取函数：从详情页 JSON-LD 和 HTML 中提取原名"""
+        """从豆瓣详情页 JSON-LD 和 HTML 中提取原名"""
         try:
             import requests, urllib3, json
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -3357,7 +3350,7 @@ class TMDBMatcher:
             return None
     
     def clean_title_for_search(self, title: str) -> str:
-        """清理标题，移除季数、集数、重映等后缀，用于TMDB搜索"""
+        """清理标题"""
         import re
         
         season_patterns = [
@@ -3448,7 +3441,7 @@ class TMDBMatcher:
             return None
 
     async def match_by_title_and_year(self, title: str, media_type: str, year: str = None) -> Optional[int]:
-        """通过标题和年份匹配TMDB ID，使用模糊匹配找到最佳结果，支持原名匹配。改用 Bearer Token 并增加多语言与无语言兜底。"""
+        """通过标题和年份匹配TMDB ID"""
         try:
             import requests
             import urllib3
@@ -3525,7 +3518,7 @@ class TMDBMatcher:
             return None
     
     async def get_tmdb_info(self, tmdb_id: int, media_type: str, max_retries: int = 3) -> Optional[Dict]:
-        """获取TMDB详细信息，参考ratings.py的实现，支持重试机制"""
+        """获取TMDB详细信息"""
         for attempt in range(max_retries):
             try:
                 import requests
@@ -3540,14 +3533,14 @@ class TMDBMatcher:
                 else:
                     logger.error(f"获取{media_type}信息失败，状态码: {response.status_code}")
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(2 ** attempt)  # 指数退避
+                        await asyncio.sleep(2 ** attempt)
                         continue
                     return None
 
                 if not en_data:
                     logger.error("API返回的数据为空")
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(2 ** attempt)  # 指数退避
+                        await asyncio.sleep(2 ** attempt)
                         continue
                     return None
                     
@@ -3590,7 +3583,7 @@ class TMDBMatcher:
             except Exception as e:
                 logger.error(f"获取TMDB信息失败 (第 {attempt + 1} 次尝试): {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    await asyncio.sleep(2 ** attempt)
                 else:
                     return None
         
@@ -3688,7 +3681,7 @@ telegram_notifier = TelegramNotifier()
 class AutoUpdateScheduler:
     def __init__(self):
         self.running = False
-        self.update_interval = 3600  # 默认1小时
+        self.update_interval = 3600
         self.last_update = None
         self.task = None
         
@@ -3855,7 +3848,7 @@ class AutoUpdateScheduler:
             db.close()
 
     async def _update_loop(self):
-        """更新循环 - 每10秒检查一次是否到了21:30，确保能及时触发更新"""
+        """更新循环"""
         logger.info("更新循环已启动，每10秒检查一次是否到了21:30")
         while self.running:
             try:
