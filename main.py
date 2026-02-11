@@ -1745,8 +1745,16 @@ async def get_platform_rating(
         cache_key = f"rating:{platform}:{type}:{id}"
         cached_data = await get_cache(cache_key)
         if cached_data:
-            print(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
-            return cached_data
+            if (
+                platform == "douban"
+                and type == "tv"
+                and isinstance(cached_data, dict)
+                and "seasons" not in cached_data
+            ):
+                print("检测到旧版豆瓣剧集缓存（仅整剧评分，无分季信息），忽略缓存并重新抓取最新分季评分")
+            else:
+                print(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
+                return cached_data
 
         tmdb_info = await get_tmdb_info(id, type, request)
         if not tmdb_info:
