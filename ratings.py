@@ -1186,7 +1186,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                 page.set_default_timeout(20000)
                 if platform == "letterboxd":
                     try:
-                        from playwright_stealth import stealth_async
+                        from playwright_stealth import stealth_async  # type: ignore[reportMissingImports]
                         await stealth_async(page)
                     except Exception:
                         pass
