@@ -2485,7 +2485,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                     })
         
         season_results.sort(key=lambda x: x["season_number"])
-        has_season_results = len(season_results) > 0
         
         if not season_results:
             if "暂无评分" in content or "尚未上映" in content:
@@ -2604,19 +2603,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                     print(f"豆瓣第{season_number}季访问超时，跳过此季")
                 continue
         
-        # 调试：查看豆瓣分季抓取情况
-        try:
-            print(f"豆瓣分季抓取调试: has_season_results={has_season_results}, collected_seasons={len(ratings['seasons'])}")
-        except Exception:
-            pass
-
-        # 仅在根本没有检测到任何分季结果时，才退回到整剧评分
-        if (
-            not ratings["seasons"]
-            and not has_season_results
-            and rating not in [None, "暂无"]
-            and rating_people not in [None, "暂无"]
-        ):
+        if not ratings["seasons"] and rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
             return {
                 "status": RATING_STATUS["SUCCESSFUL"],
                 "rating": rating,
