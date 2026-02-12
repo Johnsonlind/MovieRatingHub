@@ -1233,6 +1233,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                         
                         if results and isinstance(results, dict) and results.get("status") == RATING_STATUS["NO_FOUND"]:
                             print(f"Letterboxd所有搜索方式都未找到结果，确认未收录")
+                            return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
                     else:
                         if not search_urls:
                             print(f"{platform} 无法构造搜索URL")
