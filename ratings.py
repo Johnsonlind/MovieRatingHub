@@ -2450,14 +2450,16 @@ async def extract_douban_rating(page, media_type, matched_results):
         if json_match:
             rating_people = json_match.group(1)
             rating = json_match.group(4)
-            print(f"豆瓣评分获取成功")
+            print(f"豆瓣评分获取成功 -> rating={rating}, rating_people={rating_people}")
         else:
             rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', content)
             rating = rating_match.group(1).strip() if rating_match and rating_match.group(1).strip() else "暂无"
-            
             people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', content)
             rating_people = people_match.group(1) if people_match else "暂无"
-            print(f"豆瓣评分获取成功")
+            if rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
+                print(f"豆瓣评分获取成功 -> rating={rating}, rating_people={rating_people}")
+            else:
+                print(f"豆瓣评分解析结果(备选) -> rating={rating}, rating_people={rating_people}")
             
         if media_type != "tv":
             if "暂无评分" in content or "尚未上映" in content:
