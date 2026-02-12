@@ -2535,6 +2535,8 @@ async def extract_douban_rating(page, media_type, matched_results):
                     print(f"豆瓣获取第{season_number}季页面内容失败: {e}")
                     continue
                 
+                season_rating = "暂无"
+                season_rating_people = "暂无"
                 for attempt in range(3):
                     try:
                         json_match = re.search(r'"aggregateRating":\s*{\s*"@type":\s*"AggregateRating",\s*"ratingCount":\s*"([^"]+)",\s*"bestRating":\s*"([^"]+)",\s*"worstRating":\s*"([^"]+)",\s*"ratingValue":\s*"([^"]+)"', season_content)
@@ -2564,7 +2566,8 @@ async def extract_douban_rating(page, media_type, matched_results):
                                 if people_match:
                                     season_rating_people = people_match.group(1)
                             
-                            print(f"豆瓣使用备选方法提取第{season_number}季评分成功")
+                            if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
+                                print(f"豆瓣使用备选方法提取第{season_number}季评分成功")
                         
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
                             break
@@ -2578,6 +2581,23 @@ async def extract_douban_rating(page, media_type, matched_results):
                             season_content = await page.content()
                             continue
                 
+                # 若尝试循环后仍为暂无，用 season_content 做最后一次正则解析（不依赖 DOM）
+                if season_rating in ["暂无", "", None] or season_rating_people in ["暂无", "", None]:
+                    json_match = re.search(r'"aggregateRating":\s*{\s*"@type":\s*"AggregateRating",\s*"ratingCount":\s*"([^"]+)",\s*"bestRating":\s*"([^"]+)",\s*"worstRating":\s*"([^"]+)",\s*"ratingValue":\s*"([^"]+)"', season_content)
+                    if json_match:
+                        season_rating_people = json_match.group(1)
+                        season_rating = json_match.group(4)
+                        print(f"豆瓣从页面 JSON 提取到第{season_number}季评分成功")
+                    else:
+                        rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', season_content)
+                        if rating_match and rating_match.group(1).strip():
+                            season_rating = rating_match.group(1).strip()
+                        people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', season_content)
+                        if people_match:
+                            season_rating_people = people_match.group(1)
+                        if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
+                            print(f"豆瓣从页面 HTML 提取到第{season_number}季评分成功")
+                
                 if "暂无评分" in season_content or "尚未上映" in season_content:
                     ratings["seasons"].append({
                         "season_number": season_number,
@@ -2585,17 +2605,22 @@ async def extract_douban_rating(page, media_type, matched_results):
                         "rating_people": "暂无",
                         "url": url
                     })
+                elif season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
+                    all_seasons_no_rating = False
+                    ratings["seasons"].append({
+                        "season_number": season_number,
+                        "rating": str(season_rating).strip(),
+                        "rating_people": str(season_rating_people).strip(),
+                        "url": url
+                    })
                 else:
-                    if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
-                        all_seasons_no_rating = False
-                        ratings["seasons"].append({
-                            "season_number": season_number,
-                            "rating": season_rating,
-                            "rating_people": season_rating_people,
-                            "url": url
-                        })
-                    else:
-                        continue
+                    # 解析失败也追加一条占位，保证季数与 TMDB 一致，便于前端展示
+                    ratings["seasons"].append({
+                        "season_number": season_number,
+                        "rating": "暂无",
+                        "rating_people": "暂无",
+                        "url": url
+                    })
                 
             except Exception as e:
                 print(f"豆瓣获取第{season_number}季评分时出错: {e}")
