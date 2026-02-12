@@ -490,7 +490,7 @@ async def update_douban_cookie(
 async def get_douban_cookie(
     current_user: User = Depends(get_current_user)
 ):
-    """获取用户的豆瓣Cookie状态（不返回实际Cookie值）"""
+    """获取用户的豆瓣Cookie状态"""
     return {
         "has_cookie": bool(current_user.douban_cookie)
     }
@@ -961,7 +961,6 @@ async def update_favorite_list(
                 detail="收藏列表不存在或无权限修改"
             )
         
-        # 检查是否有同名列表
         if data.get("name") and data["name"] != favorite_list.name:
             existing_list = db.query(FavoriteList).filter(
                 FavoriteList.user_id == current_user.id,
@@ -1249,7 +1248,6 @@ async def get_user_favorite_lists(
         
         result = []
         for list in lists:
-            # 获取排序后的收藏项
             favorites = db.query(Favorite).filter(
                 Favorite.list_id == list.id
             ).order_by(
@@ -1456,33 +1454,7 @@ async def get_batch_ratings(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """批量获取多个影视的评分信息（高性能版）
-    
-    请求格式：
-    {
-        "items": [
-            {"type": "movie", "id": "550"},
-            {"type": "tv", "id": "1396"},
-            ...
-        ],
-        "max_concurrent": 5  // 可选，最大并发数，默认5
-    }
-    
-    响应格式：
-    {
-        "results": {
-            "550": { "ratings": {...}, "status": "success" },
-            "1396": { "ratings": {...}, "status": "success" }
-        },
-        "_performance": {
-            "total_time": 12.5,
-            "total_items": 10,
-            "cached_items": 3,
-            "fetched_items": 7,
-            "avg_time_per_item": 1.25
-        }
-    }
-    """
+    """批量获取多个影视的评分信息"""
     start_time = time.time()
     try:
         body = await request.json()
@@ -1715,24 +1687,6 @@ async def get_all_platform_ratings(
         logger.error(f"获取所有平台评分失败: {str(e)[:100]}")
         raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
 
-
-def _log_platform_rating(platform: str, media_type: str, data: dict):
-    """日志输出：每个平台具体获取到的评分"""
-    status = data.get("status", "")
-    if media_type == "tv" and data.get("seasons"):
-        parts = [f"共 {len(data['seasons'])} 季"]
-        for s in data["seasons"]:
-            sn = s.get("season_number", "?")
-            r = s.get("rating") or s.get("tomatometer") or s.get("metascore") or s.get("vote_average") or "暂无"
-            rp = s.get("rating_people") or s.get("audience_count") or s.get("critics_count") or s.get("votes") or "暂无"
-            parts.append(f"第{sn}季: {r} (人数/票数: {rp})")
-        print(f"[评分日志] {platform} 获取到的评分: status={status}, {'; '.join(parts)}")
-    else:
-        r = data.get("rating") or data.get("tomatometer") or data.get("metascore") or data.get("vote_average") or "暂无"
-        rp = data.get("rating_people") or data.get("audience_count") or data.get("votes") or data.get("rating_count") or "暂无"
-        print(f"[评分日志] {platform} 获取到的评分: status={status}, rating={r}, rating_people/votes={rp}")
-
-
 @app.get("/api/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(
     platform: str, 
@@ -1805,10 +1759,6 @@ async def get_platform_rating(
             print(f"{platform} 评分提取被取消")
             return None
 
-        # 日志：每个平台具体获取到的评分
-        if isinstance(rating_info, dict):
-            _log_platform_rating(platform, type, rating_info)
-
         if isinstance(rating_info, dict) and rating_info.get("status") == RATING_STATUS["SUCCESSFUL"]:
             await set_cache(cache_key, rating_info)
             print(f"已缓存 {platform} 评分数据")
@@ -1845,7 +1795,7 @@ router = APIRouter()
 _tmdb_client = None
 
 async def get_tmdb_client():
-    """获取或创建 TMDB API 客户端（连接池）"""
+    """获取或创建 TMDB API 客户端"""
     global _tmdb_client
     if _tmdb_client is None or _tmdb_client.is_closed:
         _tmdb_client = httpx.AsyncClient(
@@ -1866,7 +1816,7 @@ async def get_tmdb_client():
 
 @router.get("/api/tmdb-proxy/{path:path}")
 async def tmdb_proxy(path: str, request: Request):
-    """代理 TMDB API 请求并缓存结果（优化版：HTTP/2 + 连接池 + Bearer Token）"""
+    """代理 TMDB API 请求并缓存结果"""
     try:
         cache_key = f"tmdb:{path}:{request.query_params}"
         cached_data = await get_cache(cache_key)
@@ -2031,7 +1981,7 @@ def require_admin(user: User):
         raise HTTPException(status_code=403, detail="需要管理员权限")
 
 async def tmdb_enrich(tmdb_id: int, media_type: str):
-    """使用多语言回退获取TMDB信息（包括poster）"""
+    """使用多语言回退获取TMDB信息"""
     from ratings import _fetch_tmdb_with_language_fallback, get_tmdb_http_client
     
     try:
@@ -2678,7 +2628,7 @@ async def auto_update_platform_charts(
             "Letterboxd": [scraper.update_letterboxd_popular],
             "烂番茄": [scraper.update_rotten_movies, scraper.update_rotten_tv],
             "MTC": [scraper.update_metacritic_movies, scraper.update_metacritic_shows],
-            "TMDB": [scraper.update_tmdb_trending_all_week],  # Top 250 榜单需要单独更新
+            "TMDB": [scraper.update_tmdb_trending_all_week],
             "Trakt": [scraper.update_trakt_movies_weekly, scraper.update_trakt_shows_weekly]
         }
         
@@ -2787,6 +2737,115 @@ async def update_top250_chart(
             )
         logger.error(f"更新 Top 250 榜单失败: {e}")
         raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
+
+@app.post("/api/charts/clear/{platform}")
+async def clear_platform_charts(
+    platform: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """清空指定平台的所有榜单（排除 Top 250 榜单）"""
+    require_admin(current_user)
+    
+    try:
+        top250_chart_names = [
+            "IMDb Top 250 Movies",
+            "IMDb Top 250 TV Shows",
+            "Letterboxd Official Top 250",
+            "豆瓣 Top 250",
+            "Metacritic Best Movies of All Time",
+            "Metacritic Best TV Shows of All Time",
+            "TMDB Top 250 Movies",
+            "TMDB Top 250 TV Shows",
+        ]
+        
+        deleted_count = db.query(ChartEntry).filter(
+            ChartEntry.platform == platform,
+            ~ChartEntry.chart_name.in_(top250_chart_names)
+        ).delete()
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"已清空 {platform} 平台的所有榜单（Top 250 榜单除外），共删除 {deleted_count} 条记录",
+            "deleted_count": deleted_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"清空 {platform} 平台榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"清空榜单失败: {str(e)}")
+
+@app.post("/api/charts/clear-top250")
+async def clear_top250_chart(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """清空单个 Top 250 榜单"""
+    require_admin(current_user)
+    
+    try:
+        body = await request.json()
+        platform = body.get("platform")
+        chart_name = body.get("chart_name")
+        
+        if not platform or not chart_name:
+            raise HTTPException(status_code=400, detail="缺少必要参数：platform 和 chart_name")
+        
+        deleted_count = db.query(ChartEntry).filter(
+            ChartEntry.platform == platform,
+            ChartEntry.chart_name == chart_name
+        ).delete()
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"已清空 {platform} - {chart_name}，共删除 {deleted_count} 条记录",
+            "platform": platform,
+            "chart_name": chart_name,
+            "deleted_count": deleted_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"清空 Top 250 榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"清空失败: {str(e)}")
+
+@app.post("/api/charts/clear-all")
+async def clear_all_charts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """清空所有平台的所有榜单（排除 Top 250 榜单）"""
+    require_admin(current_user)
+    
+    try:
+        top250_chart_names = [
+            "IMDb Top 250 Movies",
+            "IMDb Top 250 TV Shows",
+            "Letterboxd Official Top 250",
+            "豆瓣 Top 250",
+            "Metacritic Best Movies of All Time",
+            "Metacritic Best TV Shows of All Time",
+            "TMDB Top 250 Movies",
+            "TMDB Top 250 TV Shows",
+        ]
+        
+        deleted_count = db.query(ChartEntry).filter(
+            ~ChartEntry.chart_name.in_(top250_chart_names)
+        ).delete()
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"已清空所有平台的所有榜单（Top 250 榜单除外），共删除 {deleted_count} 条记录",
+            "deleted_count": deleted_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"清空所有榜单失败: {e}")
+        raise HTTPException(status_code=500, detail=f"清空所有榜单失败: {str(e)}")
 
 @app.post("/api/scheduler/test-notification")
 async def test_notification(
@@ -3039,115 +3098,6 @@ async def startup_event():
             logger.info("生产环境：定时调度器已自动启动")
         except Exception as e:
             logger.error(f"生产环境：自动启动调度器失败: {e}")
-
-@app.post("/api/charts/clear/{platform}")
-async def clear_platform_charts(
-    platform: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """清空指定平台的所有榜单（排除 Top 250 榜单）"""
-    require_admin(current_user)
-    
-    try:
-        top250_chart_names = [
-            "IMDb Top 250 Movies",
-            "IMDb Top 250 TV Shows",
-            "Letterboxd Official Top 250",
-            "豆瓣 Top 250",
-            "Metacritic Best Movies of All Time",
-            "Metacritic Best TV Shows of All Time",
-            "TMDB Top 250 Movies",
-            "TMDB Top 250 TV Shows",
-        ]
-        
-        deleted_count = db.query(ChartEntry).filter(
-            ChartEntry.platform == platform,
-            ~ChartEntry.chart_name.in_(top250_chart_names)
-        ).delete()
-        db.commit()
-        
-        return {
-            "status": "success",
-            "message": f"已清空 {platform} 平台的所有榜单（Top 250 榜单除外），共删除 {deleted_count} 条记录",
-            "deleted_count": deleted_count,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"清空 {platform} 平台榜单失败: {e}")
-        raise HTTPException(status_code=500, detail=f"清空榜单失败: {str(e)}")
-
-@app.post("/api/charts/clear-top250")
-async def clear_top250_chart(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """清空单个 Top 250 榜单"""
-    require_admin(current_user)
-    
-    try:
-        body = await request.json()
-        platform = body.get("platform")
-        chart_name = body.get("chart_name")
-        
-        if not platform or not chart_name:
-            raise HTTPException(status_code=400, detail="缺少必要参数：platform 和 chart_name")
-        
-        deleted_count = db.query(ChartEntry).filter(
-            ChartEntry.platform == platform,
-            ChartEntry.chart_name == chart_name
-        ).delete()
-        db.commit()
-        
-        return {
-            "status": "success",
-            "message": f"已清空 {platform} - {chart_name}，共删除 {deleted_count} 条记录",
-            "platform": platform,
-            "chart_name": chart_name,
-            "deleted_count": deleted_count,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"清空 Top 250 榜单失败: {e}")
-        raise HTTPException(status_code=500, detail=f"清空失败: {str(e)}")
-
-@app.post("/api/charts/clear-all")
-async def clear_all_charts(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """清空所有平台的所有榜单（排除 Top 250 榜单）"""
-    require_admin(current_user)
-    
-    try:
-        top250_chart_names = [
-            "IMDb Top 250 Movies",
-            "IMDb Top 250 TV Shows",
-            "Letterboxd Official Top 250",
-            "豆瓣 Top 250",
-            "Metacritic Best Movies of All Time",
-            "Metacritic Best TV Shows of All Time",
-            "TMDB Top 250 Movies",
-            "TMDB Top 250 TV Shows",
-        ]
-        
-        deleted_count = db.query(ChartEntry).filter(
-            ~ChartEntry.chart_name.in_(top250_chart_names)
-        ).delete()
-        db.commit()
-        
-        return {
-            "status": "success",
-            "message": f"已清空所有平台的所有榜单（Top 250 榜单除外），共删除 {deleted_count} 条记录",
-            "deleted_count": deleted_count,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"清空所有榜单失败: {e}")
-        raise HTTPException(status_code=500, detail=f"清空所有榜单失败: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
