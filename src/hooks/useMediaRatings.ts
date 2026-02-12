@@ -32,7 +32,12 @@ interface UseMediaRatingsReturn {
 
 const BACKEND_PLATFORMS = ['douban', 'imdb', 'letterboxd', 'rottentomatoes', 'metacritic'] as const;
 
-function mapBackendStatusToFrontend(status: string): FetchStatus {
+const BACKEND_PLATFORM_FETCH_TIMEOUT_MS = 120_000;
+
+function mapBackendStatusToFrontend(data: { status?: string; status_reason?: string }): FetchStatus {
+  const status = data?.status ?? '';
+  const reason = data?.status_reason ?? '';
+  if (reason.includes('未收录')) return 'not_found';
   switch (status) {
     case 'Successful':
       return 'successful';
@@ -111,23 +116,28 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
 
         // 获取后端平台评分
         const backendPromises = BACKEND_PLATFORMS.map(async platform => {
+          const platformAbort = new AbortController();
+          const timeoutId = setTimeout(() => platformAbort.abort(), BACKEND_PLATFORM_FETCH_TIMEOUT_MS);
           try {
             const response = await fetch(`/api/ratings/${platform}/${apiType}/${mediaId}`, {
+              signal: platformAbort.signal,
               ...(token && { headers: { 'Authorization': `Bearer ${token}` } })
             });
+            clearTimeout(timeoutId);
             if (!response.ok) throw new Error('获取评分失败');
             const data = await response.json();
 
             setPlatformStatuses(prev => ({
               ...prev,
               [platform]: {
-                status: mapBackendStatusToFrontend(data.status),
+                status: mapBackendStatusToFrontend(data),
                 data
               }
             }));
 
             return { platform, status: 'successful', data };
           } catch (error) {
+            clearTimeout(timeoutId);
             setPlatformStatuses(prev => ({
               ...prev,
               [platform]: { status: 'error', data: null }
