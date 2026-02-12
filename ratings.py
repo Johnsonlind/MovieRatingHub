@@ -2428,6 +2428,12 @@ async def extract_douban_rating(page, media_type, matched_results):
             await page.wait_for_load_state("domcontentloaded", timeout=8000)
         except Exception as e:
             print(f"豆瓣等待domcontentloaded超时或失败，继续尝试直接解析: {e}")
+        # 等待评分相关元素出现（豆瓣部分页面由 JS 渲染，需给足时间）
+        try:
+            await page.wait_for_selector("strong.rating_num, span[property='v:votes'], [class*='rating_num']", timeout=6000)
+        except Exception:
+            pass
+        await asyncio.sleep(0.4)
         content = None
         for attempt in range(2):
             try:
@@ -2456,10 +2462,25 @@ async def extract_douban_rating(page, media_type, matched_results):
             rating = rating_match.group(1).strip() if rating_match and rating_match.group(1).strip() else "暂无"
             people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', content)
             rating_people = people_match.group(1) if people_match else "暂无"
+            if rating in [None, "暂无"] or rating_people in [None, "暂无"]:
+                try:
+                    rating = await page.evaluate('''() => {
+                        const el = document.querySelector('strong.rating_num');
+                        return el ? el.textContent.trim() : "暂无";
+                    }''') or "暂无"
+                    rating_people = await page.evaluate('''() => {
+                        const el = document.querySelector('span[property="v:votes"]');
+                        return el ? el.textContent.trim() : "暂无";
+                    }''') or "暂无"
+                except Exception:
+                    pass
             if rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
                 print(f"豆瓣评分获取成功 -> rating={rating}, rating_people={rating_people}")
             else:
-                print(f"豆瓣评分解析结果(备选) -> rating={rating}, rating_people={rating_people}")
+                if "暂无评分" in content or "尚未上映" in content:
+                    print(f"豆瓣评分解析结果(备选) -> rating={rating}, rating_people={rating_people}（页面含「暂无评分/尚未上映」，豆瓣当前无评分）")
+                else:
+                    print(f"豆瓣评分解析结果(备选) -> rating={rating}, rating_people={rating_people}（页面未匹配到评分元素，可能需 Cookie 或页面结构变化）")
             
         if media_type != "tv":
             if "暂无评分" in content or "尚未上映" in content:
