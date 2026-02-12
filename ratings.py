@@ -2628,8 +2628,8 @@ async def extract_douban_rating(page, media_type, matched_results):
                     print(f"豆瓣第{season_number}季访问超时，跳过此季")
                 continue
         
+        # 如果所有季都解析失败（seasons 为空），但有有效的整体评分，返回整体评分
         if not ratings["seasons"] and rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
-            # 多季剧但未解析到任一分季时仍返回统一结构，便于前端与缓存
             return {
                 "status": RATING_STATUS["SUCCESSFUL"],
                 "rating": rating,
@@ -2637,9 +2637,26 @@ async def extract_douban_rating(page, media_type, matched_results):
                 "seasons": []
             }
         
+        # 如果所有季都解析失败且无整体评分，但 season_results 不为空（说明找到了匹配的季），
+        # 仍返回包含所有季的结构（即使都是"暂无"），避免被误判为"未收录"
+        if not ratings["seasons"] and season_results:
+            # 为所有匹配到的季创建"暂无"占位条目（确保季数与 TMDB 一致）
+            for season_info in season_results:
+                season_number = season_info.get("season_number")
+                if season_number:
+                    # 检查是否已存在（避免重复）
+                    if not any(s.get("season_number") == season_number for s in ratings["seasons"]):
+                        ratings["seasons"].append({
+                            "season_number": season_number,
+                            "rating": "暂无",
+                            "rating_people": "暂无",
+                            "url": season_info.get("url", "")
+                        })
+        
         if all_seasons_no_rating and ratings["seasons"]:
             ratings["status"] = RATING_STATUS["NO_RATING"]
         elif not ratings["seasons"]:
+            # 只有在完全没有匹配到任何季时才返回 FETCH_FAILED
             ratings["status"] = RATING_STATUS["FETCH_FAILED"]
         else:
             # 有有效分季时补充顶层 rating/rating_people（首季），便于前端与缓存兼容
