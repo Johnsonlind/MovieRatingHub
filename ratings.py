@@ -2428,7 +2428,6 @@ async def extract_douban_rating(page, media_type, matched_results):
             await page.wait_for_load_state("domcontentloaded", timeout=8000)
         except Exception as e:
             print(f"豆瓣等待domcontentloaded超时或失败，继续尝试直接解析: {e}")
-        # 等待评分相关元素出现（豆瓣部分页面由 JS 渲染，需给足时间）
         try:
             await page.wait_for_selector("strong.rating_num, span[property='v:votes'], [class*='rating_num']", timeout=6000)
         except Exception:
@@ -2456,7 +2455,6 @@ async def extract_douban_rating(page, media_type, matched_results):
         if json_match:
             rating_people = json_match.group(1)
             rating = json_match.group(4)
-            print(f"豆瓣评分获取成功 -> rating={rating}, rating_people={rating_people}")
         else:
             rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', content)
             rating = rating_match.group(1).strip() if rating_match and rating_match.group(1).strip() else "暂无"
@@ -2475,12 +2473,9 @@ async def extract_douban_rating(page, media_type, matched_results):
                 except Exception:
                     pass
             if rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
-                print(f"豆瓣评分获取成功 -> rating={rating}, rating_people={rating_people}")
+                pass
             else:
-                if "暂无评分" in content or "尚未上映" in content:
-                    print(f"豆瓣评分解析结果(备选) -> rating={rating}, rating_people={rating_people}（页面含「暂无评分/尚未上映」，豆瓣当前无评分）")
-                else:
-                    print(f"豆瓣评分解析结果(备选) -> rating={rating}, rating_people={rating_people}（页面未匹配到评分元素，可能需 Cookie 或页面结构变化）")
+                pass
             
         if media_type != "tv":
             if "暂无评分" in content or "尚未上映" in content:
@@ -2565,7 +2560,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                         "rating_people": str(rating_people).strip(),
                         "url": url
                     })
-                    print(f"豆瓣第1季评分使用首页已解析数据: {rating} ({rating_people}人)")
                     continue
 
                 await random_delay()
@@ -2608,7 +2602,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                         if json_match:
                             season_rating_people = json_match.group(1)
                             season_rating = json_match.group(4)
-                            print(f"豆瓣提取到第{season_number}季评分成功 -> rating={season_rating}, rating_people={season_rating_people}")
+                            print(f"豆瓣提取到第{season_number}季评分成功")
                         else:
                             season_rating = await page.evaluate('''() => {
                                 const ratingElement = document.querySelector('strong.rating_num');
@@ -2631,7 +2625,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                                     season_rating_people = people_match.group(1)
                             
                             if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
-                                print(f"豆瓣使用备选方法提取第{season_number}季评分成功 -> rating={season_rating}, rating_people={season_rating_people}")
+                                print(f"豆瓣使用备选方法提取第{season_number}季评分成功")
                         
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
                             break
@@ -2650,7 +2644,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                     if json_match:
                         season_rating_people = json_match.group(1)
                         season_rating = json_match.group(4)
-                        print(f"豆瓣从页面 JSON 提取到第{season_number}季评分成功 -> rating={season_rating}, rating_people={season_rating_people}")
+                        print(f"豆瓣从页面 JSON 提取到第{season_number}季评分成功")
                     else:
                         rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', season_content)
                         if rating_match and rating_match.group(1).strip():
@@ -2659,7 +2653,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                         if people_match:
                             season_rating_people = people_match.group(1)
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
-                            print(f"豆瓣从页面 HTML 提取到第{season_number}季评分成功 -> rating={season_rating}, rating_people={season_rating_people}")
+                            print(f"豆瓣从页面 HTML 提取到第{season_number}季评分成功")
                 
                 if "暂无评分" in season_content or "尚未上映" in season_content:
                     ratings["seasons"].append({
@@ -3605,29 +3599,28 @@ def check_tv_status(platform_data, platform):
     """检查剧集评分数据的状态"""
     if not platform_data:
         return RATING_STATUS["FETCH_FAILED"]
-    # 豆瓣多季：不直接采用传入的 status，按「至少一季有效或顶层有效」判定，避免误判为 Fail 导致不缓存
+        
+    if "status" in platform_data:
+        return platform_data["status"]
+        
     if platform == "douban":
-        seasons = platform_data.get("seasons") or []
-        top_rating_ok = (platform_data.get("rating") not in [None, "暂无"]
-                        and platform_data.get("rating_people") not in [None, "暂无"])
+        seasons = platform_data.get("seasons", [])
         if not seasons:
-            return RATING_STATUS["SUCCESSFUL"] if top_rating_ok else RATING_STATUS["FETCH_FAILED"]
+            return RATING_STATUS["FETCH_FAILED"]
+            
         all_no_rating = all(
             season.get("rating") == "暂无" and season.get("rating_people") == "暂无"
             for season in seasons
         )
         if all_no_rating:
-            return RATING_STATUS["SUCCESSFUL"] if top_rating_ok else RATING_STATUS["NO_RATING"]
-        has_any_valid = any(
-            season.get("rating") not in [None, "暂无"]
-            and season.get("rating_people") not in [None, "暂无"]
-            for season in seasons
-        )
-        return RATING_STATUS["SUCCESSFUL"] if has_any_valid else RATING_STATUS["FETCH_FAILED"]
-
-    if "status" in platform_data:
-        return platform_data["status"]
-
+            return RATING_STATUS["NO_RATING"]
+            
+        for season in seasons:
+            season_fields = ["rating", "rating_people"]
+            if not all(season.get(key) not in [None, "暂无"] for key in season_fields):
+                return RATING_STATUS["FETCH_FAILED"]
+        return RATING_STATUS["SUCCESSFUL"]
+        
     elif platform == "imdb":
         if platform_data.get("rating") == "暂无" and platform_data.get("rating_people") == "暂无":
             return RATING_STATUS["NO_RATING"]
