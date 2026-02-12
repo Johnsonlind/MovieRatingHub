@@ -209,7 +209,7 @@ def construct_search_url(title, media_type, platform, tmdb_info):
     return result
 
 def _get_letterboxd_search_urls(tmdb_id, year, imdb_id):
-    """为Letterboxd生成多种搜索URL：tmdb+year、imdbid、tmdb"""
+    """为Letterboxd生成多种搜索URL"""
     urls = []
     if tmdb_id and year:
         urls.append(f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/")
@@ -2511,7 +2511,6 @@ async def extract_douban_rating(page, media_type, matched_results):
         
         all_seasons_no_rating = True
         processed_seasons = set()
-        # 首页已是第一季详情页，已解析的 rating/rating_people 即第一季数据，避免重复 goto 导致拿不到
         first_season_url = season_results[0].get("url") if season_results else None
         
         for season_info in season_results:
@@ -2533,7 +2532,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                     })
                     continue
 
-                # 第一季且当前页面就是该季详情页时，直接使用首页已解析的 rating/rating_people，避免重复 goto 拿不到
                 url_norm = url.rstrip("/") if url else ""
                 if (season_number == 1 and url_norm and url_norm == initial_page_url
                         and rating not in [None, "暂无"] and rating_people not in [None, "暂无"]):
@@ -2624,7 +2622,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                             season_content = await page.content()
                             continue
                 
-                # 若尝试循环后仍为暂无，用 season_content 做最后一次正则解析（不依赖 DOM）
                 if season_rating in ["暂无", "", None] or season_rating_people in ["暂无", "", None]:
                     json_match = re.search(r'"aggregateRating":\s*{\s*"@type":\s*"AggregateRating",\s*"ratingCount":\s*"([^"]+)",\s*"bestRating":\s*"([^"]+)",\s*"worstRating":\s*"([^"]+)",\s*"ratingValue":\s*"([^"]+)"', season_content)
                     if json_match:
@@ -2657,7 +2654,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                         "url": url
                     })
                 else:
-                    # 解析失败也追加一条占位，保证季数与 TMDB 一致，便于前端展示
                     ratings["seasons"].append({
                         "season_number": season_number,
                         "rating": "暂无",
@@ -2669,7 +2665,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                 print(f"豆瓣获取第{season_number}季评分时出错: {e}")
                 if "Timeout" in str(e):
                     print(f"豆瓣第{season_number}季访问超时，跳过此季")
-                # 出错也补一条占位，避免缺季
                 ratings["seasons"].append({
                     "season_number": season_number,
                     "rating": "暂无",
@@ -2677,7 +2672,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                     "url": season_info.get("url", "")
                 })
         
-        # 确保 season_results 里每一季在 ratings["seasons"] 里都有条目（缺的补占位）
         for season_info in season_results:
             sn = season_info.get("season_number")
             if sn is None:
@@ -2691,7 +2685,6 @@ async def extract_douban_rating(page, media_type, matched_results):
                 })
         ratings["seasons"].sort(key=lambda s: s.get("season_number", 0))
         
-        # 如果没有任何有效分季数据，但有有效的整体评分，可返回整体评分（保留上面已填好的 seasons）
         if not ratings["seasons"] and rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
             return {
                 "status": RATING_STATUS["SUCCESSFUL"],
@@ -2701,7 +2694,6 @@ async def extract_douban_rating(page, media_type, matched_results):
             }
         
         if all_seasons_no_rating and ratings["seasons"]:
-            # 分季都暂无时，若有首页整体评分则填到顶层并视为成功，避免前端当“未收录”显示
             if rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
                 ratings["rating"] = rating
                 ratings["rating_people"] = rating_people
@@ -3594,25 +3586,22 @@ def check_tv_status(platform_data, platform):
         return platform_data["status"]
         
     if platform == "douban":
-        seasons = platform_data.get("seasons") or []
-        top_rating_ok = (platform_data.get("rating") not in [None, "暂无"]
-                        and platform_data.get("rating_people") not in [None, "暂无"])
-        # 无分季数据时：若有有效的整体 rating/rating_people 则视为成功
+        seasons = platform_data.get("seasons", [])
         if not seasons:
-            return RATING_STATUS["SUCCESSFUL"] if top_rating_ok else RATING_STATUS["FETCH_FAILED"]
-        # 有分季数据时：至少一季有有效评分，或顶层有有效评分，都视为成功（便于缓存与展示）
+            return RATING_STATUS["FETCH_FAILED"]
+            
         all_no_rating = all(
             season.get("rating") == "暂无" and season.get("rating_people") == "暂无"
             for season in seasons
         )
         if all_no_rating:
-            return RATING_STATUS["SUCCESSFUL"] if top_rating_ok else RATING_STATUS["NO_RATING"]
-        has_any_valid = any(
-            season.get("rating") not in [None, "暂无"]
-            and season.get("rating_people") not in [None, "暂无"]
-            for season in seasons
-        )
-        return RATING_STATUS["SUCCESSFUL"] if has_any_valid else RATING_STATUS["FETCH_FAILED"]
+            return RATING_STATUS["NO_RATING"]
+            
+        for season in seasons:
+            season_fields = ["rating", "rating_people"]
+            if not all(season.get(key) not in [None, "暂无"] for key in season_fields):
+                return RATING_STATUS["FETCH_FAILED"]
+        return RATING_STATUS["SUCCESSFUL"]
         
     elif platform == "imdb":
         if platform_data.get("rating") == "暂无" and platform_data.get("rating_people") == "暂无":
