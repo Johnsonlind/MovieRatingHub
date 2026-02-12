@@ -1715,6 +1715,24 @@ async def get_all_platform_ratings(
         logger.error(f"获取所有平台评分失败: {str(e)[:100]}")
         raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
 
+
+def _log_platform_rating(platform: str, media_type: str, data: dict):
+    """日志输出：每个平台具体获取到的评分"""
+    status = data.get("status", "")
+    if media_type == "tv" and data.get("seasons"):
+        parts = [f"共 {len(data['seasons'])} 季"]
+        for s in data["seasons"]:
+            sn = s.get("season_number", "?")
+            r = s.get("rating") or s.get("tomatometer") or s.get("metascore") or s.get("vote_average") or "暂无"
+            rp = s.get("rating_people") or s.get("audience_count") or s.get("critics_count") or s.get("votes") or "暂无"
+            parts.append(f"第{sn}季: {r} (人数/票数: {rp})")
+        print(f"[评分日志] {platform} 获取到的评分: status={status}, {'; '.join(parts)}")
+    else:
+        r = data.get("rating") or data.get("tomatometer") or data.get("metascore") or data.get("vote_average") or "暂无"
+        rp = data.get("rating_people") or data.get("audience_count") or data.get("votes") or data.get("rating_count") or "暂无"
+        print(f"[评分日志] {platform} 获取到的评分: status={status}, rating={r}, rating_people/votes={rp}")
+
+
 @app.get("/api/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(
     platform: str, 
@@ -1786,6 +1804,10 @@ async def get_platform_rating(
         if isinstance(rating_info, dict) and rating_info.get("status") == "cancelled":
             print(f"{platform} 评分提取被取消")
             return None
+
+        # 日志：每个平台具体获取到的评分
+        if isinstance(rating_info, dict):
+            _log_platform_rating(platform, type, rating_info)
 
         if isinstance(rating_info, dict) and rating_info.get("status") == RATING_STATUS["SUCCESSFUL"]:
             await set_cache(cache_key, rating_info)
