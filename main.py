@@ -24,7 +24,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, PublicChartEntry, SchedulerStatus
 from sqlalchemy.orm import Session, selectinload
-from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
+from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform, create_rating_data
 from redis import asyncio as aioredis
 import json
 import base64
@@ -1733,6 +1733,22 @@ async def get_platform_rating(
 
         search_start_time = time.time()
         search_results = await search_platform(platform, tmdb_info, request, douban_cookie)
+
+        if isinstance(search_results, dict) and search_results.get("status") in (
+            RATING_STATUS["NO_FOUND"],
+            RATING_STATUS["RATE_LIMIT"],
+            RATING_STATUS["TIMEOUT"],
+            RATING_STATUS["FETCH_FAILED"],
+        ):
+            reason = search_results.get("status_reason") or search_results.get("status")
+            rating_info = create_rating_data(search_results["status"], reason)
+            rating_info["_performance"] = {
+                "total_time": round(time.time() - start_time, 2),
+                "search_time": round(time.time() - search_start_time, 2),
+                "extract_time": 0,
+                "cached": False,
+            }
+            return rating_info
 
         if await request.is_disconnected():
             print(f"{platform} 请求在搜索平台后被取消")
