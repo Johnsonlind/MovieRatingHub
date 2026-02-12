@@ -1350,6 +1350,13 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                 )
                 
                 if isinstance(results, dict) and "status" in results:
+                    if results.get("status") in (
+                        RATING_STATUS["NO_FOUND"],
+                        RATING_STATUS["RATE_LIMIT"],
+                        RATING_STATUS["TIMEOUT"],
+                        RATING_STATUS["FETCH_FAILED"],
+                    ):
+                        return results
                     if i == len(search_variants):
                         return results
                     continue
