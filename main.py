@@ -23,7 +23,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, PublicChartEntry, SchedulerStatus
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform
 from redis import asyncio as aioredis
 import json
@@ -45,10 +45,12 @@ import traceback
 # 1. 配置和初始化部分
 # ==========================================
 
+# Redis 配置
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
 CACHE_EXPIRE_TIME = 24 * 60 * 60
 redis = None
 
+# 定义认证相关的配置
 SECRET_KEY = "L1994z0912x."
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
@@ -79,7 +81,7 @@ engine = create_engine(
     pool_size=10,
     max_overflow=20,
     pool_timeout=30,
-    pool_recycle=1800
+    pool_recycle=1800  # 30分钟回收连接
 )
 
 # ==========================================
@@ -173,6 +175,7 @@ async def get_current_user_optional(
         if email is None:
             return None
             
+        # 使用 email 查询用户
         user = db.query(User).filter(User.email == email).first()
         if user is None:
             return None
@@ -191,11 +194,8 @@ async def get_cache(key: str):
         
         if data:
             data = json.loads(data)
-            if isinstance(data, dict) and "status" in data:
-                if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
-                    return data
-                return None
-            return data
+            if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+                return data
         return None
     except Exception as e:
         logger.error(f"获取缓存出错: {e}")
@@ -206,10 +206,7 @@ async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
     if not redis:
         return
     try:
-        if isinstance(data, dict) and "status" in data:
-            if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
-                await redis.setex(key, expire, json.dumps(data))
-        else:
+        if isinstance(data, dict) and data.get("status") == RATING_STATUS["SUCCESSFUL"]:
             await redis.setex(key, expire, json.dumps(data))
     except Exception as e:
         logger.error(f"设置缓存出错: {e}")
@@ -511,7 +508,7 @@ async def update_profile(
                     detail="无效的图片格式"
                 )
             avatar_data = data["avatar"].split(',')[1]
-            if len(avatar_data) > 2 * 1024 * 1024:
+            if len(avatar_data) > 2 * 1024 * 1024:  # 2MB
                 raise HTTPException(
                     status_code=400,
                     detail="图片大小不能超过 2MB"
@@ -733,79 +730,65 @@ async def get_favorite_lists(
     db: Session = Depends(get_db)
 ):
     try:
-        lists = (
-            db.query(FavoriteList)
-            .options(selectinload(FavoriteList.favorites))
-            .filter(FavoriteList.user_id == current_user.id)
-            .all()
-        )
-
-        original_list_ids = {lst.original_list_id for lst in lists if lst.original_list_id}
-        original_lists_map = {}
-        original_creators_map = {}
-
-        if original_list_ids:
-            original_lists = (
-                db.query(FavoriteList)
-                .options(selectinload(FavoriteList.user))
-                .filter(FavoriteList.id.in_(original_list_ids))
-                .all()
-            )
-            for ol in original_lists:
-                original_lists_map[ol.id] = ol
-                if ol.user:
-                    original_creators_map[ol.id] = {
-                        "id": ol.user.id,
-                        "username": ol.user.username,
-                        "avatar": ol.user.avatar,
-                    }
-
-        creator = {
-            "id": current_user.id,
-            "username": current_user.username,
-            "avatar": current_user.avatar,
-        }
-
+        lists = db.query(FavoriteList).filter(
+            FavoriteList.user_id == current_user.id
+        ).all()
+        
         result = []
-        for lst in lists:
-            original_creator = original_creators_map.get(lst.original_list_id)
-
-            favorites = sorted(
-                lst.favorites or [],
-                key=lambda fav: (
-                    fav.sort_order is None,
-                    fav.sort_order if fav.sort_order is not None else 0,
-                    fav.id,
-                ),
-            )
-
-            result.append(
-                {
-                    "id": lst.id,
-                    "name": lst.name,
-                    "description": lst.description,
-                    "is_public": lst.is_public,
-                    "created_at": lst.created_at,
-                    "original_list_id": lst.original_list_id,
-                    "original_creator": original_creator,
-                    "creator": creator,
-                    "favorites": [
-                        {
-                            "id": fav.id,
-                            "media_id": fav.media_id,
-                            "media_type": fav.media_type,
-                            "title": fav.title,
-                            "poster": fav.poster,
-                            "year": fav.year,
-                            "overview": fav.overview,
-                            "note": fav.note,
-                            "sort_order": fav.sort_order,
+        for list in lists:
+            # 获取排序后的收藏项
+            favorites = db.query(Favorite).filter(
+                Favorite.list_id == list.id
+            ).order_by(
+                Favorite.sort_order.is_(None),
+                Favorite.sort_order,
+                Favorite.id
+            ).all()
+            
+            original_creator = None
+            if list.original_list_id:
+                original_list = db.query(FavoriteList).filter(
+                    FavoriteList.id == list.original_list_id
+                ).first()
+                if original_list:
+                    original_creator_user = db.query(User).filter(
+                        User.id == original_list.user_id
+                    ).first()
+                    if original_creator_user:
+                        original_creator = {
+                            "id": original_creator_user.id,
+                            "username": original_creator_user.username,
+                            "avatar": original_creator_user.avatar
                         }
-                        for fav in favorites
-                    ],
-                }
-            )
+            
+            creator = {
+                "id": current_user.id,
+                "username": current_user.username,
+                "avatar": current_user.avatar
+            }
 
+            result.append({
+            "id": list.id,
+            "name": list.name,
+            "description": list.description,
+            "is_public": list.is_public,
+            "created_at": list.created_at,
+                "original_list_id": list.original_list_id,
+                "original_creator": original_creator,
+                "creator": creator,
+            "favorites": [{
+                "id": fav.id,
+                "media_id": fav.media_id,
+                "media_type": fav.media_type,
+                "title": fav.title,
+                "poster": fav.poster,
+                "year": fav.year,
+                "overview": fav.overview,
+                    "note": fav.note,
+                    "sort_order": fav.sort_order
+                } for fav in favorites]
+            })
+        
         return result
     except Exception as e:
         logger.error(f"获取收藏列表失败: {str(e)}")
@@ -875,6 +858,7 @@ async def get_favorite_list(
     if not list_data:
         raise HTTPException(status_code=404, detail="列表不存在")
 
+    # 构建基本响应数据
     response_data = {
         "id": list_data.id,
         "name": list_data.name,
@@ -898,6 +882,7 @@ async def get_favorite_list(
         ] if list_data.favorites else []
     }
 
+    # 检查创建者的关注状态
     creator = db.query(User).filter(User.id == list_data.user_id).first()
     is_following_creator = False
     
@@ -915,6 +900,7 @@ async def get_favorite_list(
         "is_following": is_following_creator
     }
 
+    # 如果是收藏的列表，检查原创者的关注状态
     if list_data.original_list_id:
         original_list = db.query(FavoriteList).filter(
             FavoriteList.id == list_data.original_list_id
@@ -1031,6 +1017,7 @@ async def delete_favorite_list(
                 detail="收藏列表不存在或无权限删除"
             )
         
+        # 删除列表及其所有收藏项目
         db.delete(favorite_list)
         db.commit()
         
@@ -1067,6 +1054,7 @@ async def collect_favorite_list(
                 detail="该列表不是公开列表"
             )
             
+        # 创建新的收藏列表
         new_list = FavoriteList(
             user_id=current_user.id,
             name=f"{source_list.name} (收藏)",
@@ -1079,6 +1067,7 @@ async def collect_favorite_list(
         db.commit()
         db.refresh(new_list)
         
+        # 复制所有收藏项目
         for fav in source_list.favorites:
             new_favorite = Favorite(
                 user_id=current_user.id,
@@ -1115,6 +1104,7 @@ async def reorder_favorites(
         data = await request.json()
         favorite_orders = data.get('favorite_ids', [])
         
+        # 验证列表所有权
         favorite_list = db.query(FavoriteList).filter(
             FavoriteList.id == list_id,
             FavoriteList.user_id == current_user.id
@@ -1137,6 +1127,7 @@ async def reorder_favorites(
         updated_favorites = db.query(Favorite).filter(
             Favorite.list_id == list_id
         ).order_by(
+            # 将 NULL 值排在最后
             Favorite.sort_order.is_(None),
             Favorite.sort_order,
             Favorite.id
@@ -1167,6 +1158,7 @@ async def uncollect_favorite_list(
     db: Session = Depends(get_db)
 ):
     try:
+        # 查找用户收藏的列表
         collected_list = db.query(FavoriteList).filter(
             FavoriteList.user_id == current_user.id,
             FavoriteList.original_list_id == list_id
@@ -1177,7 +1169,8 @@ async def uncollect_favorite_list(
                 status_code=404,
                 detail="未找到已收藏的列表"
             )
-
+        
+        # 删除收藏的列表
         db.delete(collected_list)
         db.commit()
         
@@ -1356,24 +1349,19 @@ async def get_following(
     db: Session = Depends(get_db)
 ):
     try:
-        follows = (
-            db.query(Follow)
-            .options(selectinload(Follow.following))
-            .filter(Follow.follower_id == current_user.id)
-            .all()
-        )
-
-        return [
-            {
-                "id": follow.following.id,
-                "username": follow.following.username,
-                "avatar": follow.following.avatar,
-                "note": follow.note,
-                "created_at": follow.created_at,
-            }
-            for follow in follows
-            if follow.following is not None
-        ]
+        follows = db.query(Follow).filter(Follow.follower_id == current_user.id).all()
+        result = []
+        for follow in follows:
+            user = db.query(User).filter(User.id == follow.following_id).first()
+            if user:
+                result.append({
+                    "id": user.id,
+                    "username": user.username,
+                    "avatar": user.avatar,
+                    "note": follow.note,
+                    "created_at": follow.created_at
+                })
+        return result
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -1499,6 +1487,7 @@ async def get_batch_ratings(
         
         douban_cookie = None
         if current_user:
+            db.refresh(current_user)
             if current_user.douban_cookie:
                 douban_cookie = current_user.douban_cookie
                 print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
@@ -1561,6 +1550,7 @@ async def get_batch_ratings(
                         timeout=20.0
                     )
                     
+                    # 缓存结果
                     cache_key = f"ratings:all:{media_type}:{media_id}"
                     if ratings:
                         await set_cache(cache_key, ratings, expire=CACHE_EXPIRE_TIME)
@@ -1642,15 +1632,16 @@ async def get_all_platform_ratings(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """并行获取所有平台的评分信息"""
+    """并行获取所有平台的评分信息（性能优化版）"""
     start_time = time.time()
     try:
         if await request.is_disconnected():
             print("请求已在开始时被取消")
             return None
-
+        
         douban_cookie = None
         if current_user:
+            db.refresh(current_user)
             if current_user.douban_cookie:
                 douban_cookie = current_user.douban_cookie
                 print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
@@ -1715,24 +1706,6 @@ async def get_all_platform_ratings(
         logger.error(f"获取所有平台评分失败: {str(e)[:100]}")
         raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
 
-
-def _log_platform_rating(platform: str, media_type: str, data: dict):
-    """日志输出：每个平台具体获取到的评分"""
-    status = data.get("status", "")
-    if media_type == "tv" and data.get("seasons"):
-        parts = [f"共 {len(data['seasons'])} 季"]
-        for s in data["seasons"]:
-            sn = s.get("season_number", "?")
-            r = s.get("rating") or s.get("tomatometer") or s.get("metascore") or s.get("vote_average") or "暂无"
-            rp = s.get("rating_people") or s.get("audience_count") or s.get("critics_count") or s.get("votes") or "暂无"
-            parts.append(f"第{sn}季: {r} (人数/票数: {rp})")
-        print(f"[评分日志] {platform} 获取到的评分: status={status}, {'; '.join(parts)}")
-    else:
-        r = data.get("rating") or data.get("tomatometer") or data.get("metascore") or data.get("vote_average") or "暂无"
-        rp = data.get("rating_people") or data.get("audience_count") or data.get("votes") or data.get("rating_count") or "暂无"
-        print(f"[评分日志] {platform} 获取到的评分: status={status}, rating={r}, rating_people/votes={rp}")
-
-
 @app.get("/api/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(
     platform: str, 
@@ -1752,6 +1725,7 @@ async def get_platform_rating(
         douban_cookie = None
         if platform == "douban":
             if current_user:
+                db.refresh(current_user)
                 if current_user.douban_cookie:
                     douban_cookie = current_user.douban_cookie
                     print(f"✅ 已获取用户 {current_user.id} 的豆瓣Cookie（长度: {len(douban_cookie)}）")
@@ -1805,10 +1779,6 @@ async def get_platform_rating(
             print(f"{platform} 评分提取被取消")
             return None
 
-        # 日志：每个平台具体获取到的评分
-        if isinstance(rating_info, dict):
-            _log_platform_rating(platform, type, rating_info)
-
         if isinstance(rating_info, dict) and rating_info.get("status") == RATING_STATUS["SUCCESSFUL"]:
             await set_cache(cache_key, rating_info)
             print(f"已缓存 {platform} 评分数据")
@@ -1849,16 +1819,16 @@ async def get_tmdb_client():
     global _tmdb_client
     if _tmdb_client is None or _tmdb_client.is_closed:
         _tmdb_client = httpx.AsyncClient(
-            http2=True,
-            timeout=httpx.Timeout(10.0),
+            http2=True,  # 启用 HTTP/2
+            timeout=httpx.Timeout(10.0),  # 10秒超时
             limits=httpx.Limits(
-                max_connections=100,
-                max_keepalive_connections=20,
-                keepalive_expiry=30.0
+                max_connections=100,  # 最大连接数
+                max_keepalive_connections=20,  # 保持活动的连接数
+                keepalive_expiry=30.0  # 连接保持30秒
             ),
             headers={
                 "accept": "application/json",
-                "accept-encoding": "gzip, deflate",
+                "accept-encoding": "gzip, deflate",  # 启用压缩
                 "Authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
             }
         )
@@ -2005,7 +1975,7 @@ async def trakt_proxy(path: str, request: Request):
         headers = {
             'Content-Type': 'application/json',
             'trakt-api-version': '2',
-            'trakt-api-key': 'db74b025288459dc36589f6207fb96aabd83be8ea5d502810a049c29ffd9bff0'
+            'trakt-api-key': '859d1ad30074136a934c47ba2083cda83620b17b0db8f2d0ec554922116c60a8'
         }
         
         async with aiohttp.ClientSession() as session:
@@ -2038,6 +2008,7 @@ async def tmdb_enrich(tmdb_id: int, media_type: str):
         client = get_tmdb_http_client()
         endpoint = f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}"
         
+        # 使用多语言回退获取数据
         data = await _fetch_tmdb_with_language_fallback(client, endpoint)
         
         if not data:
@@ -2081,6 +2052,7 @@ async def add_chart_entry(
     original_language = enrich["original_language"]
 
     try:
+        # 如果该排名已有条目，则更新为新条目（覆盖）
         existing = db.query(ChartEntry).filter(
             ChartEntry.platform == platform,
             ChartEntry.chart_name == chart_name,
@@ -2172,6 +2144,7 @@ def aggregate_top(
     chinese_only: bool = False,
     include_pairs: list[tuple[str, str]] | None = None,
 ):
+    # 同一平台/榜单/类型下，同一 rank 只取最近一条（允许覆盖历史）
     sub = db.query(
         ChartEntry.platform,
         ChartEntry.chart_name,
@@ -2180,6 +2153,7 @@ def aggregate_top(
         func.max(ChartEntry.id).label('max_id')
     ).group_by(ChartEntry.platform, ChartEntry.chart_name, ChartEntry.media_type, ChartEntry.rank).subquery()
 
+    # 取最新记录集后再施加筛选条件（语言/包含来源）
     entries = db.query(ChartEntry).join(
         sub,
         (ChartEntry.id == sub.c.max_id)
@@ -2193,6 +2167,7 @@ def aggregate_top(
         if conditions:
             entries = entries.filter(or_(*conditions))
     entries = entries.all()
+    # 频次统计：出现次数越多越靠前；同频次按最佳名次（rank 越小越好），再按最近出现排序
     freq: dict[int, int] = {}
     best_rank: dict[int, int] = {}
     latest_id: dict[int, int] = {}
@@ -2210,6 +2185,7 @@ def aggregate_top(
         e = sample[int(tmdb_id)]
         poster = e.poster or ""
         if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
+            # 兼容旧数据，自动补成 tmdb 相对路径
             if not poster.startswith("/"):
                 poster = "/" + poster
             poster = f"/tmdb-images{poster}"
@@ -2223,6 +2199,7 @@ def latest_chart_top_by_rank(
     media_type: str,
     limit: int = 10,
 ):
+    # 取该平台+榜单+类型下，各 rank 最新的一条
     sub = db.query(
         ChartEntry.rank,
         func.max(ChartEntry.id).label('max_id')
@@ -2257,17 +2234,11 @@ async def list_chart_entries(
 ):
     if media_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="media_type 必须为 movie 或 tv")
-    items = (
-        db.query(ChartEntry)
-        .filter(
-            ChartEntry.platform == platform,
-            ChartEntry.chart_name == chart_name,
-            ChartEntry.media_type == media_type,
-        )
-        .order_by(ChartEntry.rank.asc())
-        .limit(500)
-        .all()
-    )
+    items = db.query(ChartEntry).filter(
+        ChartEntry.platform == platform,
+        ChartEntry.chart_name == chart_name,
+        ChartEntry.media_type == media_type,
+    ).order_by(ChartEntry.rank.asc()).all()
     return [
         {
             "id": e.id,
@@ -2327,6 +2298,7 @@ async def delete_chart_entry(
 
 @app.get("/api/charts/aggregate")
 async def get_aggregate_charts(db: Session = Depends(get_db)):
+    # 华语剧集：直接使用豆瓣《一周华语剧集口碑榜》
     chinese_tv = latest_chart_top_by_rank(
         db,
         platform="豆瓣",
@@ -2335,6 +2307,7 @@ async def get_aggregate_charts(db: Session = Depends(get_db)):
         limit=10,
     )
 
+    # 定义计入首页 Top 10 的榜单（只包含这些榜单）
     movie_include_pairs = [
         ("豆瓣", "一周口碑榜"),
         ("IMDb", "Top 10 on IMDb this week"),
@@ -2356,6 +2329,7 @@ async def get_aggregate_charts(db: Session = Depends(get_db)):
     
     movies = aggregate_top(db, media_type="movie", limit=10, chinese_only=False, include_pairs=movie_include_pairs)
     tv_candidates = aggregate_top(db, media_type="tv", limit=50, chinese_only=False, include_pairs=tv_include_pairs)
+    # 为了更稳妥：将候选提升到50后再裁到10，保证频次排序的准确性。
     tv = tv_candidates[:10]
     return {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
 
@@ -2368,9 +2342,11 @@ async def sync_charts(
     require_admin(current_user)
     
     try:
+        # 清空旧的公开榜单数据
         db.query(PublicChartEntry).delete()
         db.commit()
         
+        # 获取所有榜单数据（取每个rank的最新一条）
         distinct_charts = db.query(
             ChartEntry.platform,
             ChartEntry.chart_name,
@@ -2381,6 +2357,7 @@ async def sync_charts(
         synced_at = datetime.utcnow()
         
         for platform, chart_name, media_type in distinct_charts:
+            # 获取该榜单的所有条目（取每个rank的最新一条）
             sub = db.query(
                 ChartEntry.rank,
                 func.max(ChartEntry.id).label('max_id')
@@ -2394,6 +2371,7 @@ async def sync_charts(
                 sub, ChartEntry.id == sub.c.max_id
             ).order_by(ChartEntry.rank.asc()).all()
             
+            # 复制到PublicChartEntry
             for entry in entries:
                 public_entry = PublicChartEntry(
                     platform=entry.platform,
@@ -2425,32 +2403,37 @@ async def sync_charts(
 async def get_public_charts(db: Session = Depends(get_db)):
     """获取所有公开榜单数据（从PublicChartEntry读取，只有同步后的数据）"""
     try:
+        # Metacritic Top 250 榜单需要合并所有 media_type 的条目
         metacritic_top250_charts = [
             'Metacritic Best Movies of All Time',
             'Metacritic Best TV Shows of All Time',
         ]
         
+        # 获取所有唯一的平台、榜单名称组合（从PublicChartEntry）
         distinct_charts = db.query(
             PublicChartEntry.platform,
             PublicChartEntry.chart_name
         ).distinct().all()
         
         result = []
-        processed_charts = set()
+        processed_charts = set()  # 用于跟踪已处理的榜单
         
         for platform, chart_name in distinct_charts:
+            # 对于 Metacritic Top 250 榜单，合并所有 media_type 的条目
             if chart_name in metacritic_top250_charts:
                 chart_key = (platform, chart_name)
                 if chart_key in processed_charts:
                     continue
                 processed_charts.add(chart_key)
                 
+                # 获取该榜单的所有条目（包括所有 media_type）
                 entries = db.query(PublicChartEntry).filter(
                     PublicChartEntry.platform == platform,
                     PublicChartEntry.chart_name == chart_name,
                 ).order_by(PublicChartEntry.rank.asc()).all()
                 
                 if entries:
+                    # 处理poster路径
                     chart_entries = []
                     for e in entries:
                         poster = e.poster or ""
@@ -2470,16 +2453,18 @@ async def get_public_charts(db: Session = Depends(get_db)):
                     result.append({
                         "platform": platform,
                         "chart_name": chart_name,
-                        "media_type": "both",
+                        "media_type": "both",  # Metacritic Top 250 榜单设置为 both
                         "entries": chart_entries
                     })
             else:
+                # 对于其他榜单，按原来的逻辑处理（按 media_type 分组）
                 distinct_media_types = db.query(PublicChartEntry.media_type).filter(
                     PublicChartEntry.platform == platform,
                     PublicChartEntry.chart_name == chart_name,
                 ).distinct().all()
                 
                 for (media_type,) in distinct_media_types:
+                    # 获取该榜单的所有条目
                     entries = db.query(PublicChartEntry).filter(
                         PublicChartEntry.platform == platform,
                         PublicChartEntry.chart_name == chart_name,
@@ -2487,6 +2472,7 @@ async def get_public_charts(db: Session = Depends(get_db)):
                     ).order_by(PublicChartEntry.rank.asc()).all()
                     
                     if entries:
+                        # 处理poster路径
                         chart_entries = []
                         for e in entries:
                             poster = e.poster or ""
@@ -2523,12 +2509,14 @@ async def get_chart_detail(
 ):
     """获取完整榜单详情（Top 250）"""
     try:
+        # 将前端显示的平台名称转换为后端存储名称
         platform_map = {
             'Rotten Tomatoes': '烂番茄',
             'Metacritic': 'MTC',
         }
         backend_platform = platform_map.get(platform, platform)
         
+        # 将前端显示的榜单名称转换为后端存储名称
         chart_name_map = {
             'IMDb 电影 Top 250': 'IMDb Top 250 Movies',
             'IMDb 剧集 Top 250': 'IMDb Top 250 TV Shows',
@@ -2541,11 +2529,13 @@ async def get_chart_detail(
         }
         backend_chart_name = chart_name_map.get(chart_name, chart_name)
         
+        # 从 PublicChartEntry 获取数据（如果存在），否则从 ChartEntry 获取
         entries = db.query(PublicChartEntry).filter(
             PublicChartEntry.platform == backend_platform,
             PublicChartEntry.chart_name == backend_chart_name,
         ).order_by(PublicChartEntry.rank.asc()).all()
         
+        # 如果 PublicChartEntry 中没有数据，尝试从 ChartEntry 获取
         if not entries:
             entries = db.query(ChartEntry).filter(
                 ChartEntry.platform == backend_platform,
@@ -2555,9 +2545,11 @@ async def get_chart_detail(
         if not entries:
             raise HTTPException(status_code=404, detail="榜单数据不存在")
         
+        # 处理poster路径和确定媒体类型
         chart_entries = []
         media_type = None
         
+        # 对于 Metacritic Top 250 榜单，设置为 both 类型
         metacritic_top250_charts = [
             'Metacritic Best Movies of All Time',
             'Metacritic Best TV Shows of All Time',
@@ -2571,6 +2563,7 @@ async def get_chart_detail(
                     poster = "/" + poster
                 poster = f"/tmdb-images{poster}"
             
+            # 获取媒体类型
             entry_media_type = getattr(e, 'media_type', None)
             if not media_type and entry_media_type:
                 media_type = entry_media_type
@@ -2583,14 +2576,16 @@ async def get_chart_detail(
                 "media_type": entry_media_type,
             })
         
+        # 对于 Metacritic Top 250 榜单，设置为 both 类型
         if is_metacritic_top250:
             media_type = 'both'
         elif not media_type:
+            # 如果没有找到媒体类型，默认为 movie
             media_type = 'movie'
         
         return {
-            "platform": platform,
-            "chart_name": chart_name,
+            "platform": platform,  # 返回前端显示的平台名称
+            "chart_name": chart_name,  # 返回前端显示的榜单名称
             "media_type": media_type,
             "entries": chart_entries
         }
@@ -2619,6 +2614,7 @@ async def auto_update_charts(
         results['Metacritic电影'] = await scraper.update_metacritic_movies()
         results['Metacritic剧集'] = await scraper.update_metacritic_shows()
         results['TMDB趋势'] = await scraper.update_tmdb_trending_all_week()
+        # 注意：Top 250 榜单不包含在"更新所有榜单"中，需要单独更新
         results['Trakt电影'] = await scraper.update_trakt_movies_weekly()
         results['Trakt剧集'] = await scraper.update_trakt_shows_weekly()
         results['IMDb'] = await scraper.update_imdb_top10()
@@ -2630,6 +2626,7 @@ async def auto_update_charts(
         beijing_tz = timezone(timedelta(hours=8))
         update_time = datetime.now(beijing_tz)
         
+        # 更新内存中的调度器实例
         from chart_scrapers import scheduler_instance
         if scheduler_instance:
             scheduler_instance.last_update = update_time
@@ -2727,6 +2724,7 @@ async def update_top250_chart(
                 "TMDB Top 250 Movies": scraper.update_tmdb_top250_movies,
                 "TMDB Top 250 TV Shows": scraper.update_tmdb_top250_tv,
             },
+            # 其他平台的 Top 250 方法将在后续实现时添加
             "IMDb": {
                 "IMDb Top 250 Movies": scraper.update_imdb_top250_movies,
                 "IMDb Top 250 TV Shows": scraper.update_imdb_top250_tv,
@@ -2777,7 +2775,7 @@ async def update_top250_chart(
         if "ANTI_SCRAPING_DETECTED" in error_msg:
             logger.warning(f"更新 Top 250 榜单遇到反爬虫机制: {e}")
             raise HTTPException(
-                status_code=428,
+                status_code=428,  # 428 Precondition Required - 用于表示需要用户操作
                 detail={
                     "error": "ANTI_SCRAPING_DETECTED",
                     "message": "遇到反爬虫机制，请验证",
@@ -2971,6 +2969,7 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
                 "timestamp": datetime.utcnow().isoformat()
             }
         else:
+            # 如果数据库中没有状态，使用内存中的状态
             from chart_scrapers import get_scheduler_status
             status = get_scheduler_status()
             logger.debug(f"从内存获取调度器状态: {status}")
@@ -2987,8 +2986,10 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
 @app.get("/api/health")
 async def health_check():
     """健康检查端点"""
+    # 检查Redis连接
     redis_status = "healthy" if redis else "unhealthy"
     
+    # 检查浏览器池
     browser_pool_stats = browser_pool.get_stats()
     browser_pool_status = "healthy" if browser_pool.initialized else "unhealthy"
     
@@ -3123,6 +3124,7 @@ async def clear_all_charts(
     require_admin(current_user)
     
     try:
+        # Top 250 榜单列表（后端存储名称）
         top250_chart_names = [
             "IMDb Top 250 Movies",
             "IMDb Top 250 TV Shows",
