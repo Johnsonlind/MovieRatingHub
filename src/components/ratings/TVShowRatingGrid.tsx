@@ -250,9 +250,10 @@ export function TVShowRatingGrid({
       )}
       {/* 评分卡片 */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ${className}`}>
-        {/* 豆瓣评分：多季剧只在「季度评分」中展示，剧集评分区不显示；单季剧在剧集评分与季度评分第一季均显示 */}
+        {/* 豆瓣评分 */}
+        {/* 豆瓣评分：多季剧在剧集评分区不显示（仅季度评分里按季显示）；有 selectedSeason 时说明在季度评分里，显示；单季剧都显示 */}
         {ratings.douban && ratings.douban.rating && ratings.douban.rating !== '暂无' && Number(ratings.douban.rating) > 0 &&
-          (!tvShow || (tvShow.seasons?.length ?? 0) <= 1) && (
+          (selectedSeason != null || !tvShow || (tvShow.seasons?.length ?? 0) <= 1) && (
           <RatingCard
             logo={`/logos/douban.png`}
             rating={Number(ratings.douban.rating)}
