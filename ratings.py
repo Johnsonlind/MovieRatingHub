@@ -2604,16 +2604,27 @@ async def extract_douban_rating(page, media_type, matched_results):
                 continue
         
         if not ratings["seasons"] and rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
+            # 多季剧但未解析到任一分季时仍返回统一结构，便于前端与缓存
             return {
                 "status": RATING_STATUS["SUCCESSFUL"],
                 "rating": rating,
-                "rating_people": rating_people
+                "rating_people": rating_people,
+                "seasons": []
             }
         
         if all_seasons_no_rating and ratings["seasons"]:
             ratings["status"] = RATING_STATUS["NO_RATING"]
         elif not ratings["seasons"]:
             ratings["status"] = RATING_STATUS["FETCH_FAILED"]
+        else:
+            # 有有效分季时补充顶层 rating/rating_people（首季），便于前端与缓存兼容
+            first_valid = next(
+                (s for s in ratings["seasons"] if s.get("rating") not in [None, "暂无"] and s.get("rating_people") not in [None, "暂无"]),
+                None
+            )
+            if first_valid:
+                ratings["rating"] = first_valid.get("rating")
+                ratings["rating_people"] = first_valid.get("rating_people")
             
         return ratings
             
@@ -3490,22 +3501,26 @@ def check_tv_status(platform_data, platform):
         return platform_data["status"]
         
     if platform == "douban":
-        seasons = platform_data.get("seasons", [])
+        seasons = platform_data.get("seasons") or []
+        # 无分季数据时：若有有效的整体 rating/rating_people 则视为成功（便于缓存整体评分）
         if not seasons:
+            if (platform_data.get("rating") not in [None, "暂无"]
+                    and platform_data.get("rating_people") not in [None, "暂无"]):
+                return RATING_STATUS["SUCCESSFUL"]
             return RATING_STATUS["FETCH_FAILED"]
-            
+        # 有分季数据时：只要至少一季有有效评分即视为成功（允许部分季暂无评分仍缓存）
         all_no_rating = all(
             season.get("rating") == "暂无" and season.get("rating_people") == "暂无"
             for season in seasons
         )
         if all_no_rating:
             return RATING_STATUS["NO_RATING"]
-            
-        for season in seasons:
-            season_fields = ["rating", "rating_people"]
-            if not all(season.get(key) not in [None, "暂无"] for key in season_fields):
-                return RATING_STATUS["FETCH_FAILED"]
-        return RATING_STATUS["SUCCESSFUL"]
+        has_any_valid = any(
+            season.get("rating") not in [None, "暂无"]
+            and season.get("rating_people") not in [None, "暂无"]
+            for season in seasons
+        )
+        return RATING_STATUS["SUCCESSFUL"] if has_any_valid else RATING_STATUS["FETCH_FAILED"]
         
     elif platform == "imdb":
         if platform_data.get("rating") == "暂无" and platform_data.get("rating_people") == "暂无":
