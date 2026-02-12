@@ -3582,28 +3582,29 @@ def check_tv_status(platform_data, platform):
     """检查剧集评分数据的状态"""
     if not platform_data:
         return RATING_STATUS["FETCH_FAILED"]
-        
-    if "status" in platform_data:
-        return platform_data["status"]
-        
+    # 豆瓣多季：不直接采用传入的 status，按「至少一季有效或顶层有效」判定，避免误判为 Fail 导致不缓存
     if platform == "douban":
-        seasons = platform_data.get("seasons", [])
+        seasons = platform_data.get("seasons") or []
+        top_rating_ok = (platform_data.get("rating") not in [None, "暂无"]
+                        and platform_data.get("rating_people") not in [None, "暂无"])
         if not seasons:
-            return RATING_STATUS["FETCH_FAILED"]
-            
+            return RATING_STATUS["SUCCESSFUL"] if top_rating_ok else RATING_STATUS["FETCH_FAILED"]
         all_no_rating = all(
             season.get("rating") == "暂无" and season.get("rating_people") == "暂无"
             for season in seasons
         )
         if all_no_rating:
-            return RATING_STATUS["NO_RATING"]
-            
-        for season in seasons:
-            season_fields = ["rating", "rating_people"]
-            if not all(season.get(key) not in [None, "暂无"] for key in season_fields):
-                return RATING_STATUS["FETCH_FAILED"]
-        return RATING_STATUS["SUCCESSFUL"]
-        
+            return RATING_STATUS["SUCCESSFUL"] if top_rating_ok else RATING_STATUS["NO_RATING"]
+        has_any_valid = any(
+            season.get("rating") not in [None, "暂无"]
+            and season.get("rating_people") not in [None, "暂无"]
+            for season in seasons
+        )
+        return RATING_STATUS["SUCCESSFUL"] if has_any_valid else RATING_STATUS["FETCH_FAILED"]
+
+    if "status" in platform_data:
+        return platform_data["status"]
+
     elif platform == "imdb":
         if platform_data.get("rating") == "暂无" and platform_data.get("rating_people") == "暂无":
             return RATING_STATUS["NO_RATING"]
