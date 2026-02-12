@@ -32,10 +32,7 @@ interface UseMediaRatingsReturn {
 
 const BACKEND_PLATFORMS = ['douban', 'imdb', 'letterboxd', 'rottentomatoes', 'metacritic'] as const;
 
-function mapBackendStatusToFrontend(status: string | undefined, statusReason?: string): FetchStatus {
-  if (statusReason && (statusReason.includes('未收录') || statusReason.includes('平台未收录'))) {
-    return 'not_found';
-  }
+function mapBackendStatusToFrontend(status: string): FetchStatus {
   switch (status) {
     case 'Successful':
       return 'successful';
@@ -124,7 +121,7 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
             setPlatformStatuses(prev => ({
               ...prev,
               [platform]: {
-                status: mapBackendStatusToFrontend(data?.status, data?.status_reason),
+                status: mapBackendStatusToFrontend(data.status),
                 data
               }
             }));
