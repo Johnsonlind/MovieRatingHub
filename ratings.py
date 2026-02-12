@@ -2440,6 +2440,11 @@ async def extract_douban_rating(page, media_type, matched_results):
         if not content:
             return create_empty_rating_data("douban", media_type, RATING_STATUS["TIMEOUT"])
         
+        try:
+            initial_page_url = (page.url() or "").rstrip("/")
+        except Exception:
+            initial_page_url = ""
+        
         json_match = re.search(r'"aggregateRating":\s*{\s*"@type":\s*"AggregateRating",\s*"ratingCount":\s*"([^"]+)",\s*"bestRating":\s*"([^"]+)",\s*"worstRating":\s*"([^"]+)",\s*"ratingValue":\s*"([^"]+)"', content)
         
         if json_match:
@@ -2506,6 +2511,8 @@ async def extract_douban_rating(page, media_type, matched_results):
         
         all_seasons_no_rating = True
         processed_seasons = set()
+        # 首页已是第一季详情页，已解析的 rating/rating_people 即第一季数据，避免重复 goto 导致拿不到
+        first_season_url = season_results[0].get("url") if season_results else None
         
         for season_info in season_results:
             try:
@@ -2526,11 +2533,29 @@ async def extract_douban_rating(page, media_type, matched_results):
                     })
                     continue
 
+                # 第一季且当前页面就是该季详情页时，直接使用首页已解析的 rating/rating_people，避免重复 goto 拿不到
+                url_norm = url.rstrip("/") if url else ""
+                if (season_number == 1 and url_norm and url_norm == initial_page_url
+                        and rating not in [None, "暂无"] and rating_people not in [None, "暂无"]):
+                    all_seasons_no_rating = False
+                    ratings["seasons"].append({
+                        "season_number": 1,
+                        "rating": str(rating).strip(),
+                        "rating_people": str(rating_people).strip(),
+                        "url": url
+                    })
+                    print(f"豆瓣第1季评分使用首页已解析数据: {rating} ({rating_people}人)")
+                    continue
+
                 await random_delay()
                 
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.5)
+                    try:
+                        await page.wait_for_selector("strong.rating_num, span[property='v:votes']", timeout=8000)
+                    except Exception:
+                        pass
                 except Exception as e:
                     print(f"豆瓣访问第{season_number}季页面失败: {e}")
                     ratings["seasons"].append({
