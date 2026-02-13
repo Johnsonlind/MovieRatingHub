@@ -311,7 +311,7 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
         if (!response.ok) throw new Error('获取评分失败');
         const data = await response.json();
 
-        const frontendStatus = mapBackendStatusToFrontend(data.status);
+        const frontendStatus = mapBackendStatusToFrontend(data);
 
         setPlatformStatuses(prev => ({
           ...prev,
