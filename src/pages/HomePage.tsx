@@ -20,6 +20,8 @@ function TopSectionsFromBackend() {
     queryKey: ['aggregate-charts'],
     queryFn: () => fetch('/api/charts/aggregate').then(r => r.json()),
     placeholderData: (previousData) => previousData,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
   });
 
   const resolvePosterUrl = (poster: string) => {
@@ -50,7 +52,7 @@ function TopSectionsFromBackend() {
                           src={resolvePosterUrl(item.poster)}
                           alt={item.title}
                           className="w-full h-full object-cover transition-opacity duration-200"
-                          loading="eager"
+                          loading={idx < 5 ? 'eager' : 'lazy'}
                           fetchPriority={idx < 5 ? 'high' : 'auto'}
                           decoding="async"
                           sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
@@ -110,7 +112,7 @@ function TopSectionsFromBackend() {
                           src={resolvePosterUrl(item.poster)}
                           alt={item.title}
                           className="w-full h-full object-cover transition-opacity duration-200"
-                          loading="eager"
+                          loading={idx < 5 ? 'eager' : 'lazy'}
                           fetchPriority={idx < 5 ? 'high' : 'auto'}
                           decoding="async"
                           sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
