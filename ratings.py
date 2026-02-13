@@ -982,6 +982,49 @@ def get_client_ip(request: Request) -> str:
     
     return request.client.host
 
+async def _is_cloudflare_challenge(page) -> bool:
+    """检测当前页面是否为 Cloudflare 安全验证"""
+    try:
+        title = await page.title()
+        if title and "Just a moment" in title:
+            return True
+        content = await page.content()
+        if "Enable JavaScript and cookies to continue" in content or "cf_chl_opt" in content or "challenge-platform" in content:
+            return True
+        return False
+    except Exception:
+        return False
+
+def _parse_letterboxd_cookie_string(s: str):
+    """解析 .env 中的 LETTERBOXD_COOKIE 字符串"""
+    if not s or not s.strip():
+        return []
+    out = []
+    for part in s.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        name, value = name.strip(), value.strip()
+        if name:
+            out.append({"name": name, "value": value, "domain": ".letterboxd.com", "path": "/"})
+    return out
+
+def _parse_douban_cookie_string(s: str):
+    """解析豆瓣 Cookie 字符串"""
+    if not s or not s.strip():
+        return []
+    out = []
+    for part in s.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        name, value = name.strip(), value.strip()
+        if name:
+            out.append({"name": name, "value": value, "domain": ".douban.com", "path": "/"})
+    return out
+
 async def search_platform(platform, tmdb_info, request=None, douban_cookie=None):
     """在各平台搜索并返回搜索结果"""
     try:
@@ -1917,53 +1960,6 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
-
-async def _is_cloudflare_challenge(page) -> bool:
-    """检测当前页面是否为 Cloudflare 安全验证"""
-    try:
-        title = await page.title()
-        if title and "Just a moment" in title:
-            return True
-        content = await page.content()
-        if "Enable JavaScript and cookies to continue" in content or "cf_chl_opt" in content or "challenge-platform" in content:
-            return True
-        return False
-    except Exception:
-        return False
-
-
-def _parse_letterboxd_cookie_string(s: str):
-    """解析 .env 中的 LETTERBOXD_COOKIE 字符串"""
-    if not s or not s.strip():
-        return []
-    out = []
-    for part in s.split(";"):
-        part = part.strip()
-        if not part or "=" not in part:
-            continue
-        name, _, value = part.partition("=")
-        name, value = name.strip(), value.strip()
-        if name:
-            out.append({"name": name, "value": value, "domain": ".letterboxd.com", "path": "/"})
-    return out
-
-
-def _parse_douban_cookie_string(s: str):
-    """解析豆瓣 Cookie 字符串为 Playwright add_cookies 格式，便于浏览器按真实 cookie 发送"""
-    if not s or not s.strip():
-        return []
-    out = []
-    for part in s.split(";"):
-        part = part.strip()
-        if not part or "=" not in part:
-            continue
-        name, _, value = part.partition("=")
-        name, value = name.strip(), value.strip()
-        if name:
-            out.append({"name": name, "value": value, "domain": ".douban.com", "path": "/"})
-    return out
-
-
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     new_ctx = None
@@ -2277,11 +2273,10 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         if douban_cookie:
                             headers['Cookie'] = douban_cookie
                             print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
-                            # 同时注入到浏览器 cookie 存储，与 Letterboxd 一致，减少被识别为异常请求的概率
                             douban_cookies = _parse_douban_cookie_string(douban_cookie)
                             if douban_cookies:
                                 await context.add_cookies(douban_cookies)
-                                print("豆瓣: 已注入用户 Cookie 到浏览器（context.add_cookies）")
+                                print("豆瓣: 已注入用户 Cookie 到浏览器")
                         else:
                             print("⚠️ 未提供豆瓣Cookie，使用默认方式")
                         if headers:
@@ -2377,7 +2372,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                     try:
                         if platform == "douban":
                             if media_type == "tv" and len(tmdb_info.get("seasons", [])) > 1 and matched_results:
-                                print("检测到多季剧集，优先进行分季抓取以获取所有季评分（网页抓取）")
+                                print("检测到多季剧集，进行分季抓取以获取所有季评分")
                                 rating_data = await extract_douban_rating(page, media_type, matched_results, request=request, douban_cookie=douban_cookie)
                             else:
                                 rating_data = await extract_douban_rating(page, media_type, search_results)
@@ -2451,7 +2446,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
     return await _extract_rating_with_retry()
 
 async def extract_douban_rating(page, media_type, matched_results, request=None, douban_cookie=None):
-    """从豆瓣详情页提取评分数据。request/douban_cookie 用于访问分季详情页时沿用同一 IP 与 Cookie 并打日志。"""
+    """从豆瓣详情页提取评分数据"""
     try:
         try:
             await page.wait_for_load_state("domcontentloaded", timeout=8000)
@@ -2537,7 +2532,6 @@ async def extract_douban_rating(page, media_type, matched_results, request=None,
                     })
         
         season_results.sort(key=lambda x: x["season_number"])
-        # 调试：是否获取到分季详情页链接
         print(f"豆瓣分季: 共获取到 {len(season_results)} 个分季详情页链接")
         for sr in season_results:
             print(f"  第{sr['season_number']}季: url={sr.get('url') or '(空)'}")
@@ -2597,11 +2591,9 @@ async def extract_douban_rating(page, media_type, matched_results, request=None,
                     continue
 
                 await random_delay()
-                # 分季请求之间加长间隔，降低豆瓣「短时间多请求」触发的验证/重定向概率
                 season_delay = random.uniform(3, 6)
-                print(f"豆瓣第{season_number}季: 等待 {season_delay:.1f} 秒后访问，降低触发验证概率")
+                print(f"豆瓣第{season_number}季: 等待 {season_delay:.1f} 秒后访问")
                 await asyncio.sleep(season_delay)
-                # 分季详情页沿用同一 IP 与用户 Cookie，并打与首请求一致的日志
                 if request is not None or douban_cookie:
                     headers = {}
                     if request:
@@ -2616,7 +2608,6 @@ async def extract_douban_rating(page, media_type, matched_results, request=None,
                         print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
                     if headers:
                         await page.set_extra_http_headers(headers)
-                # 调试：是否访问了分季详情页
                 print(f"豆瓣第{season_number}季: 正在访问分季详情页 {url}")
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=15000)
@@ -2652,11 +2643,10 @@ async def extract_douban_rating(page, media_type, matched_results, request=None,
                         "url": url
                     })
                     continue
-                # 调试：是否遇到访问限制（登录/验证页）
                 content_len = len(season_content) if season_content else 0
                 has_aggregate = '"aggregateRating"' in (season_content or "")
                 has_restriction = bool(season_content and (
-                    "请登录" in season_content or "安全验证" in season_content or "人机验证" in season_content
+                    "登录跳转" in season_content or "安全验证" in season_content or "机器人程序" in season_content
                     or "验证码" in season_content or "robot" in season_content.lower() or "unusual traffic" in (season_content or "").lower()
                 ))
                 print(f"豆瓣第{season_number}季: 页面长度={content_len}, 含aggregateRating={has_aggregate}, 疑似访问限制={has_restriction}")
@@ -2724,7 +2714,6 @@ async def extract_douban_rating(page, media_type, matched_results, request=None,
                             season_rating_people = people_match.group(1)
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
                             print(f"豆瓣从页面 HTML 提取到第{season_number}季评分成功")
-                # 调试：本季是否匹配到评分元素
                 matched_rating = season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]
                 print(f"豆瓣第{season_number}季: 匹配到评分元素={matched_rating}, rating={season_rating}, rating_people={season_rating_people}")
                 
