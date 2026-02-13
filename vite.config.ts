@@ -3,12 +3,22 @@
 // ==========================================
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 import { visualizer } from 'rollup-plugin-visualizer';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        runtimeCaching: [
+          { urlPattern: /^https:\/\/image\.tmdb\.org\/.*/i, handler: 'CacheFirst', options: { cacheName: 'tmdb-images', expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 } } },
+        ],
+      },
+    }),
     visualizer({
       open: false,
       gzipSize: true,
@@ -41,23 +51,21 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'ui-components': [
-            'src/components/common/Button.tsx',
-            'src/components/common/Dialog.tsx',
-            'src/components/common/Input.tsx',
-            'src/components/common/Switch.tsx',
-            'src/components/common/Textarea.tsx'
-          ],
-          'utils': [
-            'src/utils/formatRating.ts',
-            'src/types/jobTitles.ts',
-            'src/types/messages.ts',
-            'src/utils/ratingHelpers.ts',
-            'src/utils/rottenTomatoesLogos.ts',
-            'src/utils/utils.ts'
-          ]
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || id.includes('react-router') || (id.includes('/react/') && !id.includes('react-'))) {
+              return 'react-vendor';
+            }
+            if (id.includes('@tanstack/react-query')) {
+              return 'query';
+            }
+            if (id.includes('@headlessui') || id.includes('lucide-react')) {
+              return 'ui-vendor';
+            }
+            if (id.includes('html-to-image') || id.includes('html2canvas') || id.includes('modern-screenshot')) {
+              return 'export-vendor';
+            }
+          }
         }
       }
     },
