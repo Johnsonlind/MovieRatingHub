@@ -33,13 +33,37 @@ export default defineConfig({
     proxy: {
       '/auth': {
         target: 'http://localhost:8000',
-        changeOrigin: true
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            const cookies = proxyRes.headers['set-cookie'];
+            if (cookies) {
+              proxyRes.headers['set-cookie'] = cookies.map((cookie: string) =>
+                cookie
+                  .replace(/;\s*Secure/gi, '')
+                  .replace(/;\s*Domain=[^;]+/gi, '')
+              );
+            }
+          });
+        },
       },
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true
-      }
-    }
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            const cookies = proxyRes.headers['set-cookie'];
+            if (cookies) {
+              proxyRes.headers['set-cookie'] = cookies.map((cookie: string) =>
+                cookie
+                  .replace(/;\s*Secure/gi, '')
+                  .replace(/;\s*Domain=[^;]+/gi, '')
+              );
+            }
+          });
+        },
+      },
+    },
   },
   build: {
     target: 'es2015',
