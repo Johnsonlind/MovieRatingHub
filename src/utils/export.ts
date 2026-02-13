@@ -4,6 +4,19 @@
 import { toPng } from 'html-to-image';
 import { getBase64Image } from '../api/image';
 
+const EXPORT_CACHE_TTL_MS = 5 * 60 * 1000;
+const exportCache = new Map<string, { dataUrl: string; ts: number }>();
+let exportQueue: Promise<void> = Promise.resolve();
+
+function getCachedExport(key: string): string | null {
+  const entry = exportCache.get(key);
+  if (!entry || Date.now() - entry.ts > EXPORT_CACHE_TTL_MS) return null;
+  return entry.dataUrl;
+}
+function setCachedExport(key: string, dataUrl: string): void {
+  exportCache.set(key, { dataUrl, ts: Date.now() });
+}
+
 export const preloadImages = async (images: { poster?: string; cdnImages: string[] }) => {
   const promises = [];
   
@@ -610,7 +623,7 @@ async function exportWithSnapdom(element: HTMLElement, filename: string, isChart
   await downloadImage(dataUrl, filename, isMobile);
 }
 
-async function exportWithHtmlToImage(element: HTMLElement, filename: string, isChart: boolean = false, _borderRadius: number = 20): Promise<void> {
+async function exportWithHtmlToImage(element: HTMLElement, filename: string, isChart: boolean = false, _borderRadius: number = 20, cacheKey?: string): Promise<void> {
   const isMobile = isMobileDevice();
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const backgroundColor = isDark ? '#0a0e1a' : '#f0f9ff';
@@ -629,7 +642,7 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   
   await yieldToMain();
 
-  const basePixelRatio = isChart ? 1.5 : 2;
+  const basePixelRatio = isChart ? 1 : 2;
   const pixelRatio = isMobile ? Math.max(1.0, basePixelRatio * 0.7) : basePixelRatio;
   
   console.log('Chrome: 开始导出，pixelRatio:', pixelRatio, isMobile ? '(移动端优化)' : '');
@@ -669,7 +682,7 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   console.log('Chrome: 图片压缩完成');
 
   await yieldToMain();
-  
+  if (cacheKey) setCachedExport(cacheKey, dataUrl);
   await downloadImage(dataUrl, filename, isMobile);
 }
 
@@ -681,29 +694,31 @@ function yieldToMain(): Promise<void> {
   });
 }
 
-export async function exportToPng(element: HTMLElement, filename: string, options?: { isChart?: boolean; borderRadius?: number }) {
-  if (!element) {
-    throw new Error('导出元素不存在');
-  }
-
-  try {
+export async function exportToPng(
+  element: HTMLElement,
+  filename: string,
+  options?: { isChart?: boolean; borderRadius?: number; cacheKey?: string }
+) {
+  if (!element) throw new Error('导出元素不存在');
+  const cacheKey = options?.cacheKey;
+  const run = async () => {
+    if (cacheKey) {
+      const cached = getCachedExport(cacheKey);
+      if (cached) {
+        downloadImage(cached, filename, false);
+        return;
+      }
+    }
     await yieldToMain();
-    
     const isSafariBrowser = isSafari();
     const isChart = options?.isChart || false;
     const borderRadius = 0;
-    
-    console.log('开始导出，浏览器:', isSafariBrowser ? 'Safari' : '其他', '类型:', isChart ? '榜单' : '评分卡片', '圆角:', borderRadius);
-    
     if (isSafariBrowser) {
       await exportWithSnapdom(element, filename, isChart, borderRadius);
     } else {
-      await exportWithHtmlToImage(element, filename, isChart, borderRadius);
+      await exportWithHtmlToImage(element, filename, isChart, borderRadius, cacheKey);
     }
-    
-    console.log('导出成功');
-  } catch (error) {
-    console.error('导出PNG失败:', error);
-    throw error;
-  }
+  };
+  exportQueue = exportQueue.then(run, run);
+  await exportQueue;
 }
