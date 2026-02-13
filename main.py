@@ -111,7 +111,7 @@ class OAuth2PasswordBearerOptional(OAuth2):
             
         return param
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=10)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 oauth2_scheme_optional = OAuth2PasswordBearerOptional(tokenUrl="token", auto_error=False)
 
@@ -327,7 +327,8 @@ async def login(request: Request, db: Session = Depends(get_db)):
                 "id": user.id,
                 "email": user.email,
                 "username": user.username,
-                "avatar": user.avatar
+                "avatar": user.avatar,
+                "is_admin": getattr(user, "is_admin", False),
             }
         }
     except HTTPException:
