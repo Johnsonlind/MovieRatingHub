@@ -28,19 +28,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const getCacheMaxAge = () => {
+    return localStorage.getItem('remember_me') === '1'
+      ? 24 * 60 * 60 * 1000
+      : 30 * 60 * 1000;
+  };
+
   const isCacheValid = (timestamp: number) => {
     const now = Date.now();
-    return (now - timestamp) < 5 * 60 * 1000;
+    return (now - timestamp) < getCacheMaxAge();
   };
 
   useEffect(() => {
     const cachedUser = localStorage.getItem('cachedUserInfo');
     const token = localStorage.getItem('token');
-    
-    if (cachedUser && token) {
+    const rememberMe = localStorage.getItem('remember_me') === '1';
+    const hasAuth = token || rememberMe;
+
+    if (cachedUser && hasAuth) {
       try {
         const parsedCache = JSON.parse(cachedUser);
-        
         if (parsedCache.timestamp && isCacheValid(parsedCache.timestamp)) {
           setUser(parsedCache.data);
           setIsLoading(false);
@@ -52,8 +59,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('cachedUserInfo');
       }
     }
-    
-    if (token) {
+
+    if (hasAuth) {
       fetchUser();
     } else {
       setIsLoading(false);
@@ -62,34 +69,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUser = async (background = false) => {
     if (!background) setIsLoading(true);
-    
+    const token = localStorage.getItem('token');
+    const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
     try {
       const response = await fetch('/api/user/me', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        cache: 'no-store'
+        headers,
+        credentials: 'include',
+        cache: 'no-store',
       });
-      
+
       if (response.ok) {
         const userData = await response.json();
         setUser(userData);
-        
-        const cacheData = {
-          data: userData,
-          timestamp: Date.now()
-        };
+        const cacheData = { data: userData, timestamp: Date.now() };
         localStorage.setItem('cachedUserInfo', JSON.stringify(cacheData));
-      } else {
+      } else if (response.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('cachedUserInfo');
+        localStorage.removeItem('remember_me');
         setUser(null);
       }
     } catch (error) {
       console.error('获取用户信息失败:', error);
-      localStorage.removeItem('token');
-      localStorage.removeItem('cachedUserInfo');
-      setUser(null);
     } finally {
       if (!background) setIsLoading(false);
     }
@@ -100,28 +101,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const response = await fetch('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, remember_me: rememberMe })
+        credentials: 'include',
+        body: JSON.stringify({ email, password, remember_me: rememberMe }),
       });
-    
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.detail);
       }
-    
+
       const data = await response.json();
-      localStorage.setItem('token', data.access_token);
       const userData = data.user ?? {};
-      if (userData.id != null) {
-        setUser({
-          id: userData.id,
-          email: userData.email ?? '',
-          username: userData.username ?? '',
-          avatar: userData.avatar ?? null,
-          is_admin: userData.is_admin ?? false,
-        });
-        const cacheData = { data: userData, timestamp: Date.now() };
-        localStorage.setItem('cachedUserInfo', JSON.stringify(cacheData));
+      if (userData.id == null) return;
+
+      if (rememberMe) {
+        localStorage.setItem('remember_me', '1');
+        localStorage.removeItem('token');
+      } else {
+        localStorage.setItem('token', data.access_token);
+        localStorage.removeItem('remember_me');
       }
+      setUser({
+        id: userData.id,
+        email: userData.email ?? '',
+        username: userData.username ?? '',
+        avatar: userData.avatar ?? null,
+        is_admin: userData.is_admin ?? false,
+      });
+      const cacheData = { data: userData, timestamp: Date.now() };
+      localStorage.setItem('cachedUserInfo', JSON.stringify(cacheData));
     } catch (error) {
       console.error('登录失败:', error);
       throw error;
@@ -138,11 +146,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('cachedUserInfo', JSON.stringify(cacheData));
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch (_) {}
     localStorage.removeItem('token');
     localStorage.removeItem('cachedUserInfo');
+    localStorage.removeItem('remember_me');
     setUser(null);
-    
     setTimeout(() => {
       window.location.href = '/';
     }, 0);
