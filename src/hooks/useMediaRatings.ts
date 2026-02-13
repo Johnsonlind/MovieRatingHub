@@ -34,10 +34,12 @@ const BACKEND_PLATFORMS = ['douban', 'imdb', 'letterboxd', 'rottentomatoes', 'me
 
 const BACKEND_PLATFORM_FETCH_TIMEOUT_MS = 120_000;
 
-function mapBackendStatusToFrontend(data: { status?: string; status_reason?: string }): FetchStatus {
-  const status = data?.status ?? '';
-  const reason = data?.status_reason ?? '';
+function mapBackendStatusToFrontend(data: { status?: string; status_reason?: string } | null): FetchStatus {
+  if (!data || typeof data !== 'object') return 'error';
+  const status = String(data.status ?? '').trim();
+  const reason = String(data.status_reason ?? '').trim();
   if (reason.includes('未收录')) return 'not_found';
+  if (status.toLowerCase() === 'no found') return 'not_found';
   switch (status) {
     case 'Successful':
       return 'successful';
@@ -121,6 +123,7 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
           try {
             const response = await fetch(`/api/ratings/${platform}/${apiType}/${mediaId}`, {
               signal: platformAbort.signal,
+              cache: 'no-store',
               ...(token && { headers: { 'Authorization': `Bearer ${token}` } })
             });
             clearTimeout(timeoutId);
