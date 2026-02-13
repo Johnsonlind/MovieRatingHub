@@ -111,7 +111,8 @@ class OAuth2PasswordBearerOptional(OAuth2):
             
         return param
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=10)
+# rounds=8 约 0.05–0.1s/次，兼顾安全与登录速度；若需更高安全可改为 10
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=8)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 oauth2_scheme_optional = OAuth2PasswordBearerOptional(tokenUrl="token", auto_error=False)
 
@@ -293,33 +294,41 @@ async def register(
         }
     }
 
+def _login_verify_sync(email: str, password: str) -> tuple[Optional[User], Optional[str]]:
+    """在线程中执行：查用户 + 校验密码，避免阻塞事件循环。返回 (user, error_detail)。"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            return None, "此邮箱未注册"
+        if not verify_password(password, user.hashed_password):
+            return None, "邮箱或密码错误"
+        return user, None
+    finally:
+        db.close()
+
+
 @app.post("/auth/login")
-async def login(request: Request, db: Session = Depends(get_db)):
+async def login(request: Request):
+    login_start = time.time()
+    logger.info("登录请求开始处理")
     try:
         data = await request.json()
         email = data.get("email")
         password = data.get("password")
         remember_me = data.get("remember_me", False)
         
-        user = db.query(User).filter(User.email == email).first()
-        
-        if not user:
-            raise HTTPException(
-                status_code=401,
-                detail="此邮箱未注册"
-            )
-        password_ok = await asyncio.to_thread(verify_password, password, user.hashed_password)
-        if not password_ok:
-            raise HTTPException(
-                status_code=401,
-                detail="邮箱或密码错误"
-            )
+        user, err = await asyncio.to_thread(_login_verify_sync, email or "", password or "")
+        if err:
+            raise HTTPException(status_code=401, detail=err)
         
         access_token = create_access_token(
             data={"sub": user.email},
             remember_me=remember_me
         )
         
+        elapsed = round(time.time() - login_start, 3)
+        logger.info(f"登录成功 email={email} 耗时={elapsed}s")
         return {
             "access_token": access_token,
             "token_type": "bearer",
