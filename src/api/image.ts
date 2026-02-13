@@ -3,21 +3,20 @@
 // ==========================================
 import { TMDB } from './api';
 
+const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
+
 type ImageSize = keyof typeof TMDB.posterSizes;
 
 export function getImageUrl(path: string | null, size: ImageSize = '中', type: 'poster' | 'profile' = 'poster'): string {
   if (!path) {
     return type === 'poster' ? '/placeholder-poster.png' : '/placeholder-avatar.png';
   }
-  
   if (path.startsWith('http')) {
+    if (path.includes('image.tmdb.org')) return path;
     return `/api/image-proxy?url=${encodeURIComponent(path)}`;
-  } else if (!path.startsWith('/')) {
-    path = '/' + path;
   }
-  
-  const tmdbImageUrl = `${TMDB.imageBaseUrl}/${TMDB.posterSizes[size]}${path}`;
-  return `/api/image-proxy?url=${encodeURIComponent(tmdbImageUrl)}`;
+  if (!path.startsWith('/')) path = '/' + path;
+  return `${TMDB_IMAGE_BASE}/${TMDB.posterSizes[size]}${path}`;
 }
 
 export async function getBase64Image(input: string | File): Promise<string> {
