@@ -2473,7 +2473,7 @@ async def extract_douban_rating(page, media_type, matched_results):
         except Exception as e:
             print(f"豆瓣等待domcontentloaded超时或失败，继续尝试直接解析: {e}")
         try:
-            await page.wait_for_selector("strong.rating_num, span[property='v:votes'], [class*='rating_num']", timeout=6000)
+            await page.wait_for_selector("[property='v:average'], strong.rating_num, span[property='v:votes'], [class*='rating_num']", timeout=6000)
         except Exception:
             pass
         await asyncio.sleep(0.4)
@@ -2494,20 +2494,21 @@ async def extract_douban_rating(page, media_type, matched_results):
         except Exception:
             initial_page_url = ""
         
-        json_match = re.search(r'"aggregateRating":\s*{\s*"@type":\s*"AggregateRating",\s*"ratingCount":\s*"([^"]+)",\s*"bestRating":\s*"([^"]+)",\s*"worstRating":\s*"([^"]+)",\s*"ratingValue":\s*"([^"]+)"', content)
-        
-        if json_match:
-            rating_people = json_match.group(1)
-            rating = json_match.group(4)
+        rv, rc = _parse_douban_aggregate_rating(content)
+        if rv and rc:
+            rating = rv
+            rating_people = rc
         else:
-            rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', content)
+            rating_match = re.search(r'property="v:average"[^>]*>([^<]+)<', content)
+            if not rating_match or not rating_match.group(1).strip():
+                rating_match = re.search(r'<strong[^>]*class="[^"]*rating_num[^"]*"[^>]*>([^<]*)</strong>', content)
             rating = rating_match.group(1).strip() if rating_match and rating_match.group(1).strip() else "暂无"
             people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', content)
             rating_people = people_match.group(1) if people_match else "暂无"
             if rating in [None, "暂无"] or rating_people in [None, "暂无"]:
                 try:
                     rating = await page.evaluate('''() => {
-                        const el = document.querySelector('strong.rating_num');
+                        const el = document.querySelector('[property="v:average"]') || document.querySelector('strong.rating_num');
                         return el ? el.textContent.trim() : "暂无";
                     }''') or "暂无"
                     rating_people = await page.evaluate('''() => {
@@ -2516,10 +2517,10 @@ async def extract_douban_rating(page, media_type, matched_results):
                     }''') or "暂无"
                 except Exception:
                     pass
-            if rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
-                pass
-            else:
-                pass
+            if not rating_people or rating_people == "暂无":
+                ren_match = re.search(r'(\d+)\s*人评价', content)
+                if ren_match:
+                    rating_people = ren_match.group(1)
             
         if media_type != "tv":
             if "暂无评分" in content or "尚未上映" in content:
@@ -2620,7 +2621,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                     await asyncio.sleep(1.0)
                     try:
                         await page.wait_for_selector(
-                            "strong.rating_num, span[property='v:votes'], [class*='rating_num'], .rating_nums, .rating_num",
+                            "[property='v:average'], strong.rating_num, span[property='v:votes'], [class*='rating_num'], .rating_nums",
                             timeout=10000
                         )
                     except Exception:
@@ -2663,7 +2664,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                     try:
                         if season_rating in ["暂无", "", None] or season_rating_people in ["暂无", "", None]:
                             season_rating = await page.evaluate('''() => {
-                                const el = document.querySelector('strong.rating_num') || document.querySelector('.rating_num') || document.querySelector('.rating_nums') || document.querySelector('[class*="rating_num"]');
+                                const el = document.querySelector('[property="v:average"]') || document.querySelector('strong.rating_num') || document.querySelector('.rating_num') || document.querySelector('.rating_nums') || document.querySelector('[class*="rating_num"]');
                                 return el ? el.textContent.trim() : "暂无";
                             }''')
                             season_rating_people = await page.evaluate('''() => {
@@ -2671,7 +2672,13 @@ async def extract_douban_rating(page, media_type, matched_results):
                                 return el ? el.textContent.trim() : "暂无";
                             }''')
                         if season_rating in ["暂无", "", None]:
-                            for pat in [r'<strong[^>]*class="[^"]*rating_num[^"]*"[^>]*>([^<]*)</strong>', r'<span[^>]*class="[^"]*rating_num[^"]*"[^>]*>([^<]*)</span>', r'rating_num[^>]*>([^<]+)<']:
+                            for pat in [
+                                r'property="v:average"[^>]*>([^<]+)<',
+                                r'<strong[^>]*property="v:average"[^>]*>([^<]*)</strong>',
+                                r'<strong[^>]*class="[^"]*rating_num[^"]*"[^>]*>([^<]*)</strong>',
+                                r'<span[^>]*class="[^"]*rating_num[^"]*"[^>]*>([^<]*)</span>',
+                                r'rating_num[^>]*>([^<]+)<',
+                            ]:
                                 rating_match = re.search(pat, season_content)
                                 if rating_match and rating_match.group(1).strip():
                                     season_rating = rating_match.group(1).strip()
@@ -2708,7 +2715,11 @@ async def extract_douban_rating(page, media_type, matched_results):
                         season_rating_people = str(rc).strip()
                         print(f"豆瓣从页面 JSON 提取到第{season_number}季评分成功 {season_rating} {season_rating_people}")
                     else:
-                        rating_match = re.search(r'<strong[^>]*class="[^"]*rating_num[^"]*"[^>]*>([^<]*)</strong>', season_content)
+                        rating_match = re.search(r'property="v:average"[^>]*>([^<]+)<', season_content)
+                        if not rating_match or not rating_match.group(1).strip():
+                            rating_match = re.search(r'<strong[^>]*property="v:average"[^>]*>([^<]*)</strong>', season_content)
+                        if not rating_match or not rating_match.group(1).strip():
+                            rating_match = re.search(r'<strong[^>]*class="[^"]*rating_num[^"]*"[^>]*>([^<]*)</strong>', season_content)
                         if rating_match and rating_match.group(1).strip():
                             season_rating = rating_match.group(1).strip()
                         people_match = re.search(r'<span[^>]*property="v:votes">(\d+)</span>', season_content)
