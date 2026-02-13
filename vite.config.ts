@@ -27,7 +27,7 @@ export default defineConfig({
     }),
   ],
   optimizeDeps: {
-    include: ['lucide-react']
+    include: ['lucide-react', 'react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'axios'],
   },
   server: {
     proxy: {
