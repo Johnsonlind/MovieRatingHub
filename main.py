@@ -47,6 +47,7 @@ import traceback
 
 REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
 CACHE_EXPIRE_TIME = 24 * 60 * 60
+CHARTS_CACHE_EXPIRE = 2 * 60
 redis = None
 
 SECRET_KEY = "L1994z0912x."
@@ -213,6 +214,18 @@ async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
             await redis.setex(key, expire, json.dumps(data))
     except Exception as e:
         logger.error(f"设置缓存出错: {e}")
+
+
+async def get_tmdb_info_cached(id: str, type: str, request: Request):
+    """带 Redis 缓存的 TMDB 基础信息获取"""
+    cache_key = f"tmdb:info:{type}:{id}"
+    cached = await get_cache(cache_key)
+    if cached:
+        return cached
+    tmdb_info = await get_tmdb_info(id, type, request)
+    if tmdb_info:
+        await set_cache(cache_key, tmdb_info, expire=CACHE_EXPIRE_TIME)
+    return tmdb_info
 
 def generate_reset_token():
     return secrets.token_urlsafe(32)
@@ -1489,7 +1502,7 @@ async def get_batch_ratings(
                 return media_id, {'cached': True, 'data': cached}
             
             try:
-                tmdb_info = await get_tmdb_info(media_id, media_type, request)
+                tmdb_info = await get_tmdb_info_cached(media_id, media_type, request)
                 if not tmdb_info:
                     return media_id, {'error': 'TMDB信息获取失败'}
                 
@@ -1637,7 +1650,7 @@ async def get_all_platform_ratings(
             print(f"从缓存获取所有平台评分数据，耗时: {time.time() - start_time:.2f}秒")
             return cached_data
         
-        tmdb_info = await get_tmdb_info(id, type, request)
+        tmdb_info = await get_tmdb_info_cached(id, type, request)
         if not tmdb_info:
             if await request.is_disconnected():
                 print("请求在获取TMDB信息时被取消")
@@ -1720,7 +1733,7 @@ async def get_platform_rating(
             print(f"从缓存获取 {platform} 评分数据，耗时: {time.time() - start_time:.2f}秒")
             return cached_data
 
-        tmdb_info = await get_tmdb_info(id, type, request)
+        tmdb_info = await get_tmdb_info_cached(id, type, request)
         if not tmdb_info:
             if await request.is_disconnected():
                 print(f"{platform} 请求在获取TMDB信息时被取消")
@@ -1830,14 +1843,49 @@ async def get_tmdb_client():
         )
     return _tmdb_client
 
+def _normalized_query_for_cache(query_params) -> str:
+    """将 query 参数按 key 排序后拼接"""
+    if not query_params:
+        return ""
+    sorted_items = sorted(query_params.items(), key=lambda x: x[0])
+    return "&".join(f"{k}={v}" for k, v in sorted_items)
+
+_tmdb_search_times: dict[str, list[float]] = {}
+_tmdb_rate_lock = asyncio.Lock()
+TMDB_SEARCH_LIMIT = 10
+TMDB_SEARCH_WINDOW = 10.0
+
+
+async def _check_tmdb_search_rate_limit(client_ip: str) -> None:
+    """仅对 search 路径限流，超限抛 429"""
+    if not client_ip:
+        return
+    now = time.time()
+    async with _tmdb_rate_lock:
+        if client_ip not in _tmdb_search_times:
+            _tmdb_search_times[client_ip] = []
+        times = _tmdb_search_times[client_ip]
+        times[:] = [t for t in times if now - t < TMDB_SEARCH_WINDOW]
+        if len(times) >= TMDB_SEARCH_LIMIT:
+            raise HTTPException(status_code=429, detail="TMDB 搜索请求过于频繁，请稍后再试")
+        times.append(now)
+
+
 @router.get("/api/tmdb-proxy/{path:path}")
 async def tmdb_proxy(path: str, request: Request):
     """代理 TMDB API 请求并缓存结果"""
     try:
-        cache_key = f"tmdb:{path}:{request.query_params}"
+        qs = _normalized_query_for_cache(dict(request.query_params))
+        cache_key = f"tmdb:{path}:{qs}"
         cached_data = await get_cache(cache_key)
         if cached_data:
             return cached_data
+        if path.strip("/").startswith("search"):
+            client_ip = request.client.host if request.client else ""
+            forwarded = request.headers.get("x-forwarded-for")
+            if forwarded:
+                client_ip = forwarded.split(",")[0].strip()
+            await _check_tmdb_search_rate_limit(client_ip)
         
         params = dict(request.query_params)
         tmdb_url = f"https://api.themoviedb.org/3/{path}"
@@ -2090,28 +2138,29 @@ async def add_chart_entries_bulk(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """批量录入榜单"""
     require_admin(current_user)
     items = (await request.json()).get("items", [])
     if not isinstance(items, list) or not items:
         raise HTTPException(status_code=400, detail="items 必须是非空数组")
 
-    created = []
+    valid = []
     for item in items:
+        platform = item.get("platform")
+        chart_name = item.get("chart_name")
+        media_type = item.get("media_type")
+        tmdb_id = item.get("tmdb_id")
+        rank = item.get("rank")
+        title = item.get("title")
+        poster = item.get("poster")
+        if not (platform and chart_name and media_type in ("movie", "tv") and isinstance(tmdb_id, int) and isinstance(rank, int)):
+            continue
         try:
-            platform = item.get("platform")
-            chart_name = item.get("chart_name")
-            media_type = item.get("media_type")
-            tmdb_id = item.get("tmdb_id")
-            rank = item.get("rank")
-            title = item.get("title")
-            poster = item.get("poster")
-            if not (platform and chart_name and media_type in ("movie","tv") and isinstance(tmdb_id, int) and isinstance(rank, int)):
-                continue
             enrich = await tmdb_enrich(tmdb_id, media_type)
             title = title or enrich["title"]
             poster = poster or enrich["poster"]
-            original_language = enrich["original_language"]
-            entry = ChartEntry(
+            original_language = enrich.get("original_language", "")
+            valid.append(ChartEntry(
                 platform=platform,
                 chart_name=chart_name,
                 media_type=media_type,
@@ -2121,15 +2170,26 @@ async def add_chart_entries_bulk(
                 rank=rank,
                 original_language=original_language,
                 created_by=current_user.id,
-            )
-            db.add(entry)
-            db.commit()
-            db.refresh(entry)
-            created.append(entry.id)
+            ))
         except Exception:
-            db.rollback()
             continue
-    return {"created": created}
+    if not valid:
+        return {"created": []}
+    try:
+        db.add_all(valid)
+        db.commit()
+        for e in valid:
+            db.refresh(e)
+        created = [e.id for e in valid]
+        if redis:
+            try:
+                await redis.delete("charts:aggregate", "charts:public")
+            except Exception:
+                pass
+        return {"created": created}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"批量保存失败: {str(e)}")
 
 def aggregate_top(
     db: Session,
@@ -2293,6 +2353,11 @@ async def delete_chart_entry(
 
 @app.get("/api/charts/aggregate")
 async def get_aggregate_charts(db: Session = Depends(get_db)):
+    cache_key = "charts:aggregate"
+    cached = await get_cache(cache_key)
+    if cached:
+        return cached
+
     chinese_tv = latest_chart_top_by_rank(
         db,
         platform="豆瓣",
@@ -2323,7 +2388,9 @@ async def get_aggregate_charts(db: Session = Depends(get_db)):
     movies = aggregate_top(db, media_type="movie", limit=10, chinese_only=False, include_pairs=movie_include_pairs)
     tv_candidates = aggregate_top(db, media_type="tv", limit=50, chinese_only=False, include_pairs=tv_include_pairs)
     tv = tv_candidates[:10]
-    return {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
+    result = {"top_movies": movies, "top_tv": tv, "top_chinese_tv": chinese_tv}
+    await set_cache(cache_key, result, expire=CHARTS_CACHE_EXPIRE)
+    return result
 
 @app.post("/api/charts/sync")
 async def sync_charts(
@@ -2375,7 +2442,11 @@ async def sync_charts(
                 synced_count += 1
         
         db.commit()
-        
+        if redis:
+            try:
+                await redis.delete("charts:aggregate", "charts:public")
+            except Exception:
+                pass
         return {
             "status": "success",
             "message": f"榜单数据已同步，共 {synced_count} 条记录",
@@ -2389,7 +2460,11 @@ async def sync_charts(
 
 @app.get("/api/charts/public")
 async def get_public_charts(db: Session = Depends(get_db)):
-    """获取所有公开榜单数据（从PublicChartEntry读取，只有同步后的数据）"""
+    """获取所有公开榜单数据"""
+    cache_key = "charts:public"
+    cached = await get_cache(cache_key)
+    if cached is not None:
+        return cached
     try:
         metacritic_top250_charts = [
             'Metacritic Best Movies of All Time',
@@ -2476,6 +2551,7 @@ async def get_public_charts(db: Session = Depends(get_db)):
                             "entries": chart_entries
                         })
         
+        await set_cache(cache_key, result, expire=CHARTS_CACHE_EXPIRE)
         return result
     except Exception as e:
         logger.error(f"获取公开榜单失败: {e}")
