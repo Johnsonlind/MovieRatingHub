@@ -14,6 +14,7 @@ export default defineConfig({
       registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
           { urlPattern: /^https:\/\/image\.tmdb\.org\/.*/i, handler: 'CacheFirst', options: { cacheName: 'tmdb-images', expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 } } },
         ],
