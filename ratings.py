@@ -2618,15 +2618,15 @@ async def extract_douban_rating(page, media_type, matched_results):
                 print(f"豆瓣正在访问第{season_number}季页面: {url[:80]}{'...' if len(url) > 80 else ''}")
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(1.2)
                     try:
                         await page.wait_for_selector(
-                            "[property='v:average'], strong.rating_num, span[property='v:votes'], [class*='rating_num'], .rating_nums",
-                            timeout=10000
+                            ".rating_self, [property='v:average'], strong.rating_num, span[property='v:votes']",
+                            timeout=12000
                         )
                     except Exception:
                         pass
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.5)
                 except Exception as e:
                     print(f"豆瓣访问第{season_number}季页面失败: {e}")
                     ratings["seasons"].append({
@@ -2651,12 +2651,32 @@ async def extract_douban_rating(page, media_type, matched_results):
                 
                 season_rating = "暂无"
                 season_rating_people = "暂无"
-                # 优先用不依赖键顺序的 aggregateRating 解析
-                rv, rc = _parse_douban_aggregate_rating(season_content)
-                if rv and rc:
-                    season_rating = str(rv).strip()
-                    season_rating_people = str(rc).strip()
-                    print(f"豆瓣提取到第{season_number}季评分成功(JSON-LD) {season_rating} {season_rating_people}")
+                # 优先从当前 DOM 的 .rating_self 区域一次取齐分数和人数（与豆瓣实际结构一致）
+                try:
+                    one = await page.evaluate('''() => {
+                        const wrap = document.querySelector(".rating_self");
+                        if (!wrap) return null;
+                        const avg = wrap.querySelector("[property=\\"v:average\\"]") || wrap.querySelector("strong.rating_num");
+                        const votes = wrap.querySelector("span[property=\\"v:votes\\"]");
+                        if (avg && votes) return { r: avg.textContent.trim(), v: votes.textContent.trim() };
+                        const text = wrap.innerText || "";
+                        const m = text.match(/([\\d.]+)\\s*([\\d,]+)\\s*人评价/);
+                        if (m) return { r: m[1], v: m[2].replace(/,/g, "") };
+                        return null;
+                    }''')
+                    if one and one.get("r") and one.get("v"):
+                        season_rating = str(one["r"]).strip()
+                        season_rating_people = str(one["v"]).strip()
+                        print(f"豆瓣提取到第{season_number}季评分成功(.rating_self) {season_rating} {season_rating_people}")
+                except Exception as e:
+                    print(f"豆瓣第{season_number}季 .rating_self 提取异常: {e}")
+                # 再用 JSON-LD
+                if season_rating in ["暂无", "", None] or season_rating_people in ["暂无", "", None]:
+                    rv, rc = _parse_douban_aggregate_rating(season_content)
+                    if rv and rc:
+                        season_rating = str(rv).strip()
+                        season_rating_people = str(rc).strip()
+                        print(f"豆瓣提取到第{season_number}季评分成功(JSON-LD) {season_rating} {season_rating_people}")
                 
                 for attempt in range(3):
                     if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
@@ -2731,8 +2751,11 @@ async def extract_douban_rating(page, media_type, matched_results):
                                 season_rating_people = ren_match.group(1)
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
                             print(f"豆瓣从页面 HTML 提取到第{season_number}季评分成功 {season_rating} {season_rating_people}")
-                        elif season_rating in ["暂无", "", None] and season_rating_people in ["暂无", "", None]:
-                            print(f"豆瓣第{season_number}季页面未匹配到评分元素，可能页面结构变化或该季暂无评分")
+                        elif season_rating in ["暂无", "", None] or season_rating_people in ["暂无", "", None]:
+                            has_rating_self = "rating_self" in (season_content or "")
+                            has_v_average = "v:average" in (season_content or "")
+                            has_v_votes = "v:votes" in (season_content or "")
+                            print(f"豆瓣第{season_number}季页面未匹配到评分元素(页面长={len(season_content or '')}, rating_self={has_rating_self}, v:average={has_v_average}, v:votes={has_v_votes})")
                 
                 if "暂无评分" in season_content or "尚未上映" in season_content:
                     ratings["seasons"].append({
