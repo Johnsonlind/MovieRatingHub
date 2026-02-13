@@ -110,21 +110,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
       const data = await response.json();
       localStorage.setItem('token', data.access_token);
-      
-      const userResponse = await fetch('/api/user/me', {
-        headers: {
-          'Authorization': `Bearer ${data.access_token}`
-        }
-      });
-      
-      if (userResponse.ok) {
-        const userData = await userResponse.json();
-        setUser(userData);
-        
-        const cacheData = {
-          data: userData,
-          timestamp: Date.now()
-        };
+      const userData = data.user ?? {};
+      if (userData.id != null) {
+        setUser({
+          id: userData.id,
+          email: userData.email ?? '',
+          username: userData.username ?? '',
+          avatar: userData.avatar ?? null,
+          is_admin: userData.is_admin ?? false,
+        });
+        const cacheData = { data: userData, timestamp: Date.now() };
         localStorage.setItem('cachedUserInfo', JSON.stringify(cacheData));
       }
     } catch (error) {
