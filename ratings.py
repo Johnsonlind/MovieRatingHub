@@ -2516,6 +2516,10 @@ async def extract_douban_rating(page, media_type, matched_results):
                     })
         
         season_results.sort(key=lambda x: x["season_number"])
+        # 调试：是否获取到分季详情页链接
+        print(f"豆瓣分季: 共获取到 {len(season_results)} 个分季详情页链接")
+        for sr in season_results:
+            print(f"  第{sr['season_number']}季: url={sr.get('url') or '(空)'}")
         
         if not season_results:
             if "暂无评分" in content or "尚未上映" in content:
@@ -2568,19 +2572,27 @@ async def extract_douban_rating(page, media_type, matched_results):
                         "rating_people": str(rating_people).strip(),
                         "url": url
                     })
+                    print(f"豆瓣第1季: 使用当前页评分，未单独访问详情页")
                     continue
 
                 await random_delay()
-                
+                # 调试：是否访问了分季详情页
+                print(f"豆瓣第{season_number}季: 正在访问分季详情页 {url}")
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=15000)
                     await asyncio.sleep(0.5)
+                    try:
+                        current_url = (page.url or "").rstrip("/")
+                        if current_url and url_norm and current_url != url_norm:
+                            print(f"豆瓣第{season_number}季: 访问后发生重定向，期望={url_norm}, 当前页={current_url}")
+                    except Exception:
+                        pass
                     try:
                         await page.wait_for_selector("strong.rating_num, span[property='v:votes']", timeout=8000)
                     except Exception:
                         pass
                 except Exception as e:
-                    print(f"豆瓣访问第{season_number}季页面失败: {e}")
+                    print(f"豆瓣访问第{season_number}季页面失败（可能超时或网络/访问限制）: {e}")
                     ratings["seasons"].append({
                         "season_number": season_number,
                         "rating": "暂无",
@@ -2600,6 +2612,16 @@ async def extract_douban_rating(page, media_type, matched_results):
                         "url": url
                     })
                     continue
+                # 调试：是否遇到访问限制（登录/验证页）
+                content_len = len(season_content) if season_content else 0
+                has_aggregate = '"aggregateRating"' in (season_content or "")
+                has_restriction = bool(season_content and (
+                    "请登录" in season_content or "安全验证" in season_content or "人机验证" in season_content
+                    or "验证码" in season_content or "robot" in season_content.lower() or "unusual traffic" in (season_content or "").lower()
+                ))
+                print(f"豆瓣第{season_number}季: 页面长度={content_len}, 含aggregateRating={has_aggregate}, 疑似访问限制={has_restriction}")
+                if has_restriction:
+                    print(f"豆瓣第{season_number}季: 检测到可能访问限制，页面可能为登录/验证页")
                 
                 season_rating = "暂无"
                 season_rating_people = "暂无"
@@ -2662,6 +2684,9 @@ async def extract_douban_rating(page, media_type, matched_results):
                             season_rating_people = people_match.group(1)
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
                             print(f"豆瓣从页面 HTML 提取到第{season_number}季评分成功")
+                # 调试：本季是否匹配到评分元素
+                matched_rating = season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]
+                print(f"豆瓣第{season_number}季: 匹配到评分元素={matched_rating}, rating={season_rating}, rating_people={season_rating_people}")
                 
                 if "暂无评分" in season_content or "尚未上映" in season_content:
                     ratings["seasons"].append({
