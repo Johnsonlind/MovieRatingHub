@@ -8,6 +8,7 @@ export const TMDB = {
   imageBaseUrl: '/tmdb-images',
   posterSizes: {
     小: 'w185',
+    列表: 'w300',
     中: 'w342',
     大: 'w500',
     原始: 'original'
