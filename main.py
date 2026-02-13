@@ -308,8 +308,8 @@ async def login(request: Request, db: Session = Depends(get_db)):
                 status_code=401,
                 detail="此邮箱未注册"
             )
-        
-        if not verify_password(password, user.hashed_password):
+        password_ok = await asyncio.to_thread(verify_password, password, user.hashed_password)
+        if not password_ok:
             raise HTTPException(
                 status_code=401,
                 detail="邮箱或密码错误"
