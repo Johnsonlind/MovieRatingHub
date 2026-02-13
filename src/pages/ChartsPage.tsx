@@ -393,31 +393,34 @@ export default function ChartsPage() {
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
                         (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
 
-        const maxConcurrent = isMobile ? 3 : 8;
-        const timeout = isMobile ? 3000 : 5000;
-        
+        const maxConcurrent = isMobile ? 4 : 10;
+        const timeout = isMobile ? 2000 : 3000;
+        const maxEntriesToConvert = 24;
+        const prepDeadline = Date.now() + 20000;
+
         const { getBase64Image } = await import('../api/image');
-        
+
         const entriesToConvert = chart.entries
           .sort((a, b) => a.rank - b.rank)
-          .filter(entry => entry.poster && entry.poster.trim() !== '');
+          .filter(entry => entry.poster && entry.poster.trim() !== '')
+          .slice(0, maxEntriesToConvert);
 
         for (let i = 0; i < entriesToConvert.length; i += maxConcurrent) {
+          if (Date.now() >= prepDeadline) break;
           const batch = entriesToConvert.slice(i, i + maxConcurrent);
-          
+
           const batchPromises = batch.map(async (entry) => {
             try {
               const base64 = await getBase64Image(entry.poster!);
-              
+              if (Date.now() >= prepDeadline) return;
               const images = element.getElementsByTagName('img');
               for (let j = 0; j < images.length; j++) {
                 const img = images[j];
                 if (img.getAttribute('alt') === entry.title) {
                   img.src = base64;
                   await new Promise<void>((resolve) => {
-                    if (img.complete && img.naturalWidth > 0) {
-                      resolve();
-                    } else {
+                    if (img.complete && img.naturalWidth > 0) resolve();
+                    else {
                       img.onload = () => resolve();
                       img.onerror = () => resolve();
                       setTimeout(() => resolve(), timeout);
@@ -430,16 +433,10 @@ export default function ChartsPage() {
               console.warn(`海报转换失败 (${entry.title}):`, error);
             }
           });
-          
-          await Promise.all(batchPromises);
 
+          await Promise.all(batchPromises);
           if (isMobile && i + maxConcurrent < entriesToConvert.length) {
-            await new Promise(resolve => {
-              requestAnimationFrame(() => {
-                setTimeout(() => resolve(null), 0);
-              });
-            });
-            await new Promise(resolve => setTimeout(resolve, 30));
+            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 20)));
           }
         }
       }
