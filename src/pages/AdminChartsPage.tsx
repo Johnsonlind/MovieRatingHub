@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../components/auth/AuthContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface MediaItem {
   id: number;
@@ -221,11 +222,12 @@ export default function AdminChartsPage() {
   const [pickerContext, setPickerContext] = useState<{ platform:string; chart_name:string; media_type:SectionType } | null>(null);
   const [pickerQuery, setPickerQuery] = useState('');
   const [pickerSelected, setPickerSelected] = useState<MediaItem | null>(null);
+  const debouncedPickerQuery = useDebounce(pickerQuery, 350);
 
   const { data: pickerData } = useQuery({
-    queryKey: ['tmdb-picker', pickerQuery],
-    queryFn: () => searchTMDB(pickerQuery),
-    enabled: pickerOpen && !!pickerQuery,
+    queryKey: ['tmdb-picker', debouncedPickerQuery],
+    queryFn: () => searchTMDB(debouncedPickerQuery),
+    enabled: pickerOpen && !!debouncedPickerQuery,
   });
 
   const { data: schedulerData, refetch: refetchScheduler, isLoading: schedulerLoading } = useQuery({
