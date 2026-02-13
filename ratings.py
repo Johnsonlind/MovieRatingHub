@@ -2357,7 +2357,7 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         if platform == "douban":
                             if media_type == "tv" and len(tmdb_info.get("seasons", [])) > 1 and matched_results:
                                 print("检测到多季剧集，优先进行分季抓取以获取所有季评分（网页抓取）")
-                                rating_data = await extract_douban_rating(page, media_type, matched_results)
+                                rating_data = await extract_douban_rating(page, media_type, matched_results, request=request, douban_cookie=douban_cookie)
                             else:
                                 rating_data = await extract_douban_rating(page, media_type, search_results)
                         elif platform == "imdb":
@@ -2429,8 +2429,8 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
 
     return await _extract_rating_with_retry()
 
-async def extract_douban_rating(page, media_type, matched_results):
-    """从豆瓣详情页提取评分数据"""
+async def extract_douban_rating(page, media_type, matched_results, request=None, douban_cookie=None):
+    """从豆瓣详情页提取评分数据。request/douban_cookie 用于访问分季详情页时沿用同一 IP 与 Cookie 并打日志。"""
     try:
         try:
             await page.wait_for_load_state("domcontentloaded", timeout=8000)
@@ -2576,6 +2576,21 @@ async def extract_douban_rating(page, media_type, matched_results):
                     continue
 
                 await random_delay()
+                # 分季详情页沿用同一 IP 与用户 Cookie，并打与首请求一致的日志
+                if request is not None or douban_cookie:
+                    headers = {}
+                    if request:
+                        try:
+                            client_ip = get_client_ip(request)
+                            print(f"豆瓣请求使用IP: {client_ip}")
+                            headers.update({"X-Forwarded-For": client_ip, "X-Real-IP": client_ip})
+                        except Exception:
+                            pass
+                    if douban_cookie:
+                        headers["Cookie"] = douban_cookie
+                        print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+                    if headers:
+                        await page.set_extra_http_headers(headers)
                 # 调试：是否访问了分季详情页
                 print(f"豆瓣第{season_number}季: 正在访问分季详情页 {url}")
                 try:
