@@ -1,10 +1,9 @@
 // ==========================================
 // 榜单详情页
 // ==========================================
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Grid } from 'react-window';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { NavBar } from '../components/ui/NavBar';
 import { ScrollToTopButton } from '../components/ui/ScrollToTopButton';
@@ -16,10 +15,11 @@ import { Footer } from '../components/common/Footer';
 const downscaleTmdb = (url: string) => {
   const tmdbPattern = /https?:\/\/image\.tmdb\.org\/t\/p\/(original|w\d+)(\/.+)/;
   const match = url.match(tmdbPattern);
-  if (match) return `https://image.tmdb.org/t/p/w342${match[2]}`;
+  if (match) {
+    return `https://image.tmdb.org/t/p/w342${match[2]}`;
+  }
   if (url.startsWith('/tmdb-images/')) {
-    const path = url.replace(/^\/tmdb-images\/(?:original|w\d+)/, '');
-    return `https://image.tmdb.org/t/p/w342${path}`;
+    return url.replace(/\/tmdb-images\/(original|w\d+)\//, '/tmdb-images/w342/');
   }
   return url;
 };
@@ -56,12 +56,6 @@ export default function ChartDetailPage() {
   const { platform, chartName } = useParams<{ platform: string; chartName: string }>();
   const navigate = useNavigate();
   const contentRef = useRef<HTMLDivElement>(null);
-  const gridWrapRef = useRef<HTMLDivElement>(null);
-  const [gridSize, setGridSize] = useState({ w: 0, h: 0 });
-  const GAP = 12;
-  const USE_VIRTUAL_THRESHOLD = 60;
-  const gridWidth = gridSize.w;
-  const gridHeight = gridSize.h;
 
   useEffect(() => {
     if (chartName) {
@@ -91,16 +85,6 @@ export default function ChartDetailPage() {
   });
 
   useAggressiveImagePreload(contentRef, !isLoading && !!data);
-
-  useEffect(() => {
-    const el = gridWrapRef.current;
-    if (!el) return;
-    const update = () => setGridSize({ w: el.offsetWidth || 0, h: el.offsetHeight || 0 });
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    update();
-    return () => ro.disconnect();
-  }, [data]);
 
   if (isLoading) {
     return (
@@ -192,99 +176,102 @@ export default function ChartDetailPage() {
             </div>
           ) : (
             <div className="glass-card rounded-2xl p-6">
-              {displayedEntries.length >= USE_VIRTUAL_THRESHOLD && gridWidth > 0 && gridHeight > 0 ? (
-                <div className="w-full h-[70vh] min-h-[400px]" ref={gridWrapRef}>
-                  <Grid
-                    columnCount={gridWidth >= 640 ? 10 : 5}
-                    rowCount={Math.ceil(displayedEntries.length / (gridWidth >= 640 ? 10 : 5))}
-                    columnWidth={(gridWidth - ((gridWidth >= 640 ? 10 : 5) - 1) * GAP) / (gridWidth >= 640 ? 10 : 5)}
-                    rowHeight={((gridWidth - ((gridWidth >= 640 ? 10 : 5) - 1) * GAP) / (gridWidth >= 640 ? 10 : 5)) * (3 / 2) + GAP + 24}
-                    style={{ width: gridWidth, height: gridHeight }}
-                    overscanCount={4}
-                    cellComponent={({ columnIndex, rowIndex, style }) => {
-                      const colCount = gridWidth >= 640 ? 10 : 5;
-                      const idx = rowIndex * colCount + columnIndex;
-                      const entry = displayedEntries[idx];
-                      if (!entry) return <div style={style} />;
-                      const mediaType = entry.media_type || (data.media_type === 'both' ? 'movie' : data.media_type);
-                      const linkPath = mediaType === 'movie' ? `/movie/${entry.tmdb_id}` : `/tv/${entry.tmdb_id}`;
-                      return (
-                        <div style={{ ...style, paddingRight: columnIndex < colCount - 1 ? GAP : 0, paddingBottom: GAP }}>
-                          <div className="group relative h-full">
-                            <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                              <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800">
-                                {entry.poster ? (
-                                  <img src={/^(http|\/api|\/tmdb-images)/.test(entry.poster) ? downscaleTmdb(entry.poster) : `/api/image-proxy?url=${encodeURIComponent(downscaleTmdb(entry.poster))}`} alt={entry.title} className="w-full h-full object-cover" loading="lazy" decoding="async" />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800"><div className="text-gray-400 text-xs">无海报</div></div>
-                                )}
-                                <div className="absolute top-0 left-0 pointer-events-none" style={{ zIndex: 10 }}>
-                                  <div className={`relative ${entry.rank <= 3 ? 'w-8 h-8' : 'w-6 h-6'}`}>
-                                    <img src={entry.rank === 1 ? '/laurel-wreath-top1.png' : entry.rank === 2 ? '/laurel-wreath-top2.png' : entry.rank === 3 ? '/laurel-wreath-top3.png' : '/laurel-wreath-other-top.png'} alt="" crossOrigin="anonymous" className="w-full h-full object-contain" />
-                                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-bold text-xs" style={{ textShadow: '1px 1px 2px #000' }}>
-                                      {chartName === '豆瓣2025评分月度热搜影视' && entry.rank >= 1 && entry.rank <= 12 ? `${entry.rank}月` : entry.rank}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="absolute top-1 right-1 z-20">
-                                  <MiniFavoriteButton mediaId={entry.tmdb_id.toString()} mediaType={mediaType} title={entry.title} poster={entry.poster} className="p-1" />
-                                </div>
+              <div className="grid grid-cols-5 sm:grid-cols-10 gap-3" style={{ contain: 'layout style' }}>
+                {displayedEntries.map((entry, idx) => {
+                  const mediaType = entry.media_type || 
+                    (data.media_type === 'both' ? 'movie' : data.media_type);
+                  const linkPath = mediaType === 'movie' 
+                    ? `/movie/${entry.tmdb_id}` 
+                    : `/tv/${entry.tmdb_id}`;
+                  
+                  return (
+                    <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative" style={{ contain: 'layout style' }}>
+                      <Link to={linkPath} target="_blank" rel="noopener noreferrer">
+                        <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
+                          {entry.poster ? (
+                            <img
+                              src={
+                                /^(http|\/api|\/tmdb-images)/.test(entry.poster)
+                                  ? downscaleTmdb(entry.poster)
+                                  : `/api/image-proxy?url=${encodeURIComponent(downscaleTmdb(entry.poster))}`
+                              }
+                              alt={entry.title}
+                              className="w-full h-full object-cover transition-opacity duration-200 group-hover:scale-105"
+                              loading="eager"
+                              fetchPriority={idx < 32 ? 'high' : 'auto'}
+                              style={{ 
+                                willChange: 'transform',
+                                minHeight: '100%',
+                                display: 'block',
+                                opacity: 0,
+                                transition: 'opacity 0.2s ease-in, transform 0.2s ease-out'
+                              }}
+                              decoding="async"
+                              sizes="(min-width:1280px) 10vw, (min-width:1024px) 14vw, (min-width:640px) 20vw, 33vw"
+                              onLoad={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                if (target && target.complete && target.naturalWidth > 0) {
+                                  requestAnimationFrame(() => {
+                                    target.style.opacity = '1';
+                                  });
+                                }
+                              }}
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                if (target) {
+                                  target.style.opacity = '0';
+                                }
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
+                              <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
+                            </div>
+                          )}
+                          {/* 排名标签 - 圆环 */}
+                          <div className="absolute top-0 left-0 pointer-events-none" style={{ zIndex: 10 }}>
+                            <div className={`relative ${entry.rank === 1 ? 'w-8 h-8 sm:w-10 h-10' : 'w-6 h-6 sm:w-8 h-8'}`}>
+                              <img
+                                src={
+                                  entry.rank === 1 ? '/laurel-wreath-top1.png' :
+                                  entry.rank === 2 ? '/laurel-wreath-top2.png' :
+                                  entry.rank === 3 ? '/laurel-wreath-top3.png' :
+                                  '/laurel-wreath-other-top.png'
+                                }
+                                alt=""
+                                crossOrigin="anonymous"
+                                className="w-full h-full object-contain"
+                              />
+                              <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-bold leading-none whitespace-nowrap ${
+                                entry.rank === 1 ? 'text-xs sm:text-base' : 'text-[10px] sm:text-sm'
+                              }`}
+                              style={{
+                                textShadow: '1px 1px 2px #000000, -1px -1px 2px #000000, 1px -1px 2px #000000, -1px 1px 2px #000000'
+                              }}>
+                                {chartName === '豆瓣2025评分月度热搜影视' && entry.rank >= 1 && entry.rank <= 12
+                                  ? `${entry.rank}月`
+                                  : entry.rank}
                               </div>
-                              <div className="mt-1 text-xs text-center text-gray-700 dark:text-gray-300 line-clamp-2">{entry.title}</div>
-                            </Link>
+                            </div>
+                          </div>
+                          <div className="absolute top-1 right-1 z-20">
+                            <MiniFavoriteButton
+                              mediaId={entry.tmdb_id.toString()}
+                              mediaType={mediaType}
+                              title={entry.title}
+                              poster={entry.poster}
+                              className="p-1"
+                            />
                           </div>
                         </div>
-                      );
-                    }}
-                    cellProps={{}}
-                  />
-                </div>
-              ) : (
-                <div className="grid grid-cols-5 sm:grid-cols-10 gap-3" style={{ contain: 'layout style' }} ref={gridWrapRef}>
-                  {displayedEntries.map((entry, idx) => {
-                    const mediaType = entry.media_type || (data.media_type === 'both' ? 'movie' : data.media_type);
-                    const linkPath = mediaType === 'movie' ? `/movie/${entry.tmdb_id}` : `/tv/${entry.tmdb_id}`;
-                    return (
-                      <div key={`${entry.tmdb_id}-${entry.rank}`} className="group relative" style={{ contain: 'layout style' }}>
-                        <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                          <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
-                            {entry.poster ? (
-                              <img
-                                src={/^(http|\/api|\/tmdb-images)/.test(entry.poster) ? downscaleTmdb(entry.poster) : `/api/image-proxy?url=${encodeURIComponent(downscaleTmdb(entry.poster))}`}
-                                alt={entry.title}
-                                className="w-full h-full object-cover transition-opacity duration-200 group-hover:scale-105"
-                                loading={idx < 20 ? 'eager' : 'lazy'}
-                                fetchPriority={idx < 20 ? 'high' : 'auto'}
-                                style={{ willChange: 'transform', minHeight: '100%', display: 'block', opacity: 0, transition: 'opacity 0.2s ease-in, transform 0.2s ease-out' }}
-                                decoding="async"
-                                sizes="(min-width:1280px) 10vw, (min-width:1024px) 14vw, (min-width:640px) 20vw, 33vw"
-                                onLoad={(e) => { const t = e.target as HTMLImageElement; if (t?.complete && t.naturalWidth > 0) requestAnimationFrame(() => { t.style.opacity = '1'; }); }}
-                                onError={(e) => { const t = e.target as HTMLImageElement; if (t) t.style.opacity = '0'; }}
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-gray-200 dark:bg-gray-800">
-                                <div className="text-gray-400 dark:text-gray-600 text-xs">无海报</div>
-                              </div>
-                            )}
-                            <div className="absolute top-0 left-0 pointer-events-none" style={{ zIndex: 10 }}>
-                              <div className={`relative ${entry.rank === 1 ? 'w-8 h-8 sm:w-10 h-10' : 'w-6 h-6 sm:w-8 h-8'}`}>
-                                <img src={entry.rank === 1 ? '/laurel-wreath-top1.png' : entry.rank === 2 ? '/laurel-wreath-top2.png' : entry.rank === 3 ? '/laurel-wreath-top3.png' : '/laurel-wreath-other-top.png'} alt="" crossOrigin="anonymous" className="w-full h-full object-contain" />
-                                <div className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white font-bold leading-none whitespace-nowrap ${entry.rank === 1 ? 'text-xs sm:text-base' : 'text-[10px] sm:text-sm'}`} style={{ textShadow: '1px 1px 2px #000000, -1px -1px 2px #000000' }}>
-                                  {chartName === '豆瓣2025评分月度热搜影视' && entry.rank >= 1 && entry.rank <= 12 ? `${entry.rank}月` : entry.rank}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="absolute top-1 right-1 z-20">
-                              <MiniFavoriteButton mediaId={entry.tmdb_id.toString()} mediaType={mediaType} title={entry.title} poster={entry.poster} className="p-1" />
-                            </div>
-                          </div>
-                          <div className="mt-1 text-xs text-center text-gray-700 dark:text-gray-300 line-clamp-2">{entry.title}</div>
-                        </Link>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                        <div className="mt-1 text-xs text-center text-gray-700 dark:text-gray-300 line-clamp-2">
+                          {entry.title}
+                        </div>
+                      </Link>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
