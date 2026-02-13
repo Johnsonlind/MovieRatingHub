@@ -75,10 +75,11 @@ function fixImageCrossOrigin(element: HTMLElement): void {
 
 async function waitForAllResources(element: HTMLElement): Promise<void> {
   const isMobile = isMobileDevice();
-  const imageTimeout = isMobile ? 3000 : 5000;
-  
+  const imageTimeout = isMobile ? 2000 : 2500;
+  const totalTimeout = 7000;
+
   const images = element.getElementsByTagName('img');
-  await Promise.all(
+  const waitAll = Promise.all(
     Array.from(images).map(
       img => img.complete && img.naturalWidth > 0
         ? Promise.resolve()
@@ -89,6 +90,10 @@ async function waitForAllResources(element: HTMLElement): Promise<void> {
           })
     )
   );
+  await Promise.race([
+    waitAll,
+    new Promise<void>(r => setTimeout(r, totalTimeout)),
+  ]);
   
   if (document.fonts && document.fonts.ready) {
     await document.fonts.ready;
@@ -277,7 +282,7 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
       const originalWidth = width;
       const originalHeight = height;
       
-      const maxIterations = isMobile ? 3 : 10;
+      const maxIterations = isMobile ? 3 : 5;
       let iterationCount = 0;
       
       const checkSize = async (w: number, h: number): Promise<string> => {
@@ -642,7 +647,7 @@ async function exportWithHtmlToImage(element: HTMLElement, filename: string, isC
   
   await yieldToMain();
 
-  const basePixelRatio = isChart ? 1 : 2;
+  const basePixelRatio = isChart ? 1 : 1.5;
   const pixelRatio = isMobile ? Math.max(1.0, basePixelRatio * 0.7) : basePixelRatio;
   
   console.log('Chrome: 开始导出，pixelRatio:', pixelRatio, isMobile ? '(移动端优化)' : '');
