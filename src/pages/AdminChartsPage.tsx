@@ -235,13 +235,19 @@ export default function AdminChartsPage() {
     queryFn: async () => {
       try {
         const timestamp = new Date().getTime();
+        const token = localStorage.getItem('token');
+        const headers: HeadersInit = {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
         const res = await fetch(`/api/scheduler/status?_t=${timestamp}`, {
           cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0'
-          }
+          headers,
+          credentials: 'include',
         });
         
         if (!res.ok) {
@@ -780,18 +786,17 @@ export default function AdminChartsPage() {
     
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        setUpdateStatus('未找到认证令牌，请重新登录');
-        setTimeout(() => setUpdateStatus(''), 3000);
-        return;
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
       
       const response = await fetch('/api/scheduler/test-notification', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
+        credentials: 'include',
       });
       
       const data = await response.json();
@@ -816,11 +821,11 @@ export default function AdminChartsPage() {
     try {
       console.log('开始启动调度器...');
       const token = localStorage.getItem('token');
-      
-      if (!token) {
-        setUpdateStatus('未找到认证令牌，请重新登录');
-        setTimeout(() => setUpdateStatus(''), 3000);
-        return;
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
       
       setSchedulerState(prev => prev ? { ...prev, running: true } : null);
@@ -828,10 +833,8 @@ export default function AdminChartsPage() {
       console.log('发送启动请求到 /api/scheduler/start');
       const response = await fetch('/api/scheduler/start', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
+        credentials: 'include',
       });
       
       console.log('响应状态:', response.status);
@@ -865,21 +868,19 @@ export default function AdminChartsPage() {
     try {
       console.log('开始停止调度器...');
       const token = localStorage.getItem('token');
-      
-      if (!token) {
-        setUpdateStatus('未找到认证令牌，请重新登录');
-        setTimeout(() => setUpdateStatus(''), 3000);
-        return;
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
       
       setSchedulerState(prev => prev ? { ...prev, running: false } : null);
       
       const response = await fetch('/api/scheduler/stop', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers,
+        credentials: 'include',
       });
       
       if (!response.ok) {
