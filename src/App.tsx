@@ -45,7 +45,7 @@ function App() {
       <AuthProvider>
         <BrowserRouter {...routerOptions}>
           <div className="min-h-screen">
-            <Suspense fallback={<div className="flex items-center justify-center min-h-screen">加载中...</div>}>
+            <Suspense fallback={<div className="flex items-center justify-center min-h-screen text-gray-500 dark:text-gray-400 text-sm" aria-busy="true">加载中...</div>}>
               <Routes>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/movie/:id" element={<MoviePage />} />
