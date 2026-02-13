@@ -1948,6 +1948,22 @@ def _parse_letterboxd_cookie_string(s: str):
     return out
 
 
+def _parse_douban_cookie_string(s: str):
+    """解析豆瓣 Cookie 字符串为 Playwright add_cookies 格式，便于浏览器按真实 cookie 发送"""
+    if not s or not s.strip():
+        return []
+    out = []
+    for part in s.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        name, value = name.strip(), value.strip()
+        if name:
+            out.append({"name": name, "value": value, "domain": ".douban.com", "path": "/"})
+    return out
+
+
 async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
     new_ctx = None
@@ -2261,6 +2277,11 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                         if douban_cookie:
                             headers['Cookie'] = douban_cookie
                             print(f"✅ 豆瓣请求使用用户自定义Cookie（长度: {len(douban_cookie)}）")
+                            # 同时注入到浏览器 cookie 存储，与 Letterboxd 一致，减少被识别为异常请求的概率
+                            douban_cookies = _parse_douban_cookie_string(douban_cookie)
+                            if douban_cookies:
+                                await context.add_cookies(douban_cookies)
+                                print("豆瓣: 已注入用户 Cookie 到浏览器（context.add_cookies）")
                         else:
                             print("⚠️ 未提供豆瓣Cookie，使用默认方式")
                         if headers:
@@ -2576,6 +2597,10 @@ async def extract_douban_rating(page, media_type, matched_results, request=None,
                     continue
 
                 await random_delay()
+                # 分季请求之间加长间隔，降低豆瓣「短时间多请求」触发的验证/重定向概率
+                season_delay = random.uniform(3, 6)
+                print(f"豆瓣第{season_number}季: 等待 {season_delay:.1f} 秒后访问，降低触发验证概率")
+                await asyncio.sleep(season_delay)
                 # 分季详情页沿用同一 IP 与用户 Cookie，并打与首请求一致的日志
                 if request is not None or douban_cookie:
                     headers = {}
