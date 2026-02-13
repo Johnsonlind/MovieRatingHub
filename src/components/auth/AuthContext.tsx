@@ -84,10 +84,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const cacheData = { data: userData, timestamp: Date.now() };
         localStorage.setItem('cachedUserInfo', JSON.stringify(cacheData));
       } else if (response.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('cachedUserInfo');
-        localStorage.removeItem('remember_me');
-        setUser(null);
+        if (token) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('cachedUserInfo');
+          localStorage.removeItem('remember_me');
+          setUser(null);
+        } else if (!background) {
+          localStorage.removeItem('cachedUserInfo');
+          localStorage.removeItem('remember_me');
+          setUser(null);
+        }
       }
     } catch (error) {
       console.error('获取用户信息失败:', error);
