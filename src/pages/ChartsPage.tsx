@@ -14,13 +14,15 @@ import { ExportChartCard } from '../components/export/ExportChartCard';
 import { useAggressiveImagePreload } from '../hooks/useAggressiveImagePreload';
 import { Footer } from '../components/common/Footer';
 
+const DOWNSCALE_SIZE = 'w185';
+
 const downscaleTmdb = (url: string) => {
   const tmdbPattern = /https?:\/\/image\.tmdb\.org\/t\/p\/(original|w\d+)(\/.+)/;
   const match = url.match(tmdbPattern);
-  if (match) return `https://image.tmdb.org/t/p/w342${match[2]}`;
+  if (match) return `https://image.tmdb.org/t/p/${DOWNSCALE_SIZE}${match[2]}`;
   if (url.startsWith('/tmdb-images/')) {
     const path = url.replace(/^\/tmdb-images\/(?:original|w\d+)/, '');
-    return `https://image.tmdb.org/t/p/w342${path}`;
+    return `https://image.tmdb.org/t/p/${DOWNSCALE_SIZE}${path}`;
   }
   return url;
 };
@@ -219,7 +221,7 @@ export default function ChartsPage() {
     placeholderData: (previousData) => previousData,
   });
 
-  useAggressiveImagePreload(contentRef, !isLoading && !!chartsData && !isSafariMobile);
+  useAggressiveImagePreload(contentRef, false);
 
   const sortedCharts = useMemo(() => {
     if (!chartsData) return [];
@@ -270,30 +272,23 @@ export default function ChartsPage() {
       return acc;
     }, {} as Record<string, ChartSection[]>);
 
-    // 对所有平台的榜单进行排序
     Object.keys(result).forEach(platform => {
       if (result[platform]) {
         const platformOrder = PLATFORM_CHART_ORDER[platform];
         
         if (platformOrder) {
-          // 如果有自定义顺序，按照自定义顺序排序
           result[platform].sort((a, b) => {
             const indexA = platformOrder.indexOf(a.chart_name);
             const indexB = platformOrder.indexOf(b.chart_name);
             
-            // 两个都在自定义顺序中
             if (indexA !== -1 && indexB !== -1) {
               return indexA - indexB;
             }
-            // 只有 a 在自定义顺序中
             if (indexA !== -1) return -1;
-            // 只有 b 在自定义顺序中
             if (indexB !== -1) return 1;
-            // 都不在自定义顺序中，按名称排序
             return a.chart_name.localeCompare(b.chart_name);
           });
         } else {
-          // 没有自定义顺序，使用默认排序（按名称）
           result[platform].sort((a, b) => a.chart_name.localeCompare(b.chart_name));
         }
       }
