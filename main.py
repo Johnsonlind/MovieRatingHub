@@ -17,6 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request, Depends, APIRouter, Response
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
@@ -111,7 +112,32 @@ class OAuth2PasswordBearerOptional(OAuth2):
             
         return param
 
-# rounds=8 约 0.05–0.1s/次，兼顾安全与登录速度；若需更高安全可改为 10
+AUTH_COOKIE_NAME = "ratefuse_token"
+
+def get_token_from_request(request: Request) -> Optional[str]:
+    """优先从 Authorization 头取 token，否则从 Cookie 取（勾选「记住我」时使用）。"""
+    auth = request.headers.get("Authorization")
+    if auth:
+        scheme, param = get_authorization_scheme_param(auth)
+        if scheme and scheme.lower() == "bearer" and param and param.strip() and param != "null":
+            return param
+    return request.cookies.get(AUTH_COOKIE_NAME)
+
+def oauth2_scheme_with_cookie(request: Request) -> str:
+    """从 Header 或 Cookie 取 token，没有则抛 401。"""
+    token = get_token_from_request(request)
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="无效的认证凭据",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+def oauth2_scheme_optional_with_cookie(request: Request) -> Optional[str]:
+    """从 Header 或 Cookie 取 token，没有则返回 None。"""
+    return get_token_from_request(request)
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=8)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 oauth2_scheme_optional = OAuth2PasswordBearerOptional(tokenUrl="token", auto_error=False)
@@ -140,9 +166,10 @@ def create_access_token(data: dict, remember_me: bool = False):
     return encoded_jwt
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
     db: Session = Depends(get_db)
 ):
+    token = oauth2_scheme_with_cookie(request)
     credentials_exception = HTTPException(
         status_code=401,
         detail="无效的认证凭据",
@@ -163,9 +190,10 @@ async def get_current_user(
     return user
 
 async def get_current_user_optional(
-    token: Optional[str] = Depends(oauth2_scheme_optional),
+    request: Request,
     db: Session = Depends(get_db)
 ) -> Optional[User]:
+    token = oauth2_scheme_optional_with_cookie(request)
     if not token:
         return None
     
@@ -328,18 +356,39 @@ async def login(request: Request):
         )
         
         elapsed = round(time.time() - login_start, 3)
-        logger.info(f"登录成功 email={email} 耗时={elapsed}s")
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "username": user.username,
-                "avatar": user.avatar,
-                "is_admin": getattr(user, "is_admin", False),
-            }
+        logger.info(f"登录成功 email={email} 耗时={elapsed}s remember_me={remember_me}")
+        
+        user_payload = {
+            "id": user.id,
+            "email": user.email,
+            "username": user.username,
+            "avatar": user.avatar,
+            "is_admin": getattr(user, "is_admin", False),
         }
+        
+        if remember_me:
+            max_age = REMEMBER_ME_TOKEN_EXPIRE_DAYS * 24 * 3600
+            is_secure = os.getenv("ENV") != "development"
+            response = JSONResponse(content={
+                "user": user_payload,
+                "remember_me": True,
+            })
+            response.set_cookie(
+                key=AUTH_COOKIE_NAME,
+                value=access_token,
+                max_age=max_age,
+                httponly=True,
+                samesite="lax",
+                secure=is_secure,
+                path="/",
+            )
+            return response
+        else:
+            return {
+                "access_token": access_token,
+                "token_type": "bearer",
+                "user": user_payload,
+            }
     except HTTPException:
         raise
     except Exception as e:
@@ -349,6 +398,14 @@ async def login(request: Request):
             status_code=500,
             detail=f"登录失败: {str(e)}"
         )
+
+
+@app.post("/auth/logout")
+async def logout(response: Response):
+    """清除「记住我」使用的 Cookie"""
+    response = JSONResponse(content={"ok": True})
+    response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
+    return response
 
 @app.post("/auth/forgot-password")
 async def forgot_password(
