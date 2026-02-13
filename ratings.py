@@ -1524,6 +1524,10 @@ async def handle_douban_search(page, search_url):
                     if title_elem:
                         title_text = await title_elem.inner_text()
                         url = await title_elem.get_attribute('href')
+                        if not url:
+                            a_elem = await item.query_selector('a[href*="/subject/"]')
+                            if a_elem:
+                                url = await a_elem.get_attribute('href')
                         
                         title_match = re.search(r'(.*?)\s*\((\d{4})\)', title_text)
                         if title_match:
@@ -1533,13 +1537,13 @@ async def handle_douban_search(page, search_url):
                             results.append({
                                 "title": title,
                                 "year": year,
-                                "url": url
+                                "url": url or ""
                             })
                         else:
                             results.append({
                                 "title": title_text.strip(),
                                 "year": "",
-                                "url": url
+                                "url": url or ""
                             })
                 except Exception as e:
                     print(f"处理豆瓣单个搜索结果时出错: {e}")
@@ -2516,6 +2520,9 @@ async def extract_douban_rating(page, media_type, matched_results):
                     })
         
         season_results.sort(key=lambda x: x["season_number"])
+        print(f"豆瓣多季解析到 {len(season_results)} 个分季: " + ", ".join(
+            f"第{s['season_number']}季(url={'有' if (s.get('url') or '').strip() else '无'})" for s in season_results
+        ))
         
         if not season_results:
             if "暂无评分" in content or "尚未上映" in content:
@@ -2548,8 +2555,9 @@ async def extract_douban_rating(page, media_type, matched_results):
                     
                 processed_seasons.add(season_number)
                 
-                url = season_info.get("url") or ""
+                url = (season_info.get("url") or "").strip()
                 if not url:
+                    print(f"豆瓣第{season_number}季无链接，跳过访问")
                     ratings["seasons"].append({
                         "season_number": season_number,
                         "rating": "暂无",
@@ -2561,6 +2569,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                 url_norm = url.rstrip("/") if url else ""
                 if (season_number == 1 and url_norm and url_norm == initial_page_url
                         and rating not in [None, "暂无"] and rating_people not in [None, "暂无"]):
+                    print(f"豆瓣第1季使用当前页评分，跳过访问")
                     all_seasons_no_rating = False
                     ratings["seasons"].append({
                         "season_number": 1,
@@ -2571,7 +2580,9 @@ async def extract_douban_rating(page, media_type, matched_results):
                     continue
 
                 await random_delay()
-                
+                if url.startswith("/"):
+                    url = "https://movie.douban.com" + url
+                print(f"豆瓣正在访问第{season_number}季页面: {url[:80]}{'...' if len(url) > 80 else ''}")
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=15000)
                     await asyncio.sleep(0.5)
