@@ -2610,7 +2610,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                         if json_match:
                             season_rating_people = json_match.group(1)
                             season_rating = json_match.group(4)
-                            print(f"豆瓣提取到第{season_number}季评分成功")
+                            print(f"豆瓣提取到第{season_number}季评分成功 {season_rating} {season_rating_people}")
                         else:
                             season_rating = await page.evaluate('''() => {
                                 const ratingElement = document.querySelector('strong.rating_num');
@@ -2633,7 +2633,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                                     season_rating_people = people_match.group(1)
                             
                             if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
-                                print(f"豆瓣使用备选方法提取第{season_number}季评分成功")
+                                print(f"豆瓣使用备选方法提取第{season_number}季评分成功 {season_rating} {season_rating_people}")
                         
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
                             break
@@ -2652,7 +2652,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                     if json_match:
                         season_rating_people = json_match.group(1)
                         season_rating = json_match.group(4)
-                        print(f"豆瓣从页面 JSON 提取到第{season_number}季评分成功")
+                        print(f"豆瓣从页面 JSON 提取到第{season_number}季评分成功 {season_rating} {season_rating_people}")
                     else:
                         rating_match = re.search(r'<strong[^>]*class="ll rating_num"[^>]*>([^<]*)</strong>', season_content)
                         if rating_match and rating_match.group(1).strip():
@@ -2661,7 +2661,7 @@ async def extract_douban_rating(page, media_type, matched_results):
                         if people_match:
                             season_rating_people = people_match.group(1)
                         if season_rating not in ["暂无", "", None] and season_rating_people not in ["暂无", "", None]:
-                            print(f"豆瓣从页面 HTML 提取到第{season_number}季评分成功")
+                            print(f"豆瓣从页面 HTML 提取到第{season_number}季评分成功 {season_rating} {season_rating_people}")
                 
                 if "暂无评分" in season_content or "尚未上映" in season_content:
                     ratings["seasons"].append({
@@ -2718,13 +2718,12 @@ async def extract_douban_rating(page, media_type, matched_results):
                 "seasons": []
             }
         
+        valid_count = sum(1 for s in ratings.get("seasons", []) if s.get("rating") not in [None, "暂无"] and s.get("rating_people") not in [None, "暂无"])
         if all_seasons_no_rating and ratings["seasons"]:
             if rating not in [None, "暂无"] and rating_people not in [None, "暂无"]:
                 ratings["rating"] = rating
                 ratings["rating_people"] = rating_people
-                ratings["status"] = RATING_STATUS["SUCCESSFUL"]
-            else:
-                ratings["status"] = RATING_STATUS["NO_RATING"]
+            ratings["status"] = RATING_STATUS["NO_RATING"]
         elif not ratings["seasons"]:
             ratings["status"] = RATING_STATUS["FETCH_FAILED"]
         else:
@@ -2735,7 +2734,6 @@ async def extract_douban_rating(page, media_type, matched_results):
             if first_valid:
                 ratings["rating"] = first_valid.get("rating")
                 ratings["rating_people"] = first_valid.get("rating_people")
-        valid_count = sum(1 for s in ratings.get("seasons", []) if s.get("rating") not in [None, "暂无"] and s.get("rating_people") not in [None, "暂无"])
         print(f"豆瓣多季返回: status={ratings.get('status')}, 共{len(ratings.get('seasons', []))}季其中{valid_count}季有有效评分")
         return ratings
 
