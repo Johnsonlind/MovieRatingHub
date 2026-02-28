@@ -3044,7 +3044,7 @@ class ChartScraper:
                 await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded", timeout=60000)
                 logger.info("页面 DOM 加载完成")
 
-                section_selector = 'div.front-door-movie__trending-movies-this-week'
+                section_selector = 'div.front-door__trending-movies-this-week'
                 await page.wait_for_selector(section_selector, timeout=30000)
                 section = await page.query_selector(section_selector)
                 if not section:
