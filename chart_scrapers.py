@@ -9,6 +9,7 @@ import logging
 import aiohttp
 import httpx
 import json
+from urllib.parse import quote
 from typing import List, Dict, Optional, TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
@@ -366,7 +367,6 @@ class ChartScraper:
         try:
             logger.info("开始爬取IMDB Top 10榜单")
         
-            api_url = "https://api.graphql.imdb.com/"
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             logger.info(f"生成的today参数: {today}")
         
@@ -380,46 +380,46 @@ class ChartScraper:
                 "topTenFirst": 10
             }
         
-            try:
-                variables_json = json.dumps(variables_dict, ensure_ascii=False)
-                json.loads(variables_json)
-                logger.info(f"生成的合法JSON: {variables_json}")
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON生成失败: {e}")
-                return []
+            variables_json = json.dumps(variables_dict, separators=(",", ":"))
+            variables_encoded = quote(variables_json)
+            extensions_encoded = quote('{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}')
         
-            params = {
-                "operationName": "BatchPage_HomeMain",
-                "variables": variables_json,
-                "extensions": '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
-            }
-        
-            logger.info(f"最终请求参数: {params}")
+            api_url = (
+                f"https://api.graphql.imdb.com/?operationName=BatchPage_HomeMain"
+                f"&variables={variables_encoded}"
+                f"&extensions={extensions_encoded}"
+            )
+            logger.info(f"最终请求URL: {api_url}")
         
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+                'Accept': 'application/graphql+json, application/json',
+                'Accept-Encoding': 'gzip, deflate, br, zstd',
+                'Accept-Language': 'zh-CN,zh;q=0.9',
                 'Content-Type': 'application/json',
-                'DNT': '1',
-                'Connection': 'keep-alive',
+                'Origin': 'https://www.imdb.com',
+                'Referer': 'https://www.imdb.com/',
                 'Sec-Fetch-Dest': 'empty',
                 'Sec-Fetch-Mode': 'cors',
                 'Sec-Fetch-Site': 'same-site',
-                'Referer': 'https://www.imdb.com/',
-                'Origin': 'https://www.imdb.com'
+                'Cookie': 'session-id=135-3235808-0631200; ubid-main=132-7674773-2555718; lc-main=zh_CN; x-main=n8Pd20@dVGak@aq3OxyVNOIMf8W8ZCeqZx3rX8DtvwZhUZ7MhLRK@FdSRu3t9ovM; at-main=Atza|gQCpjeFRAwEBADR-To6Df5sLoUNRACCDA1X7HZIhBsg4SN3nJHYrxpiPSGQlo8sWedkon5JcBYEck1EjGn1esvyZNaKVDDhpMvntwA3XWfdHnaZJY4aeCGQ9LXgBXEd8cSWeKhHB10KElq6WujJXp1_vT8HkUDxX9FlGNYNiDb0WIi3EJGeRPR2MoVZR_iSC7nwBfSR7VQP9-ZEq1YE_wP74h_w0HjPS5xSA4zU8qZzcdNq9FGh3SsN3mKv5BHR3TNynHUqE7oKclKkh0CX864dpt8uVQBZfVbgaMcWHHNDbIqb-CoGrFr7WGRr_N3DOJ7f0yPekacDqjK3n-AHNV5J7QwSbsjztM1oIq4vgNbvD6Hi5IO8; sess-at-main=APwFuERhd6+vu/5Y8sImJ5sFDHZ/5478187PSY0vvns=; session-id-time=2082787201l; ad-oo=16; ci=eyJhZ2VTaWduYWwiOiJBRFVMVCIsImlzR2RwciI6ZmFsc2V9; session-token=Vk0yGZxjwA2wOHP0mUPlY+SkudA7NyUDUXK96FtdDMQdXpm1wA74YITy0cf2boexUD9e/n0oiFzgUSIFxnzLJYQFQINe46KmJit/cL3M2KvnsR7I2gpcG95klTOuJy1MLNChHDrdl9MUCdkxVm53wEFtoed/46nj6D6tz9AqGZocjNN91e571fndwn0eGUxHdTzxEtNZKXGqcXqy3fA4aFPkdP6gjWpwgGjifRSsLQ+YDXKTO8bOd/vsuhDyEfnw',
+                'X-Amzn-Sessionid': '135-3235808-0631200',
+                'X-Imdb-Client-Name': 'imdb-web-next',
+                'X-Imdb-Client-Rid': 'TB1ZNRTQH8X7D21GWKPP',
+                'X-Imdb-Consent-Info': 'eyJhZ2VTaWduYWwiOiJBRFVMVCIsImlzR2RwciI6ZmFsc2V9',
+                'X-Imdb-User-Country': 'CN',
+                'X-Imdb-User-Language': 'zh-CN',
+                'X-Imdb-Weblab-Treatment-Overrides': '{"IMDB_DISCO_KNOWNFOR_V2_1328450":"T1","IMDB_SEARCH_DISCOVER_MODERN_1367402":"T1"}'
             }
         
             response = requests.get(
-                api_url, 
-                params=params, 
-                headers=headers, 
-                timeout=30, 
-                verify=False
+                api_url,
+                headers=headers,
+                timeout=30,
+                verify=False,
+                allow_redirects=True
             )
             logger.info(f"IMDb API响应状态: {response.status_code}")
-            logger.info(f"实际请求URL: {response.url}")
         
             if response.status_code == 200:
                 data = response.json()
