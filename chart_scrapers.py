@@ -8,6 +8,7 @@ import time
 import logging
 import aiohttp
 import httpx
+import json
 from typing import List, Dict, Optional, TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
@@ -364,20 +365,29 @@ class ChartScraper:
         """IMDB Top 10 this week"""
         try:
             logger.info("开始爬取IMDB Top 10榜单")
-            
-            import requests
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-            
+        
             api_url = "https://api.graphql.imdb.com/"
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            
+        
+            variables_dict = {
+                "fanPicksFirst": 30,
+                "first": 30,
+                "locale": "zh-CN",
+                "placement": "home",
+                "today": today,
+                "topPicksFirst": 30,
+                "topTenFirst": 10
+            }
+        
+            variables_json = json.dumps(variables_dict)
+            variables_encoded = requests.utils.quote(variables_json)
+        
             params = {
                 "operationName": "BatchPage_HomeMain",
-                "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10","today": today}',
+                "variables": variables_encoded,
                 "extensions": '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
             }
-            
+        
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'application/json, text/plain, */*',
@@ -392,10 +402,10 @@ class ChartScraper:
                 'Referer': 'https://www.imdb.com/',
                 'Origin': 'https://www.imdb.com'
             }
-            
+        
             response = requests.get(api_url, params=params, headers=headers, timeout=30, verify=False)
             logger.info(f"IMDb API响应状态: {response.status_code}")
-            
+        
             if response.status_code == 200:
                 data = response.json()
                 results = []
@@ -441,7 +451,7 @@ class ChartScraper:
                 error_text = response.text
                 logger.error(f"错误响应: {error_text[:500]}")
                 return []
-                        
+                    
         except Exception as e:
             logger.error(f"爬取IMDB Top 10榜单失败: {e}")
             import traceback
