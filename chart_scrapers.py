@@ -374,7 +374,7 @@ class ChartScraper:
             params = {
                 "operationName": "BatchPage_HomeMain",
                 "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","topPicksFirst":30,"topTenFirst":10}',
-                "extensions": '{"persistedQuery":{"sha256Hash":"03e004c2a40a23d81397d93eb497f2728ab23a5e02edfb4d7b89ac8b23b6dd1f","version":1}}'
+                "extensions": '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
             }
             
             headers = {
