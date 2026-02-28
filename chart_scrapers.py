@@ -8,9 +8,6 @@ import time
 import logging
 import aiohttp
 import httpx
-import json
-import brotli
-from urllib.parse import quote
 from typing import List, Dict, Optional, TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
@@ -367,87 +364,60 @@ class ChartScraper:
         """IMDB Top 10 this week"""
         try:
             logger.info("开始爬取IMDB Top 10榜单")
-        
+            
+            import requests
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
+            api_url = "https://api.graphql.imdb.com/"
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            logger.info(f"生成的today参数: {today}")
-        
-            variables_dict = {
-                "fanPicksFirst": 30,
-                "first": 30,
-                "locale": "zh-CN",
-                "placement": "home",
-                "today": today,
-                "topPicksFirst": 30,
-                "topTenFirst": 10
+            
+            params = {
+                "operationName": "BatchPage_HomeMain",
+                "variables": '{"fanPicksFirst":30,"first":30,"locale":"en-US","placement":"home","today":today,"topPicksFirst":30,"topTenFirst":10}',
+                "extensions": '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
             }
-            variables_json = json.dumps(variables_dict, separators=(",", ":"))
-            variables_encoded = quote(variables_json)
-            extensions_json = '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
-            extensions_encoded = quote(extensions_json)
-        
-            api_url = (
-                f"https://api.graphql.imdb.com/?operationName=BatchPage_HomeMain"
-                f"&variables={variables_encoded}"
-                f"&extensions={extensions_encoded}"
-            )
-            logger.info(f"最终请求URL: {api_url}")
-        
+            
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
-                'Accept': 'application/graphql+json, application/json',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
                 'Accept-Encoding': 'gzip, deflate',
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 'Content-Type': 'application/json',
                 'DNT': '1',
-                'Origin': 'https://www.imdb.com',
-                'Referer': 'https://www.imdb.com/',
-                'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"macOS"',
+                'Connection': 'keep-alive',
                 'Sec-Fetch-Dest': 'empty',
                 'Sec-Fetch-Mode': 'cors',
                 'Sec-Fetch-Site': 'same-site',
-                'Upgrade-Insecure-Requests': '1',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache',
-                'X-Requested-With': 'XMLHttpRequest'
+                'Referer': 'https://www.imdb.com/',
+                'Origin': 'https://www.imdb.com'
             }
-        
-            session = requests.Session()
-            session.headers.update(headers)
-            response = session.get(
-                api_url,
-                timeout=30,
-                verify=False,
-                allow_redirects=False,
-                headers=headers
-            )
+            
+            response = requests.get(api_url, params=params, headers=headers, timeout=30, verify=False)
             logger.info(f"IMDb API响应状态: {response.status_code}")
-            logger.info(f"响应编码: {response.encoding}, 内容编码: {response.headers.get('Content-Encoding')}")
-        
-            content = ""
-            try:
+            
+            if response.status_code == 200:
                 data = response.json()
-            except Exception as e1:
-                logger.warning(f"内置JSON解析失败: {e1}")
-                try:
-                    content = response.text.strip()
-                    if not content:
-                        logger.error("响应文本为空，可能被反爬拦截")
-                        return []
-                    data = json.loads(content)
-                except Exception as e2:
-                    logger.error(f"手动JSON解析失败: {e2}")
-                    logger.error(f"原始响应文本（前500字符）: {content[:500]}")
-                    return []
-        
-            results = []
-            top_edges = (data.get("data", {}).get("topMeterTitles", {}) or {}).get("edges", [])
-            if not top_edges:
-                batch_list = data.get("data", {}).get("batch", {}).get("responseList", [])
-                for item in batch_list:
-                    inner_data = item.get("data", {})
-                    top_edges = inner_data.get("topMeterTitles", {}).get("edges", [])
+                results = []
+                top_edges = (data.get("data", {}).get("topMeterTitles", {}) or {}).get("edges", [])
+                if not top_edges:
+                    batch_list = data.get("data", {}).get("batch", {}).get("responseList", [])
+                    for item in batch_list:
+                        inner_data = item.get("data", {})
+                        top_edges = inner_data.get("topMeterTitles", {}).get("edges", [])
+                        for edge in top_edges:
+                            node = edge.get("node", {})
+                            imdb_id = node.get("id")
+                            rank = (node.get("meterRanking", {}) or {}).get("currentRank")
+                            title = ((node.get("titleText") or {}).get("text")) or ""
+                            if imdb_id and isinstance(rank, int) and rank >= 1:
+                                results.append({
+                                    "rank": rank,
+                                    "title": title,
+                                    "imdb_id": imdb_id,
+                                    "url": f"https://www.imdb.com/title/{imdb_id}/"
+                                })
+                else:
                     for edge in top_edges:
                         node = edge.get("node", {})
                         imdb_id = node.get("id")
@@ -460,32 +430,24 @@ class ChartScraper:
                                 "imdb_id": imdb_id,
                                 "url": f"https://www.imdb.com/title/{imdb_id}/"
                             })
+
+                results.sort(key=lambda x: x["rank"])
+                results = results[:10]
+
+                logger.info(f"IMDb Top 10 获取到 {len(results)} 条（GraphQL）")
+                return results
             else:
-                for edge in top_edges:
-                    node = edge.get("node", {})
-                    imdb_id = node.get("id")
-                    rank = (node.get("meterRanking", {}) or {}).get("currentRank")
-                    title = ((node.get("titleText") or {}).get("text")) or ""
-                    if imdb_id and isinstance(rank, int) and rank >= 1:
-                        results.append({
-                            "rank": rank,
-                            "title": title,
-                            "imdb_id": imdb_id,
-                            "url": f"https://www.imdb.com/title/{imdb_id}/"
-                        })
-
-            results.sort(key=lambda x: x["rank"])
-            results = results[:10]
-
-            logger.info(f"IMDb Top 10 获取到 {len(results)} 条（GraphQL）")
-            return results
-                    
+                logger.error(f"IMDB API请求失败: {response.status_code}")
+                error_text = response.text
+                logger.error(f"错误响应: {error_text[:500]}")
+                return []
+                        
         except Exception as e:
             logger.error(f"爬取IMDB Top 10榜单失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return []
-        
+
     async def scrape_letterboxd_popular(self) -> List[Dict]:
         """Letterboxd Popular films this week"""
         films_url = "https://letterboxd.com/films/"
