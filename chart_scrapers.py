@@ -3040,9 +3040,7 @@ class ChartScraper:
             )
             page = await context.new_page()
             try:
-                logger.info("开始访问 Metacritic 首页（电影）")
                 await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded", timeout=60000)
-                logger.info("页面 DOM 加载完成")
 
                 section_selector = 'div.front-door__trending-movies-this-week'
                 await page.wait_for_selector(section_selector, timeout=30000)
@@ -3103,9 +3101,7 @@ class ChartScraper:
             )
             page = await context.new_page()
             try:
-                logger.info("开始访问 Metacritic 首页（剧集）")
                 await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded", timeout=60000)
-                logger.info("页面 DOM 加载完成")
 
                 section_selector = 'div.front-door__trending-tv-shows-this-week'
                 await page.wait_for_selector(section_selector, timeout=30000)
@@ -3155,7 +3151,7 @@ class ChartScraper:
             finally:
                 await page.close()
                 await context.close()
-
+                
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
 class TMDBMatcher:
