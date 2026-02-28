@@ -368,6 +368,7 @@ class ChartScraper:
         
             api_url = "https://api.graphql.imdb.com/"
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            logger.info(f"生成的today参数: {today}")
         
             variables_dict = {
                 "fanPicksFirst": 30,
@@ -379,14 +380,21 @@ class ChartScraper:
                 "topTenFirst": 10
             }
         
-            variables_json = json.dumps(variables_dict)
-            variables_encoded = requests.utils.quote(variables_json)
+            try:
+                variables_json = json.dumps(variables_dict, ensure_ascii=False)
+                json.loads(variables_json)
+                logger.info(f"生成的合法JSON: {variables_json}")
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON生成失败: {e}")
+                return []
         
             params = {
                 "operationName": "BatchPage_HomeMain",
-                "variables": variables_encoded,
+                "variables": variables_json,
                 "extensions": '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
             }
+        
+            logger.info(f"最终请求参数: {params}")
         
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -403,8 +411,15 @@ class ChartScraper:
                 'Origin': 'https://www.imdb.com'
             }
         
-            response = requests.get(api_url, params=params, headers=headers, timeout=30, verify=False)
+            response = requests.get(
+                api_url, 
+                params=params, 
+                headers=headers, 
+                timeout=30, 
+                verify=False
+            )
             logger.info(f"IMDb API响应状态: {response.status_code}")
+            logger.info(f"实际请求URL: {response.url}")
         
             if response.status_code == 200:
                 data = response.json()
