@@ -3033,78 +3033,43 @@ class ChartScraper:
         return saved
     
     async def scrape_metacritic_trending_movies(self) -> List[Dict]:
-        """Metacritic Trending Movies This Week"""
+        """Metacritic Trending Shows This Week"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
             try:
-                logger.info("开始访问 Metacritic 首页（电影）")
                 await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded")
-                logger.info("页面 DOM 加载完成")
+                await page.wait_for_load_state("networkidle", timeout=60000)
 
-                await asyncio.sleep(3)
+                section = await page.query_selector('div.front-door-movie__trending-movies-this-week')
+                if not section:
+                    title_elem = await page.query_selector('h2:has-text("Trending Movies This Week")')
+                    if title_elem:
+                        section = await title_elem.evaluate_handle('el => el.closest(".global-carousel")?.parentElement')
+                        if section:
+                            section = section.as_element()
+                if not section:
+                    logger.warning("未找到电影板块")
+                    return []
 
-                try:
-                    logger.info("等待网络空闲状态...")
-                    await page.wait_for_load_state("networkidle", timeout=60000)
-                    logger.info("网络空闲状态达成")
-                except Exception as e:
-                    logger.warning(f"等待网络空闲超时或失败: {e}，继续执行")
-                    await asyncio.sleep(5)
-
-                # 获取页面标题或部分内容，确认是否正常加载
-                page_title = await page.title()
-                logger.info(f"当前页面标题: {page_title}")
-
-                # 尝试获取页面主体内容（可选）
-                body_text = await page.text_content('body')
-                logger.info(f"页面 body 前200字符: {body_text[:200]}")
-
-                # 查询电影卡片
-                movie_cards = await page.query_selector_all('[data-cy^="movies-"]')
-                logger.info(f"通过选择器 '[data-cy^=\"movies-\"]' 找到 {len(movie_cards)} 个元素")
-
-                # 如果未找到卡片，尝试其他备选选择器
-                if not movie_cards:
-                    logger.info("尝试使用备用选择器查找卡片...")
-                    movie_cards = await page.query_selector_all('.c-globalProductCard')
-                    logger.info(f"通过 '.c-globalProductCard' 找到 {len(movie_cards)} 个元素")
-
-                    # 如果仍没有，记录整个页面的卡片相关 class 或 data-cy 属性样本
-                    all_elements_with_data_cy = await page.query_selector_all('[data-cy]')
-                    logger.info(f"页面中带有 data-cy 属性的元素总数: {len(all_elements_with_data_cy)}")
-                    if all_elements_with_data_cy:
-                        # 记录前几个 data-cy 值样本
-                        sample_values = []
-                        for elem in all_elements_with_data_cy[:5]:
-                            val = await elem.get_attribute('data-cy')
-                            sample_values.append(val)
-                        logger.info(f"data-cy 属性样本值: {sample_values}")
+                movie_cards = await section.query_selector_all('[data-testid="product-card"]')
+                logger.info(f"找到 {len(movie_cards)} 个电影卡片")
 
                 results = []
                 for i, card in enumerate(movie_cards[:10], 1):
                     try:
-                        logger.debug(f"处理第 {i} 个卡片")
-                        title_elem = await card.query_selector('.c-globalProductCard_title')
+                        title_elem = await card.query_selector('.product-card-link__title')
                         if not title_elem:
-                            logger.debug(f"卡片 {i} 未找到标题元素，跳过")
                             continue
-
                         title = await title_elem.inner_text()
-                        logger.debug(f"卡片 {i} 标题: {title}")
 
-                        link_elem = await card.query_selector('a.c-globalProductCard_container')
+                        link_elem = await card.query_selector('a[data-testid="product-card-content"]')
                         if not link_elem:
-                            logger.debug(f"卡片 {i} 未找到链接元素，跳过")
                             continue
-
                         url = await link_elem.get_attribute('href')
                         if not url:
-                            logger.debug(f"卡片 {i} 链接为空，跳过")
                             continue
-
                         if not url.startswith('http'):
                             url = f"https://www.metacritic.com{url}"
-                        logger.debug(f"卡片 {i} URL: {url}")
 
                         metacritic_id = re.search(r'/movie/([^/]+)/', url)
                         if metacritic_id:
@@ -3114,88 +3079,54 @@ class ChartScraper:
                                 'metacritic_id': metacritic_id.group(1),
                                 'url': url
                             })
-                            logger.debug(f"卡片 {i} 提取成功: ID={metacritic_id.group(1)}")
-                        else:
-                            logger.debug(f"卡片 {i} URL 中未匹配到 movie ID: {url}")
-
                     except Exception as e:
-                        logger.error(f"处理Metacritic电影榜单项时出错: {e}", exc_info=True)
+                        logger.error(f"处理电影卡出错: {e}")
                         continue
 
-                logger.info(f"Metacritic电影榜单最终获取到 {len(results)} 个项目")
+                logger.info(f"电影榜单最终获取到 {len(results)} 个项目")
                 return results
             finally:
                 await page.close()
-
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
     async def scrape_metacritic_trending_shows(self) -> List[Dict]:
-        """Metacritic Trending Shows This Week"""
+        """Metacritic Trending Movies This Week"""
         async def scrape_with_browser(browser):
             page = await browser.new_page()
             try:
-                logger.info("开始访问 Metacritic 首页（剧集）")
                 await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded")
-                logger.info("页面 DOM 加载完成")
+                await page.wait_for_load_state("networkidle", timeout=60000)
 
-                await asyncio.sleep(3)
+                section = await page.query_selector('div.front-door__trending-tv-shows-this-week')
+                if not section:
+                    title_elem = await page.query_selector('h2:has-text("Trending Shows This Week")')
+                    if title_elem:
+                        section = await title_elem.evaluate_handle('el => el.closest(".global-carousel")?.parentElement')
+                        if section:
+                            section = section.as_element()
+                if not section:
+                    logger.warning("未找到剧集板块")
+                    return []
 
-                try:
-                    logger.info("等待网络空闲状态...")
-                    await page.wait_for_load_state("networkidle", timeout=60000)
-                    logger.info("网络空闲状态达成")
-                except Exception as e:
-                    logger.warning(f"等待网络空闲超时或失败: {e}，继续执行")
-                    await asyncio.sleep(5)
-
-                page_title = await page.title()
-                logger.info(f"当前页面标题: {page_title}")
-
-                body_text = await page.text_content('body')
-                logger.info(f"页面 body 前200字符: {body_text[:200]}")
-
-                show_cards = await page.query_selector_all('[data-cy^="shows-"]')
-                logger.info(f"通过选择器 '[data-cy^=\"shows-\"]' 找到 {len(show_cards)} 个元素")
-
-                if not show_cards:
-                    logger.info("尝试使用备用选择器查找剧集卡片...")
-                    show_cards = await page.query_selector_all('.c-globalProductCard')
-                    logger.info(f"通过 '.c-globalProductCard' 找到 {len(show_cards)} 个元素")
-
-                    all_elements_with_data_cy = await page.query_selector_all('[data-cy]')
-                    logger.info(f"页面中带有 data-cy 属性的元素总数: {len(all_elements_with_data_cy)}")
-                    if all_elements_with_data_cy:
-                        sample_values = []
-                        for elem in all_elements_with_data_cy[:5]:
-                            val = await elem.get_attribute('data-cy')
-                            sample_values.append(val)
-                        logger.info(f"data-cy 属性样本值: {sample_values}")
+                show_cards = await section.query_selector_all('[data-testid="product-card"]')
+                logger.info(f"找到 {len(show_cards)} 个剧集卡片")
 
                 results = []
                 for i, card in enumerate(show_cards[:10], 1):
                     try:
-                        logger.debug(f"处理第 {i} 个卡片")
-                        title_elem = await card.query_selector('.c-globalProductCard_title')
+                        title_elem = await card.query_selector('.product-card-link__title')
                         if not title_elem:
-                            logger.debug(f"卡片 {i} 未找到标题元素，跳过")
                             continue
-
                         title = await title_elem.inner_text()
-                        logger.debug(f"卡片 {i} 标题: {title}")
 
-                        link_elem = await card.query_selector('a.c-globalProductCard_container')
+                        link_elem = await card.query_selector('a[data-testid="product-card-content"]')
                         if not link_elem:
-                            logger.debug(f"卡片 {i} 未找到链接元素，跳过")
                             continue
-
                         url = await link_elem.get_attribute('href')
                         if not url:
-                            logger.debug(f"卡片 {i} 链接为空，跳过")
                             continue
-
                         if not url.startswith('http'):
                             url = f"https://www.metacritic.com{url}"
-                        logger.debug(f"卡片 {i} URL: {url}")
 
                         metacritic_id = re.search(r'/tv/([^/]+)/', url)
                         if metacritic_id:
@@ -3205,19 +3136,14 @@ class ChartScraper:
                                 'metacritic_id': metacritic_id.group(1),
                                 'url': url
                             })
-                            logger.debug(f"卡片 {i} 提取成功: ID={metacritic_id.group(1)}")
-                        else:
-                            logger.debug(f"卡片 {i} URL 中未匹配到 tv ID: {url}")
-
                     except Exception as e:
-                        logger.error(f"处理Metacritic电视剧榜单项时出错: {e}", exc_info=True)
+                        logger.error(f"处理剧集卡出错: {e}")
                         continue
 
-                logger.info(f"Metacritic电视剧榜单最终获取到 {len(results)} 个项目")
+                logger.info(f"剧集榜单最终获取到 {len(results)} 个项目")
                 return results
             finally:
                 await page.close()
-
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
 class TMDBMatcher:
