@@ -3131,7 +3131,7 @@ class ChartScraper:
 
     async def scrape_metacritic_trending_shows(self) -> List[Dict]:
         """Metacritic Trending Shows This Week"""
-       async def scrape_with_browser(browser):
+        async def scrape_with_browser(browser):
             page = await browser.new_page()
             try:
                 logger.info("开始访问 Metacritic 首页（剧集）")
@@ -3144,7 +3144,7 @@ class ChartScraper:
                     logger.info("等待网络空闲状态...")
                     await page.wait_for_load_state("networkidle", timeout=60000)
                     logger.info("网络空闲状态达成")
-               except Exception as e:
+                except Exception as e:
                     logger.warning(f"等待网络空闲超时或失败: {e}，继续执行")
                     await asyncio.sleep(5)
 
