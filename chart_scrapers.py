@@ -3124,7 +3124,7 @@ class ChartScraper:
 
                 logger.info(f"Metacritic电影榜单最终获取到 {len(results)} 个项目")
                 return results
-           finally:
+            finally:
                 await page.close()
 
         return await browser_pool.execute_in_browser(scrape_with_browser)
