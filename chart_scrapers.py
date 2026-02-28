@@ -414,7 +414,7 @@ class ChartScraper:
             }
         
             session = requests.Session()
-           session.headers.update(headers)
+            session.headers.update(headers)
             response = session.get(
                 api_url,
                 timeout=30,
