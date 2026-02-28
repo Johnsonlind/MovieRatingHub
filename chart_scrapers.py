@@ -395,7 +395,7 @@ class ChartScraper:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
                 'Accept': 'application/graphql+json, application/json',
-                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Encoding': 'gzip, deflate',
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 'Content-Type': 'application/json',
                 'DNT': '1',
@@ -420,38 +420,26 @@ class ChartScraper:
                 timeout=30,
                 verify=False,
                 allow_redirects=False,
-                stream=True
+                headers=headers
             )
             logger.info(f"IMDb API响应状态: {response.status_code}")
             logger.info(f"响应编码: {response.encoding}, 内容编码: {response.headers.get('Content-Encoding')}")
         
+            content = ""
             try:
-                raw_content = response.content
-                if not raw_content:
-                    logger.error("响应内容为空，可能被IMDb反爬拦截")
+                data = response.json()
+            except Exception as e1:
+                logger.warning(f"内置JSON解析失败: {e1}")
+                try:
+                    content = response.text.strip()
+                    if not content:
+                        logger.error("响应文本为空，可能被反爬拦截")
+                        return []
+                    data = json.loads(content)
+                except Exception as e2:
+                    logger.error(f"手动JSON解析失败: {e2}")
+                    logger.error(f"原始响应文本（前500字符）: {content[:500]}")
                     return []
-            
-                content_encoding = response.headers.get('Content-Encoding', '')
-                if 'br' in content_encoding:
-                    content = brotli.decompress(raw_content).decode('utf-8')
-                elif 'gzip' in content_encoding:
-                    content = gzip.decompress(raw_content).decode('utf-8')
-                else:
-                    content = raw_content.decode('utf-8', errors='ignore')
-            
-                logger.info(f"解压后响应内容（前200字符）: {content[:200]}")
-            
-                if not content.strip():
-                    logger.error("解压后内容为空")
-                    return []
-                data = json.loads(content)
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON解析失败: {e}")
-                logger.error(f"原始响应内容: {content[:500]}")
-                return []
-            except Exception as e:
-                logger.error(f"响应解压失败: {e}")
-                return []
         
             results = []
             top_edges = (data.get("data", {}).get("topMeterTitles", {}) or {}).get("edges", [])
