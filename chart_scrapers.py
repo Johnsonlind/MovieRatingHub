@@ -3035,31 +3035,32 @@ class ChartScraper:
     async def scrape_metacritic_trending_movies(self) -> List[Dict]:
         """Metacritic Trending Shows This Week"""
         async def scrape_with_browser(browser):
-            page = await browser.new_page()
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = await context.new_page()
             try:
-                await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded")
-                await page.wait_for_load_state("networkidle", timeout=60000)
+                logger.info("开始访问 Metacritic 首页（电影）")
+                await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded", timeout=60000)
+                logger.info("页面 DOM 加载完成")
 
-                section = await page.query_selector('div.front-door-movie__trending-movies-this-week')
-                if not section:
-                    title_elem = await page.query_selector('h2:has-text("Trending Movies This Week")')
-                    if title_elem:
-                        section = await title_elem.evaluate_handle('el => el.closest(".global-carousel")?.parentElement')
-                        if section:
-                            section = section.as_element()
+                section_selector = 'div.front-door-movie__trending-movies'
+                await page.wait_for_selector(section_selector, timeout=30000)
+                section = await page.query_selector(section_selector)
                 if not section:
                     logger.warning("未找到电影板块")
                     return []
 
+                await page.wait_for_selector(f'{section_selector} [data-testid="product-card"]', timeout=10000)
                 movie_cards = await section.query_selector_all('[data-testid="product-card"]')
-                logger.info(f"找到 {len(movie_cards)} 个电影卡片")
+                logger.info(f"在电影板块内找到 {len(movie_cards)} 个卡片")
 
                 results = []
                 for i, card in enumerate(movie_cards[:10], 1):
                     try:
                         title_elem = await card.query_selector('.product-card-link__title')
                         if not title_elem:
-                            continue
+                        continue
                         title = await title_elem.inner_text()
 
                         link_elem = await card.query_selector('a[data-testid="product-card-content"]')
@@ -3085,31 +3086,37 @@ class ChartScraper:
 
                 logger.info(f"电影榜单最终获取到 {len(results)} 个项目")
                 return results
+            except Exception as e:
+                logger.error(f"抓取电影榜单时发生错误: {e}", exc_info=True)
+                return []
             finally:
                 await page.close()
+                await context.close()
+
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
     async def scrape_metacritic_trending_shows(self) -> List[Dict]:
         """Metacritic Trending Movies This Week"""
         async def scrape_with_browser(browser):
-            page = await browser.new_page()
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            )
+            page = await context.new_page()
             try:
-                await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded")
-                await page.wait_for_load_state("networkidle", timeout=60000)
+                logger.info("开始访问 Metacritic 首页（剧集）")
+                await page.goto("https://www.metacritic.com/", wait_until="domcontentloaded", timeout=60000)
+                logger.info("页面 DOM 加载完成")
 
-                section = await page.query_selector('div.front-door__trending-tv-shows-this-week')
-                if not section:
-                    title_elem = await page.query_selector('h2:has-text("Trending Shows This Week")')
-                    if title_elem:
-                        section = await title_elem.evaluate_handle('el => el.closest(".global-carousel")?.parentElement')
-                        if section:
-                            section = section.as_element()
+                section_selector = 'div.front-door__trending-tv-shows-this-week'
+                await page.wait_for_selector(section_selector, timeout=30000)
+                section = await page.query_selector(section_selector)
                 if not section:
                     logger.warning("未找到剧集板块")
                     return []
 
+                await page.wait_for_selector(f'{section_selector} [data-testid="product-card"]', timeout=10000)
                 show_cards = await section.query_selector_all('[data-testid="product-card"]')
-                logger.info(f"找到 {len(show_cards)} 个剧集卡片")
+                logger.info(f"在剧集板块内找到 {len(show_cards)} 个卡片")
 
                 results = []
                 for i, card in enumerate(show_cards[:10], 1):
@@ -3142,8 +3149,13 @@ class ChartScraper:
 
                 logger.info(f"剧集榜单最终获取到 {len(results)} 个项目")
                 return results
+            except Exception as e:
+                logger.error(f"抓取剧集榜单时发生错误: {e}", exc_info=True)
+                return []
             finally:
                 await page.close()
+                await context.close()
+
         return await browser_pool.execute_in_browser(scrape_with_browser)
 
 class TMDBMatcher:
