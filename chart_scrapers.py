@@ -3060,7 +3060,7 @@ class ChartScraper:
                     try:
                         title_elem = await card.query_selector('.product-card-link__title')
                         if not title_elem:
-                        continue
+                            continue
                         title = await title_elem.inner_text()
 
                         link_elem = await card.query_selector('a[data-testid="product-card-content"]')
