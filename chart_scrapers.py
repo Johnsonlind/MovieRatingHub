@@ -9,6 +9,7 @@ import logging
 import aiohttp
 import httpx
 import json
+import brotli
 from urllib.parse import quote
 from typing import List, Dict, Optional, TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
@@ -379,10 +380,10 @@ class ChartScraper:
                 "topPicksFirst": 30,
                 "topTenFirst": 10
             }
-        
             variables_json = json.dumps(variables_dict, separators=(",", ":"))
             variables_encoded = quote(variables_json)
-            extensions_encoded = quote('{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}')
+            extensions_json = '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
+            extensions_encoded = quote(extensions_json)
         
             api_url = (
                 f"https://api.graphql.imdb.com/?operationName=BatchPage_HomeMain"
@@ -394,55 +395,71 @@ class ChartScraper:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
                 'Accept': 'application/graphql+json, application/json',
-                'Accept-Encoding': 'gzip, deflate, br, zstd',
-                'Accept-Language': 'zh-CN,zh;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 'Content-Type': 'application/json',
+                'DNT': '1',
                 'Origin': 'https://www.imdb.com',
                 'Referer': 'https://www.imdb.com/',
+                'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="144", "Google Chrome";v="144"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"macOS"',
                 'Sec-Fetch-Dest': 'empty',
                 'Sec-Fetch-Mode': 'cors',
                 'Sec-Fetch-Site': 'same-site',
-                'Cookie': 'session-id=135-3235808-0631200; ubid-main=132-7674773-2555718; lc-main=zh_CN; x-main=n8Pd20@dVGak@aq3OxyVNOIMf8W8ZCeqZx3rX8DtvwZhUZ7MhLRK@FdSRu3t9ovM; at-main=Atza|gQCpjeFRAwEBADR-To6Df5sLoUNRACCDA1X7HZIhBsg4SN3nJHYrxpiPSGQlo8sWedkon5JcBYEck1EjGn1esvyZNaKVDDhpMvntwA3XWfdHnaZJY4aeCGQ9LXgBXEd8cSWeKhHB10KElq6WujJXp1_vT8HkUDxX9FlGNYNiDb0WIi3EJGeRPR2MoVZR_iSC7nwBfSR7VQP9-ZEq1YE_wP74h_w0HjPS5xSA4zU8qZzcdNq9FGh3SsN3mKv5BHR3TNynHUqE7oKclKkh0CX864dpt8uVQBZfVbgaMcWHHNDbIqb-CoGrFr7WGRr_N3DOJ7f0yPekacDqjK3n-AHNV5J7QwSbsjztM1oIq4vgNbvD6Hi5IO8; sess-at-main=APwFuERhd6+vu/5Y8sImJ5sFDHZ/5478187PSY0vvns=; session-id-time=2082787201l; ad-oo=16; ci=eyJhZ2VTaWduYWwiOiJBRFVMVCIsImlzR2RwciI6ZmFsc2V9; session-token=Vk0yGZxjwA2wOHP0mUPlY+SkudA7NyUDUXK96FtdDMQdXpm1wA74YITy0cf2boexUD9e/n0oiFzgUSIFxnzLJYQFQINe46KmJit/cL3M2KvnsR7I2gpcG95klTOuJy1MLNChHDrdl9MUCdkxVm53wEFtoed/46nj6D6tz9AqGZocjNN91e571fndwn0eGUxHdTzxEtNZKXGqcXqy3fA4aFPkdP6gjWpwgGjifRSsLQ+YDXKTO8bOd/vsuhDyEfnw',
-                'X-Amzn-Sessionid': '135-3235808-0631200',
-                'X-Imdb-Client-Name': 'imdb-web-next',
-                'X-Imdb-Client-Rid': 'TB1ZNRTQH8X7D21GWKPP',
-                'X-Imdb-Consent-Info': 'eyJhZ2VTaWduYWwiOiJBRFVMVCIsImlzR2RwciI6ZmFsc2V9',
-                'X-Imdb-User-Country': 'CN',
-                'X-Imdb-User-Language': 'zh-CN',
-                'X-Imdb-Weblab-Treatment-Overrides': '{"IMDB_DISCO_KNOWNFOR_V2_1328450":"T1","IMDB_SEARCH_DISCOVER_MODERN_1367402":"T1"}'
+                'Upgrade-Insecure-Requests': '1',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'X-Requested-With': 'XMLHttpRequest'
             }
         
-            response = requests.get(
+            session = requests.Session()
+           session.headers.update(headers)
+            response = session.get(
                 api_url,
-                headers=headers,
                 timeout=30,
                 verify=False,
-                allow_redirects=True
+                allow_redirects=False,
+                stream=True
             )
             logger.info(f"IMDb API响应状态: {response.status_code}")
+            logger.info(f"响应编码: {response.encoding}, 内容编码: {response.headers.get('Content-Encoding')}")
         
-            if response.status_code == 200:
-                data = response.json()
-                results = []
-                top_edges = (data.get("data", {}).get("topMeterTitles", {}) or {}).get("edges", [])
-                if not top_edges:
-                    batch_list = data.get("data", {}).get("batch", {}).get("responseList", [])
-                    for item in batch_list:
-                        inner_data = item.get("data", {})
-                        top_edges = inner_data.get("topMeterTitles", {}).get("edges", [])
-                        for edge in top_edges:
-                            node = edge.get("node", {})
-                            imdb_id = node.get("id")
-                            rank = (node.get("meterRanking", {}) or {}).get("currentRank")
-                            title = ((node.get("titleText") or {}).get("text")) or ""
-                            if imdb_id and isinstance(rank, int) and rank >= 1:
-                                results.append({
-                                    "rank": rank,
-                                    "title": title,
-                                    "imdb_id": imdb_id,
-                                    "url": f"https://www.imdb.com/title/{imdb_id}/"
-                                })
+            try:
+                raw_content = response.content
+                if not raw_content:
+                    logger.error("响应内容为空，可能被IMDb反爬拦截")
+                    return []
+            
+                content_encoding = response.headers.get('Content-Encoding', '')
+                if 'br' in content_encoding:
+                    content = brotli.decompress(raw_content).decode('utf-8')
+                elif 'gzip' in content_encoding:
+                    content = gzip.decompress(raw_content).decode('utf-8')
                 else:
+                    content = raw_content.decode('utf-8', errors='ignore')
+            
+                logger.info(f"解压后响应内容（前200字符）: {content[:200]}")
+            
+                if not content.strip():
+                    logger.error("解压后内容为空")
+                    return []
+                data = json.loads(content)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON解析失败: {e}")
+                logger.error(f"原始响应内容: {content[:500]}")
+                return []
+            except Exception as e:
+                logger.error(f"响应解压失败: {e}")
+                return []
+        
+            results = []
+            top_edges = (data.get("data", {}).get("topMeterTitles", {}) or {}).get("edges", [])
+            if not top_edges:
+                batch_list = data.get("data", {}).get("batch", {}).get("responseList", [])
+                for item in batch_list:
+                    inner_data = item.get("data", {})
+                    top_edges = inner_data.get("topMeterTitles", {}).get("edges", [])
                     for edge in top_edges:
                         node = edge.get("node", {})
                         imdb_id = node.get("id")
@@ -455,24 +472,32 @@ class ChartScraper:
                                 "imdb_id": imdb_id,
                                 "url": f"https://www.imdb.com/title/{imdb_id}/"
                             })
-
-                results.sort(key=lambda x: x["rank"])
-                results = results[:10]
-
-                logger.info(f"IMDb Top 10 获取到 {len(results)} 条（GraphQL）")
-                return results
             else:
-                logger.error(f"IMDB API请求失败: {response.status_code}")
-                error_text = response.text
-                logger.error(f"错误响应: {error_text[:500]}")
-                return []
+                for edge in top_edges:
+                    node = edge.get("node", {})
+                    imdb_id = node.get("id")
+                    rank = (node.get("meterRanking", {}) or {}).get("currentRank")
+                    title = ((node.get("titleText") or {}).get("text")) or ""
+                    if imdb_id and isinstance(rank, int) and rank >= 1:
+                        results.append({
+                            "rank": rank,
+                            "title": title,
+                            "imdb_id": imdb_id,
+                            "url": f"https://www.imdb.com/title/{imdb_id}/"
+                        })
+
+            results.sort(key=lambda x: x["rank"])
+            results = results[:10]
+
+            logger.info(f"IMDb Top 10 获取到 {len(results)} 条（GraphQL）")
+            return results
                     
         except Exception as e:
             logger.error(f"爬取IMDB Top 10榜单失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return []
-
+        
     async def scrape_letterboxd_popular(self) -> List[Dict]:
         """Letterboxd Popular films this week"""
         films_url = "https://letterboxd.com/films/"
