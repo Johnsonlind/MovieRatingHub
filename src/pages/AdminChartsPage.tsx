@@ -122,6 +122,7 @@ const MANUAL_ENTRY_CUSTOM_CHARTS: Record<string, number> = {
   'IMDb 工作人员2025最喜爱的电影': 27,
   'IMDb 工作人员2025最喜爱的剧集': 20,
   'Letterboxd 2025 Top 50': 50,
+  'Letterboxd 电影 Top 250': 250,
   'Rotten Tomatoes 2025 最佳电影': 219,
   'Rotten Tomatoes 2025 最佳剧集': 121,
   'Metacritic 2025 最佳电影': 20,
