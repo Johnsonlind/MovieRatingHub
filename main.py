@@ -3218,7 +3218,7 @@ async def health_check():
 # ==========================================
 
 def _build_manual_ratings_cache_key(media_type: str, tmdb_id: str) -> str:
-    return f"manual_ratings:{media_type}:{tmdb_id}"
+    return f"rating:{media_type}:{tmdb_id}"
 
 @app.post("/api/manual-ratings")
 async def save_manual_ratings(
@@ -3292,16 +3292,17 @@ async def get_manual_ratings(
 
     if redis:
         try:
-          cache_key = _build_manual_ratings_cache_key(media_type, tmdb_id)
-          raw = await redis.get(cache_key)
-          if raw:
-              overrides = json.loads(raw)
+            cache_key = _build_manual_ratings_cache_key(media_type, tmdb_id)
+            raw = await redis.get(cache_key)
+            if raw:
+                overrides = json.loads(raw)
         except Exception as e:
-          logger.error(f"从 Redis 读取手动评分失败: {e}")
+            logger.error(f"从 Redis 读取手动评分失败: {e}")
 
     return {
         "tmdb_id": tmdb_id,
         "media_type": media_type,
+        "has_data": overrides is not None,
         "overrides": overrides or {},
     }
 
