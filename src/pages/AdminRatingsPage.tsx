@@ -9,30 +9,19 @@ import type { BackendPlatformStatus, FetchStatus } from '../types/status';
 
 type MediaType = 'movie' | 'tv';
 
-type BackendPlatformKey = 'douban' | 'imdb' | 'letterboxd' | 'rottentomatoes' | 'metacritic';
+type BackendPlatformKey =
+  | 'douban'
+  | 'imdb'
+  | 'letterboxd'
+  | 'rottentomatoes'
+  | 'metacritic';
 
-interface ManualPlatformState {
-  enabled: boolean;
-  status: FetchStatus;
-  rating: string;
-  votes: string;
-  url: string;
-}
-
-type ManualRatingsState = Record<BackendPlatformKey, ManualPlatformState>;
-
-const PLATFORM_CONFIG: Record<
-  BackendPlatformKey,
-  {
-    label: string;
-    logo: string;
-  }
-> = {
-  douban: { label: '豆瓣', logo: '/logos/douban.png' },
-  imdb: { label: 'IMDb', logo: '/logos/imdb.png' },
-  letterboxd: { label: 'Letterboxd', logo: '/logos/letterboxd.png' },
-  rottentomatoes: { label: 'Rotten Tomatoes', logo: '/logos/rottentomatoes.png' },
-  metacritic: { label: 'Metacritic', logo: '/logos/metacritic.png' },
+const BACKEND_PLATFORM_LOGOS: Record<BackendPlatformKey, string> = {
+  douban: '/logos/douban.png',
+  imdb: '/logos/imdb.png',
+  letterboxd: '/logos/letterboxd.png',
+  rottentomatoes: '/logos/rottentomatoes.png',
+  metacritic: '/logos/metacritic.png',
 };
 
 const STATUS_OPTIONS: { value: FetchStatus; label: string }[] = [
@@ -47,13 +36,212 @@ const STATUS_OPTIONS: { value: FetchStatus; label: string }[] = [
   { value: 'timeout', label: '请求超时' },
 ];
 
-function createInitialManualState(): ManualRatingsState {
+interface MoviePlatformBase {
+  enabled: boolean;
+  status: FetchStatus;
+}
+
+interface MovieSimpleRatingState extends MoviePlatformBase {
+  rating: string;
+  rating_people: string;
+  url: string;
+}
+
+interface MovieLetterboxdState extends MoviePlatformBase {
+  rating: string;
+  rating_count: string;
+  url: string;
+}
+
+interface MovieRottenTomatoesState extends MoviePlatformBase {
+  tomatometer: string;
+  critics_count: string;
+  critics_avg: string;
+  audience_score: string;
+  audience_count: string;
+  audience_avg: string;
+  url: string;
+}
+
+interface MovieMetacriticState extends MoviePlatformBase {
+  metascore: string;
+  critics_count: string;
+  userscore: string;
+  users_count: string;
+  url: string;
+}
+
+interface MovieTMDBState extends MoviePlatformBase {
+  rating: string;
+  voteCount: string;
+}
+
+interface MovieTraktState extends MoviePlatformBase {
+  rating: string;
+  votes: string;
+}
+
+interface MovieOverridesState {
+  douban: MovieSimpleRatingState;
+  imdb: MovieSimpleRatingState;
+  letterboxd: MovieLetterboxdState;
+  rottentomatoes: MovieRottenTomatoesState;
+  metacritic: MovieMetacriticState;
+  tmdb: MovieTMDBState;
+  trakt: MovieTraktState;
+}
+
+interface TVPlatformBase {
+  enabled: boolean;
+  status: FetchStatus;
+}
+
+interface DoubanSeasonRow {
+  season_number: string;
+  rating: string;
+  rating_people: string;
+}
+
+interface RTRatingSeasonRow {
+  season_number: string;
+  tomatometer: string;
+  critics_count: string;
+  critics_avg: string;
+  audience_score: string;
+  audience_count: string;
+  audience_avg: string;
+}
+
+interface MetacriticSeasonRow {
+  season_number: string;
+  metascore: string;
+  critics_count: string;
+  userscore: string;
+  users_count: string;
+}
+
+interface SimpleSeasonRow {
+  season_number: string;
+  rating: string;
+  votes: string;
+}
+
+interface TVDoubanState extends TVPlatformBase {
+  url: string;
+  seasons: DoubanSeasonRow[];
+}
+
+interface TVIMDBState extends TVPlatformBase {
+  rating: string;
+  rating_people: string;
+  url: string;
+}
+
+interface TVLetterboxdState extends TVPlatformBase {
+  rating: string;
+  rating_count: string;
+  url: string;
+}
+
+interface TVRottenTomatoesState extends TVPlatformBase {
+  series_tomatometer: string;
+  series_critics_count: string;
+  series_critics_avg: string;
+  series_audience_score: string;
+  series_audience_count: string;
+  series_audience_avg: string;
+  url: string;
+  seasons: RTRatingSeasonRow[];
+}
+
+interface TVMetacriticState extends TVPlatformBase {
+  series_metascore: string;
+  series_critics_count: string;
+  series_userscore: string;
+  series_users_count: string;
+  url: string;
+  seasons: MetacriticSeasonRow[];
+}
+
+interface TVTMDBState extends TVPlatformBase {
+  rating: string;
+  voteCount: string;
+  seasons: SimpleSeasonRow[];
+}
+
+interface TVTraktState extends TVPlatformBase {
+  rating: string;
+  votes: string;
+  seasons: SimpleSeasonRow[];
+}
+
+interface TVOverridesState {
+  douban: TVDoubanState;
+  imdb: TVIMDBState;
+  letterboxd: TVLetterboxdState;
+  rottentomatoes: TVRottenTomatoesState;
+  metacritic: TVMetacriticState;
+  tmdb: TVTMDBState;
+  trakt: TVTraktState;
+}
+
+function createInitialMovieOverrides(): MovieOverridesState {
+  const base: MoviePlatformBase = { enabled: false, status: 'pending' };
   return {
-    douban: { enabled: false, status: 'pending', rating: '', votes: '', url: '' },
-    imdb: { enabled: false, status: 'pending', rating: '', votes: '', url: '' },
-    letterboxd: { enabled: false, status: 'pending', rating: '', votes: '', url: '' },
-    rottentomatoes: { enabled: false, status: 'pending', rating: '', votes: '', url: '' },
-    metacritic: { enabled: false, status: 'pending', rating: '', votes: '', url: '' },
+    douban: { ...base, rating: '', rating_people: '', url: '' },
+    imdb: { ...base, rating: '', rating_people: '', url: '' },
+    letterboxd: { ...base, rating: '', rating_count: '', url: '' },
+    rottentomatoes: {
+      ...base,
+      tomatometer: '',
+      critics_count: '',
+      critics_avg: '',
+      audience_score: '',
+      audience_count: '',
+      audience_avg: '',
+      url: '',
+    },
+    metacritic: {
+      ...base,
+      metascore: '',
+      critics_count: '',
+      userscore: '',
+      users_count: '',
+      url: '',
+    },
+    tmdb: { ...base, rating: '', voteCount: '' },
+    trakt: { ...base, rating: '', votes: '' },
+  };
+}
+
+function createInitialTVOverrides(): TVOverridesState {
+  const base: TVPlatformBase = { enabled: false, status: 'pending' };
+  return {
+    douban: { ...base, url: '', seasons: [] },
+    imdb: { ...base, rating: '', rating_people: '', url: '' },
+    letterboxd: { ...base, rating: '', rating_count: '', url: '' },
+    rottentomatoes: {
+      ...base,
+      series_tomatometer: '',
+      series_critics_count: '',
+      series_critics_avg: '',
+      series_audience_score: '',
+      series_audience_count: '',
+      series_audience_avg: '',
+      url: '',
+      seasons: [],
+    },
+    metacritic: {
+      ...base,
+      series_metascore: '',
+      series_critics_count: '',
+      series_userscore: '',
+      series_users_count: '',
+      url: '',
+      seasons: [],
+    },
+    tmdb: { ...base, rating: '', voteCount: '', seasons: [] },
+    trakt: { ...base, rating: '', votes: '', seasons: [] },
   };
 }
 
@@ -67,10 +255,13 @@ export default function AdminRatingsPage() {
   const [mediaType, setMediaType] = useState<MediaType>('movie');
   const [mediaIdInput, setMediaIdInput] = useState('');
   const [activeMediaId, setActiveMediaId] = useState<string | undefined>(undefined);
-
-  const [manualRatings, setManualRatings] = useState<ManualRatingsState>(createInitialManualState);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const [movieOverrides, setMovieOverrides] = useState<MovieOverridesState>(
+    createInitialMovieOverrides,
+  );
+  const [tvOverrides, setTvOverrides] = useState<TVOverridesState>(createInitialTVOverrides);
 
   const {
     platformStatuses,
@@ -82,43 +273,11 @@ export default function AdminRatingsPage() {
     mediaType,
   });
 
-  useEffect(() => {
-    if (!activeMediaId) return;
-
-    setManualRatings((prev) => {
-      const next = { ...prev };
-
-      (Object.keys(PLATFORM_CONFIG) as BackendPlatformKey[]).forEach((key) => {
-        const platformData = platformStatuses[key]?.data as any;
-        const currentStatus = platformStatuses[key]?.status ?? 'pending';
-
-        next[key] = {
-          ...next[key],
-          status: currentStatus,
-          rating:
-            next[key].rating ||
-            (typeof platformData?.rating === 'string' ? platformData.rating : '') ||
-            (typeof platformData?.overall?.metascore === 'string' ? platformData.overall.metascore : ''),
-          votes:
-            next[key].votes ||
-            (typeof platformData?.rating_people === 'string' ? platformData.rating_people : '') ||
-            (typeof platformData?.rating_count === 'string' ? platformData.rating_count : '') ||
-            (typeof platformData?.overall?.users_count === 'string' ? platformData.overall.users_count : ''),
-          url:
-            next[key].url ||
-            (typeof platformData?.url === 'string' ? platformData.url : ''),
-        };
-      });
-
-      return next;
-    });
-  }, [activeMediaId, platformStatuses]);
-
   const backendPlatforms: BackendPlatformStatus[] = useMemo(
     () =>
-      (Object.keys(PLATFORM_CONFIG) as BackendPlatformKey[]).map((key) => ({
+      (Object.keys(BACKEND_PLATFORM_LOGOS) as BackendPlatformKey[]).map((key) => ({
         platform: key,
-        logo: PLATFORM_CONFIG[key].logo,
+        logo: BACKEND_PLATFORM_LOGOS[key],
         status: platformStatuses[key]?.status ?? 'pending',
       })),
     [platformStatuses],
@@ -134,18 +293,280 @@ export default function AdminRatingsPage() {
     setSaveMessage(null);
   };
 
-  const handleChangePlatformField = (
-    key: BackendPlatformKey,
-    field: keyof ManualPlatformState,
-    value: string | boolean,
+  const updateMovie = <K extends keyof MovieOverridesState, F extends keyof MovieOverridesState[K]>(
+    platform: K,
+    field: F,
+    value: MovieOverridesState[K][F],
   ) => {
-    setManualRatings((prev) => ({
+    setMovieOverrides((prev) => ({
       ...prev,
-      [key]: {
-        ...prev[key],
+      [platform]: {
+        ...prev[platform],
         [field]: value,
       },
     }));
+  };
+
+  const updateTV = <K extends keyof TVOverridesState, F extends keyof TVOverridesState[K]>(
+    platform: K,
+    field: F,
+    value: TVOverridesState[K][F],
+  ) => {
+    setTvOverrides((prev) => ({
+      ...prev,
+      [platform]: {
+        ...prev[platform],
+        [field]: value,
+      },
+    }));
+  };
+
+  const addTVSeasonRow = (platform: keyof TVOverridesState) => {
+    setTvOverrides((prev) => {
+      const next = { ...prev };
+      const current = next[platform] as any;
+      const seasons: any[] = Array.isArray(current.seasons) ? [...current.seasons] : [];
+
+      const defaultSeasonNumber = String(seasons.length + 1);
+
+      if (platform === 'douban') {
+        seasons.push({
+          season_number: defaultSeasonNumber,
+          rating: '',
+          rating_people: '',
+        } as DoubanSeasonRow);
+      } else if (platform === 'rottentomatoes') {
+        seasons.push({
+          season_number: defaultSeasonNumber,
+          tomatometer: '',
+          critics_count: '',
+          critics_avg: '',
+          audience_score: '',
+          audience_count: '',
+          audience_avg: '',
+        } as RTRatingSeasonRow);
+      } else if (platform === 'metacritic') {
+        seasons.push({
+          season_number: defaultSeasonNumber,
+          metascore: '',
+          critics_count: '',
+          userscore: '',
+          users_count: '',
+        } as MetacriticSeasonRow);
+      } else if (platform === 'tmdb' || platform === 'trakt') {
+        seasons.push({
+          season_number: defaultSeasonNumber,
+          rating: '',
+          votes: '',
+        } as SimpleSeasonRow);
+      }
+
+      current.seasons = seasons;
+      return next;
+    });
+  };
+
+  const updateTVSeasonRow = (
+    platform: keyof TVOverridesState,
+    index: number,
+    field: string,
+    value: string,
+  ) => {
+    setTvOverrides((prev) => {
+      const next = { ...prev };
+      const current = next[platform] as any;
+      const seasons: any[] = Array.isArray(current.seasons) ? [...current.seasons] : [];
+      if (!seasons[index]) return prev;
+      seasons[index] = {
+        ...seasons[index],
+        [field]: value,
+      };
+      current.seasons = seasons;
+      return next;
+    });
+  };
+
+  const buildMovieOverrides = () => {
+    const overrides: any = {};
+
+    if (movieOverrides.douban.enabled) {
+      overrides.douban = {
+        status: movieOverrides.douban.status,
+        rating: movieOverrides.douban.rating || null,
+        rating_people: movieOverrides.douban.rating_people || null,
+        url: movieOverrides.douban.url || null,
+      };
+    }
+
+    if (movieOverrides.imdb.enabled) {
+      overrides.imdb = {
+        status: movieOverrides.imdb.status,
+        rating: movieOverrides.imdb.rating || null,
+        rating_people: movieOverrides.imdb.rating_people || null,
+        url: movieOverrides.imdb.url || null,
+      };
+    }
+
+    if (movieOverrides.letterboxd.enabled) {
+      overrides.letterboxd = {
+        status: movieOverrides.letterboxd.status,
+        rating: movieOverrides.letterboxd.rating || null,
+        rating_count: movieOverrides.letterboxd.rating_count || null,
+        url: movieOverrides.letterboxd.url || null,
+      };
+    }
+
+    if (movieOverrides.rottentomatoes.enabled) {
+      overrides.rottentomatoes = {
+        status: movieOverrides.rottentomatoes.status,
+        series: {
+          tomatometer: movieOverrides.rottentomatoes.tomatometer || null,
+          critics_count: movieOverrides.rottentomatoes.critics_count || null,
+          critics_avg: movieOverrides.rottentomatoes.critics_avg || null,
+          audience_score: movieOverrides.rottentomatoes.audience_score || null,
+          audience_count: movieOverrides.rottentomatoes.audience_count || null,
+          audience_avg: movieOverrides.rottentomatoes.audience_avg || null,
+        },
+        url: movieOverrides.rottentomatoes.url || null,
+      };
+    }
+
+    if (movieOverrides.metacritic.enabled) {
+      overrides.metacritic = {
+        status: movieOverrides.metacritic.status,
+        overall: {
+          metascore: movieOverrides.metacritic.metascore || null,
+          critics_count: movieOverrides.metacritic.critics_count || null,
+          userscore: movieOverrides.metacritic.userscore || null,
+          users_count: movieOverrides.metacritic.users_count || null,
+        },
+        url: movieOverrides.metacritic.url || null,
+      };
+    }
+
+    if (movieOverrides.tmdb.enabled) {
+      overrides.tmdb = {
+        status: movieOverrides.tmdb.status,
+        rating: movieOverrides.tmdb.rating || null,
+        voteCount: movieOverrides.tmdb.voteCount || null,
+      };
+    }
+
+    if (movieOverrides.trakt.enabled) {
+      overrides.trakt = {
+        status: movieOverrides.trakt.status,
+        rating: movieOverrides.trakt.rating || null,
+        votes: movieOverrides.trakt.votes || null,
+      };
+    }
+
+    return overrides;
+  };
+
+  const buildTVOverrides = () => {
+    const overrides: any = {};
+
+    if (tvOverrides.douban.enabled) {
+      overrides.douban = {
+        status: tvOverrides.douban.status,
+        url: tvOverrides.douban.url || null,
+        seasons: tvOverrides.douban.seasons.map((s) => ({
+          season_number: Number(s.season_number) || 0,
+          rating: s.rating || null,
+          rating_people: s.rating_people || null,
+        })),
+      };
+    }
+
+    if (tvOverrides.imdb.enabled) {
+      overrides.imdb = {
+        status: tvOverrides.imdb.status,
+        rating: tvOverrides.imdb.rating || null,
+        rating_people: tvOverrides.imdb.rating_people || null,
+        url: tvOverrides.imdb.url || null,
+      };
+    }
+
+    if (tvOverrides.letterboxd.enabled) {
+      overrides.letterboxd = {
+        status: tvOverrides.letterboxd.status,
+        rating: tvOverrides.letterboxd.rating || null,
+        rating_count: tvOverrides.letterboxd.rating_count || null,
+        url: tvOverrides.letterboxd.url || null,
+      };
+    }
+
+    if (tvOverrides.rottentomatoes.enabled) {
+      overrides.rottentomatoes = {
+        status: tvOverrides.rottentomatoes.status,
+        series: {
+          tomatometer: tvOverrides.rottentomatoes.series_tomatometer || null,
+          critics_count: tvOverrides.rottentomatoes.series_critics_count || null,
+          critics_avg: tvOverrides.rottentomatoes.series_critics_avg || null,
+          audience_score: tvOverrides.rottentomatoes.series_audience_score || null,
+          audience_count: tvOverrides.rottentomatoes.series_audience_count || null,
+          audience_avg: tvOverrides.rottentomatoes.series_audience_avg || null,
+        },
+        seasons: tvOverrides.rottentomatoes.seasons.map((s) => ({
+          season_number: Number(s.season_number) || 0,
+          tomatometer: s.tomatometer || null,
+          critics_count: s.critics_count || null,
+          critics_avg: s.critics_avg || null,
+          audience_score: s.audience_score || null,
+          audience_count: s.audience_count || null,
+          audience_avg: s.audience_avg || null,
+        })),
+        url: tvOverrides.rottentomatoes.url || null,
+      };
+    }
+
+    if (tvOverrides.metacritic.enabled) {
+      overrides.metacritic = {
+        status: tvOverrides.metacritic.status,
+        overall: {
+          metascore: tvOverrides.metacritic.series_metascore || null,
+          critics_count: tvOverrides.metacritic.series_critics_count || null,
+          userscore: tvOverrides.metacritic.series_userscore || null,
+          users_count: tvOverrides.metacritic.series_users_count || null,
+        },
+        seasons: tvOverrides.metacritic.seasons.map((s) => ({
+          season_number: Number(s.season_number) || 0,
+          metascore: s.metascore || null,
+          critics_count: s.critics_count || null,
+          userscore: s.userscore || null,
+          users_count: s.users_count || null,
+        })),
+        url: tvOverrides.metacritic.url || null,
+      };
+    }
+
+    if (tvOverrides.tmdb.enabled) {
+      overrides.tmdb = {
+        status: tvOverrides.tmdb.status,
+        rating: tvOverrides.tmdb.rating || null,
+        voteCount: tvOverrides.tmdb.voteCount || null,
+        seasons: tvOverrides.tmdb.seasons.map((s) => ({
+          season_number: Number(s.season_number) || 0,
+          rating: s.rating || null,
+          voteCount: s.votes || null,
+        })),
+      };
+    }
+
+    if (tvOverrides.trakt.enabled) {
+      overrides.trakt = {
+        status: tvOverrides.trakt.status,
+        rating: tvOverrides.trakt.rating || null,
+        votes: tvOverrides.trakt.votes || null,
+        seasons: tvOverrides.trakt.seasons.map((s) => ({
+          season_number: Number(s.season_number) || 0,
+          rating: s.rating || null,
+          votes: s.votes || null,
+        })),
+      };
+    }
+
+    return overrides;
   };
 
   const handleSave = async () => {
@@ -154,28 +575,18 @@ export default function AdminRatingsPage() {
       return;
     }
 
-    const payload = {
-      tmdb_id: activeMediaId,
-      media_type: mediaType,
-      overrides: Object.fromEntries(
-        (Object.keys(manualRatings) as BackendPlatformKey[])
-          .filter((key) => manualRatings[key].enabled)
-          .map((key) => [
-            key,
-            {
-              status: manualRatings[key].status,
-              rating: manualRatings[key].rating || null,
-              votes: manualRatings[key].votes || null,
-              url: manualRatings[key].url || null,
-            },
-          ]),
-      ),
-    };
+    const overrides = mediaType === 'movie' ? buildMovieOverrides() : buildTVOverrides();
 
-    if (!Object.keys(payload.overrides).length) {
+    if (!Object.keys(overrides).length) {
       alert('请至少启用一个平台的手动录入');
       return;
     }
+
+    const payload = {
+      tmdb_id: activeMediaId,
+      media_type: mediaType,
+      overrides,
+    };
 
     setIsSaving(true);
     setSaveMessage(null);
@@ -301,156 +712,1868 @@ export default function AdminRatingsPage() {
               </div>
             </div>
 
-            <div className="glass-card rounded-lg p-4 md:p-6 space-y-4">
-              <div className="flex items-center justify-between gap-2">
+            {mediaType === 'movie' ? (
+              <div className="glass-card rounded-lg p-4 md:p-6 space-y-6">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  手动评分数据输入
+                  电影：整部作品评分输入
                 </h2>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  勾选「启用」后填写评分、人数与目标状态，保存后由后端写入评分源。
-                </p>
-              </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200 dark:border-gray-700">
-                      <th className="py-2 pr-4 text-left text-gray-700 dark:text-gray-300">启用</th>
-                      <th className="py-2 pr-4 text-left text-gray-700 dark:text-gray-300">
-                        平台
-                      </th>
-                      <th className="py-2 pr-4 text-left text-gray-700 dark:text-gray-300">
-                        手动评分
-                      </th>
-                      <th className="py-2 pr-4 text-left text-gray-700 dark:text-gray-300">
-                        评分人数
-                      </th>
-                      <th className="py-2 pr-4 text-left text-gray-700 dark:text-gray-300">
-                        状态（收录 / 无评分 / 未收录）
-                      </th>
-                      <th className="py-2 text-left text-gray-700 dark:text-gray-300">来源链接（可选）</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(Object.keys(PLATFORM_CONFIG) as BackendPlatformKey[]).map((key) => {
-                      const config = PLATFORM_CONFIG[key];
-                      const state = manualRatings[key];
-
-                      return (
-                        <tr
-                          key={key}
-                          className="border-b border-gray-100 dark:border-gray-800 last:border-b-0"
+                {/* 豆瓣 & IMDb */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* 豆瓣 */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/douban.png" alt="豆瓣" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          豆瓣（整部电影）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={movieOverrides.douban.enabled}
+                          onChange={(e) =>
+                            updateMovie('douban', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">评分</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 8.7"
+                          value={movieOverrides.douban.rating}
+                          onChange={(e) =>
+                            updateMovie('douban', 'rating', e.target.value)
+                          }
+                          disabled={!movieOverrides.douban.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          评分人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 12345"
+                          value={movieOverrides.douban.rating_people}
+                          onChange={(e) =>
+                            updateMovie('douban', 'rating_people', e.target.value)
+                          }
+                          disabled={!movieOverrides.douban.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={movieOverrides.douban.status}
+                          onChange={(e) =>
+                            updateMovie(
+                              'douban',
+                              'status',
+                              e.target.value as MovieSimpleRatingState['status'],
+                            )
+                          }
+                          disabled={!movieOverrides.douban.enabled}
                         >
-                          <td className="py-3 pr-4 align-top">
-                            <input
-                              type="checkbox"
-                              className="accent-blue-500"
-                              checked={state.enabled}
-                              onChange={(e) =>
-                                handleChangePlatformField(key, 'enabled', e.target.checked)
-                              }
-                            />
-                          </td>
-                          <td className="py-3 pr-4 align-top">
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={config.logo}
-                                alt={config.label}
-                                className="w-5 h-5 rounded-sm"
-                              />
-                              <span className="text-sm text-gray-900 dark:text-gray-100">
-                                {config.label}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="py-3 pr-4 align-top">
-                            <input
-                              type="text"
-                              className="w-24 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="如 8.7"
-                              value={state.rating}
-                              onChange={(e) =>
-                                handleChangePlatformField(key, 'rating', e.target.value)
-                              }
-                              disabled={!state.enabled}
-                            />
-                          </td>
-                          <td className="py-3 pr-4 align-top">
-                            <input
-                              type="text"
-                              className="w-28 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="如 12345"
-                              value={state.votes}
-                              onChange={(e) =>
-                                handleChangePlatformField(key, 'votes', e.target.value)
-                              }
-                              disabled={!state.enabled}
-                            />
-                          </td>
-                          <td className="py-3 pr-4 align-top">
-                            <select
-                              className="w-44 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              value={state.status}
-                              onChange={(e) =>
-                                handleChangePlatformField(
-                                  key,
-                                  'status',
-                                  e.target.value as FetchStatus,
-                                )
-                              }
-                              disabled={!state.enabled}
-                            >
-                              {STATUS_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="py-3 align-top">
-                            <input
-                              type="text"
-                              className="w-full min-w-[160px] rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="可选：原始评分页面链接"
-                              value={state.url}
-                              onChange={(e) =>
-                                handleChangePlatformField(key, 'url', e.target.value)
-                              }
-                              disabled={!state.enabled}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          来源链接
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="可选"
+                          value={movieOverrides.douban.url}
+                          onChange={(e) =>
+                            updateMovie('douban', 'url', e.target.value)
+                          }
+                          disabled={!movieOverrides.douban.enabled}
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-gray-200 dark:border-gray-800">
-                <div className="text-xs text-gray-500 dark:text-gray-400">
-                  建议：
-                  <span className="ml-1">
-                    - 「已收录（有评分）」通常对应成功抓取并有评分；
-                    - 「已收录（暂无评分）」用于站点存在条目但暂无分数；
-                    - 「未收录」用于站点不存在该条目。
-                  </span>
+                  {/* IMDb */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/imdb.png" alt="IMDb" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          IMDb（整部电影）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={movieOverrides.imdb.enabled}
+                          onChange={(e) =>
+                            updateMovie('imdb', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">评分</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 7.8"
+                          value={movieOverrides.imdb.rating}
+                          onChange={(e) =>
+                            updateMovie('imdb', 'rating', e.target.value)
+                          }
+                          disabled={!movieOverrides.imdb.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          评分人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 56789"
+                          value={movieOverrides.imdb.rating_people}
+                          onChange={(e) =>
+                            updateMovie('imdb', 'rating_people', e.target.value)
+                          }
+                          disabled={!movieOverrides.imdb.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={movieOverrides.imdb.status}
+                          onChange={(e) =>
+                            updateMovie(
+                              'imdb',
+                              'status',
+                              e.target.value as MovieSimpleRatingState['status'],
+                            )
+                          }
+                          disabled={!movieOverrides.imdb.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          来源链接
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="可选"
+                          value={movieOverrides.imdb.url}
+                          onChange={(e) =>
+                            updateMovie('imdb', 'url', e.target.value)
+                          }
+                          disabled={!movieOverrides.imdb.enabled}
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  {saveMessage && (
-                    <span className="text-xs text-gray-600 dark:text-gray-300">
-                      {saveMessage}
-                    </span>
-                  )}
-                  <Button onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? '保存中…' : '保存手动录入'}
-                  </Button>
+
+                {/* Letterboxd */}
+                <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <img src="/logos/letterboxd.png" alt="Letterboxd" className="w-5 h-5" />
+                      <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                        Letterboxd（整部电影）
+                      </span>
+                    </div>
+                    <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-500"
+                        checked={movieOverrides.letterboxd.enabled}
+                        onChange={(e) =>
+                          updateMovie('letterboxd', 'enabled', e.target.checked)
+                        }
+                      />
+                      启用
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <label className="block mb-1 text-gray-500 dark:text-gray-400">评分</label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="如 4.1"
+                        value={movieOverrides.letterboxd.rating}
+                        onChange={(e) =>
+                          updateMovie('letterboxd', 'rating', e.target.value)
+                        }
+                        disabled={!movieOverrides.letterboxd.enabled}
+                      />
+                    </div>
+                    <div>
+                      <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                        评分人数
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="如 12345"
+                        value={movieOverrides.letterboxd.rating_count}
+                        onChange={(e) =>
+                          updateMovie('letterboxd', 'rating_count', e.target.value)
+                        }
+                        disabled={!movieOverrides.letterboxd.enabled}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                    <div>
+                      <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                      <select
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={movieOverrides.letterboxd.status}
+                        onChange={(e) =>
+                          updateMovie(
+                            'letterboxd',
+                            'status',
+                            e.target.value as MovieLetterboxdState['status'],
+                          )
+                        }
+                        disabled={!movieOverrides.letterboxd.enabled}
+                      >
+                        {STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                        来源链接
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="可选"
+                        value={movieOverrides.letterboxd.url}
+                        onChange={(e) =>
+                          updateMovie('letterboxd', 'url', e.target.value)
+                        }
+                        disabled={!movieOverrides.letterboxd.enabled}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rotten Tomatoes & Metacritic */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* Rotten Tomatoes */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src="/logos/rottentomatoes.png"
+                          alt="Rotten Tomatoes"
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          Rotten Tomatoes（整部电影）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={movieOverrides.rottentomatoes.enabled}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'enabled',
+                              e.target.checked,
+                            )
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          专业评分（%）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 96"
+                          value={movieOverrides.rottentomatoes.tomatometer}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'tomatometer',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!movieOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          专业人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 300"
+                          value={movieOverrides.rottentomatoes.critics_count}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'critics_count',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!movieOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          专业平均分
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 8.4"
+                          value={movieOverrides.rottentomatoes.critics_avg}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'critics_avg',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!movieOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          用户评分（%）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 92"
+                          value={movieOverrides.rottentomatoes.audience_score}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'audience_score',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!movieOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          用户人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 5000"
+                          value={movieOverrides.rottentomatoes.audience_count}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'audience_count',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!movieOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          用户平均分
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 4.3"
+                          value={movieOverrides.rottentomatoes.audience_avg}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'audience_avg',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!movieOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={movieOverrides.rottentomatoes.status}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'status',
+                              e.target.value as MovieRottenTomatoesState['status'],
+                            )
+                          }
+                          disabled={!movieOverrides.rottentomatoes.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          来源链接
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="可选"
+                          value={movieOverrides.rottentomatoes.url}
+                          onChange={(e) =>
+                            updateMovie(
+                              'rottentomatoes',
+                              'url',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!movieOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Metacritic */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/metacritic.png" alt="Metacritic" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          Metacritic（整部电影）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={movieOverrides.metacritic.enabled}
+                          onChange={(e) =>
+                            updateMovie('metacritic', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          专业评分（metascore）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 84"
+                          value={movieOverrides.metacritic.metascore}
+                          onChange={(e) =>
+                            updateMovie('metacritic', 'metascore', e.target.value)
+                          }
+                          disabled={!movieOverrides.metacritic.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          专业人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 40"
+                          value={movieOverrides.metacritic.critics_count}
+                          onChange={(e) =>
+                            updateMovie('metacritic', 'critics_count', e.target.value)
+                          }
+                          disabled={!movieOverrides.metacritic.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          用户评分（userscore）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 8.2"
+                          value={movieOverrides.metacritic.userscore}
+                          onChange={(e) =>
+                            updateMovie('metacritic', 'userscore', e.target.value)
+                          }
+                          disabled={!movieOverrides.metacritic.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          用户人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 500"
+                          value={movieOverrides.metacritic.users_count}
+                          onChange={(e) =>
+                            updateMovie('metacritic', 'users_count', e.target.value)
+                          }
+                          disabled={!movieOverrides.metacritic.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={movieOverrides.metacritic.status}
+                          onChange={(e) =>
+                            updateMovie(
+                              'metacritic',
+                              'status',
+                              e.target.value as MovieMetacriticState['status'],
+                            )
+                          }
+                          disabled={!movieOverrides.metacritic.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          来源链接
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="可选"
+                          value={movieOverrides.metacritic.url}
+                          onChange={(e) =>
+                            updateMovie('metacritic', 'url', e.target.value)
+                          }
+                          disabled={!movieOverrides.metacritic.enabled}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* TMDB & Trakt */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* TMDB */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/tmdb.png" alt="TMDB" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          TMDB（整部电影）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={movieOverrides.tmdb.enabled}
+                          onChange={(e) =>
+                            updateMovie('tmdb', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">评分</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 7.3"
+                          value={movieOverrides.tmdb.rating}
+                          onChange={(e) =>
+                            updateMovie('tmdb', 'rating', e.target.value)
+                          }
+                          disabled={!movieOverrides.tmdb.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          评分人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 1000"
+                          value={movieOverrides.tmdb.voteCount}
+                          onChange={(e) =>
+                            updateMovie('tmdb', 'voteCount', e.target.value)
+                          }
+                          disabled={!movieOverrides.tmdb.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="text-xs">
+                      <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                      <select
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={movieOverrides.tmdb.status}
+                        onChange={(e) =>
+                          updateMovie(
+                            'tmdb',
+                            'status',
+                            e.target.value as MovieTMDBState['status'],
+                          )
+                        }
+                        disabled={!movieOverrides.tmdb.enabled}
+                      >
+                        {STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Trakt */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/trakt.png" alt="Trakt" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          Trakt（整部电影）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={movieOverrides.trakt.enabled}
+                          onChange={(e) =>
+                            updateMovie('trakt', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">评分</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 8.1"
+                          value={movieOverrides.trakt.rating}
+                          onChange={(e) =>
+                            updateMovie('trakt', 'rating', e.target.value)
+                          }
+                          disabled={!movieOverrides.trakt.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          评分人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="如 2000"
+                          value={movieOverrides.trakt.votes}
+                          onChange={(e) =>
+                            updateMovie('trakt', 'votes', e.target.value)
+                          }
+                          disabled={!movieOverrides.trakt.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="text-xs">
+                      <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                      <select
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={movieOverrides.trakt.status}
+                        onChange={(e) =>
+                          updateMovie(
+                            'trakt',
+                            'status',
+                            e.target.value as MovieTraktState['status'],
+                          )
+                        }
+                        disabled={!movieOverrides.trakt.enabled}
+                      >
+                        {STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-gray-200 dark:border-gray-800">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    说明：仅勾选「启用」的平台会写入手动覆盖；状态字段影响前台收录状态展示。
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {saveMessage && (
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        {saveMessage}
+                      </span>
+                    )}
+                    <Button onClick={handleSave} disabled={isSaving}>
+                      {isSaving ? '保存中…' : '保存手动录入'}
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="glass-card rounded-lg p-4 md:p-6 space-y-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  剧集：全剧 + 分季评分输入
+                </h2>
+
+                {/* 豆瓣（分季） */}
+                <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <img src="/logos/douban.png" alt="豆瓣" className="w-5 h-5" />
+                      <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                        豆瓣（每季评分）
+                      </span>
+                    </div>
+                    <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-500"
+                        checked={tvOverrides.douban.enabled}
+                        onChange={(e) =>
+                          updateTV('douban', 'enabled', e.target.checked)
+                        }
+                      />
+                      启用
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-end text-xs mb-2">
+                    <div className="w-32">
+                      <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                      <select
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={tvOverrides.douban.status}
+                        onChange={(e) =>
+                          updateTV(
+                            'douban',
+                            'status',
+                            e.target.value as TVDoubanState['status'],
+                          )
+                        }
+                        disabled={!tvOverrides.douban.enabled}
+                      >
+                        {STATUS_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1 min-w-[160px]">
+                      <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                        来源链接（剧集主页，可选）
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={tvOverrides.douban.url}
+                        onChange={(e) =>
+                          updateTV('douban', 'url', e.target.value)
+                        }
+                        disabled={!tvOverrides.douban.enabled}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      className="text-xs px-3 py-1"
+                      onClick={() => addTVSeasonRow('douban')}
+                      disabled={!tvOverrides.douban.enabled}
+                    >
+                      新增一季
+                    </Button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-800">
+                          <th className="py-1 pr-2 text-left">季号</th>
+                          <th className="py-1 pr-2 text-left">评分</th>
+                          <th className="py-1 pr-2 text-left">评分人数</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tvOverrides.douban.seasons.map((season, index) => (
+                          <tr
+                            key={index}
+                            className="border-b border-gray-100 dark:border-gray-900 last:border-b-0"
+                          >
+                            <td className="py-1 pr-2">
+                              <input
+                                type="text"
+                                className="w-14 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                value={season.season_number}
+                                onChange={(e) =>
+                                  updateTVSeasonRow(
+                                    'douban',
+                                    index,
+                                    'season_number',
+                                    e.target.value,
+                                  )
+                                }
+                                disabled={!tvOverrides.douban.enabled}
+                              />
+                            </td>
+                            <td className="py-1 pr-2">
+                              <input
+                                type="text"
+                                className="w-20 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                value={season.rating}
+                                onChange={(e) =>
+                                  updateTVSeasonRow(
+                                    'douban',
+                                    index,
+                                    'rating',
+                                    e.target.value,
+                                  )
+                                }
+                                disabled={!tvOverrides.douban.enabled}
+                              />
+                            </td>
+                            <td className="py-1 pr-2">
+                              <input
+                                type="text"
+                                className="w-24 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                value={season.rating_people}
+                                onChange={(e) =>
+                                  updateTVSeasonRow(
+                                    'douban',
+                                    index,
+                                    'rating_people',
+                                    e.target.value,
+                                  )
+                                }
+                                disabled={!tvOverrides.douban.enabled}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* IMDb & Letterboxd 全剧评分 */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* IMDb */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/imdb.png" alt="IMDb" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          IMDb（整部剧集）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={tvOverrides.imdb.enabled}
+                          onChange={(e) =>
+                            updateTV('imdb', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">评分</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.imdb.rating}
+                          onChange={(e) =>
+                            updateTV('imdb', 'rating', e.target.value)
+                          }
+                          disabled={!tvOverrides.imdb.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          评分人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.imdb.rating_people}
+                          onChange={(e) =>
+                            updateTV('imdb', 'rating_people', e.target.value)
+                          }
+                          disabled={!tvOverrides.imdb.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.imdb.status}
+                          onChange={(e) =>
+                            updateTV(
+                              'imdb',
+                              'status',
+                              e.target.value as TVIMDBState['status'],
+                            )
+                          }
+                          disabled={!tvOverrides.imdb.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          来源链接
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.imdb.url}
+                          onChange={(e) =>
+                            updateTV('imdb', 'url', e.target.value)
+                          }
+                          disabled={!tvOverrides.imdb.enabled}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Letterboxd */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/letterboxd.png" alt="Letterboxd" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          Letterboxd（整部剧集）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={tvOverrides.letterboxd.enabled}
+                          onChange={(e) =>
+                            updateTV('letterboxd', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">评分</label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.letterboxd.rating}
+                          onChange={(e) =>
+                            updateTV('letterboxd', 'rating', e.target.value)
+                          }
+                          disabled={!tvOverrides.letterboxd.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          评分人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.letterboxd.rating_count}
+                          onChange={(e) =>
+                            updateTV('letterboxd', 'rating_count', e.target.value)
+                          }
+                          disabled={!tvOverrides.letterboxd.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs items-end">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">状态</label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.letterboxd.status}
+                          onChange={(e) =>
+                            updateTV(
+                              'letterboxd',
+                              'status',
+                              e.target.value as TVLetterboxdState['status'],
+                            )
+                          }
+                          disabled={!tvOverrides.letterboxd.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          来源链接
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.letterboxd.url}
+                          onChange={(e) =>
+                            updateTV('letterboxd', 'url', e.target.value)
+                          }
+                          disabled={!tvOverrides.letterboxd.enabled}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rotten Tomatoes & Metacritic（全剧 + 分季） */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* Rotten Tomatoes */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <img
+                          src="/logos/rottentomatoes.png"
+                          alt="Rotten Tomatoes"
+                          className="w-5 h-5"
+                        />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          Rotten Tomatoes（全剧 + 分季）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={tvOverrides.rottentomatoes.enabled}
+                          onChange={(e) =>
+                            updateTV(
+                              'rottentomatoes',
+                              'enabled',
+                              e.target.checked,
+                            )
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+
+                    {/* 全剧 */}
+                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧专业评分（%）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.rottentomatoes.series_tomatometer}
+                          onChange={(e) =>
+                            updateTV(
+                              'rottentomatoes',
+                              'series_tomatometer',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧专业人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.rottentomatoes.series_critics_count}
+                          onChange={(e) =>
+                            updateTV(
+                              'rottentomatoes',
+                              'series_critics_count',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧专业均分
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.rottentomatoes.series_critics_avg}
+                          onChange={(e) =>
+                            updateTV(
+                              'rottentomatoes',
+                              'series_critics_avg',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧用户评分（%）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.rottentomatoes.series_audience_score}
+                          onChange={(e) =>
+                            updateTV(
+                              'rottentomatoes',
+                              'series_audience_score',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧用户人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.rottentomatoes.series_audience_count}
+                          onChange={(e) =>
+                            updateTV(
+                              'rottentomatoes',
+                              'series_audience_count',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧用户均分
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.rottentomatoes.series_audience_avg}
+                          onChange={(e) =>
+                            updateTV(
+                              'rottentomatoes',
+                              'series_audience_avg',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 items-end text-xs mb-2">
+                      <div className="w-32">
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          状态
+                        </label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.rottentomatoes.status}
+                          onChange={(e) =>
+                            updateTV(
+                              'rottentomatoes',
+                              'status',
+                              e.target.value as TVRottenTomatoesState['status'],
+                            )
+                          }
+                          disabled={!tvOverrides.rottentomatoes.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex-1 min-w-[160px]">
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          来源链接（剧集主页，可选）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.rottentomatoes.url}
+                          onChange={(e) =>
+                            updateTV('rottentomatoes', 'url', e.target.value)
+                          }
+                          disabled={!tvOverrides.rottentomatoes.enabled}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        className="text-xs px-3 py-1"
+                        onClick={() => addTVSeasonRow('rottentomatoes')}
+                        disabled={!tvOverrides.rottentomatoes.enabled}
+                      >
+                        新增一季
+                      </Button>
+                    </div>
+
+                    {/* 分季 */}
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-800">
+                            <th className="py-1 pr-2 text-left">季号</th>
+                            <th className="py-1 pr-2 text-left">专业评分</th>
+                            <th className="py-1 pr-2 text-left">专业人数</th>
+                            <th className="py-1 pr-2 text-left">专业均分</th>
+                            <th className="py-1 pr-2 text-left">用户评分</th>
+                            <th className="py-1 pr-2 text-left">用户人数</th>
+                            <th className="py-1 pr-2 text-left">用户均分</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tvOverrides.rottentomatoes.seasons.map((season, index) => (
+                            <tr
+                              key={index}
+                              className="border-b border-gray-100 dark:border-gray-900 last:border-b-0"
+                            >
+                              {[
+                                'season_number',
+                                'tomatometer',
+                                'critics_count',
+                                'critics_avg',
+                                'audience_score',
+                                'audience_count',
+                                'audience_avg',
+                              ].map((field) => (
+                                <td key={field} className="py-1 pr-2">
+                                  <input
+                                    type="text"
+                                    className="w-20 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    value={(season as any)[field] || ''}
+                                    onChange={(e) =>
+                                      updateTVSeasonRow(
+                                        'rottentomatoes',
+                                        index,
+                                        field,
+                                        e.target.value,
+                                      )
+                                    }
+                                    disabled={!tvOverrides.rottentomatoes.enabled}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Metacritic */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/metacritic.png" alt="Metacritic" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          Metacritic（全剧 + 分季）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={tvOverrides.metacritic.enabled}
+                          onChange={(e) =>
+                            updateTV('metacritic', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+
+                    {/* 全剧 */}
+                    <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧专业评分（metascore）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.metacritic.series_metascore}
+                          onChange={(e) =>
+                            updateTV(
+                              'metacritic',
+                              'series_metascore',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.metacritic.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧专业人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.metacritic.series_critics_count}
+                          onChange={(e) =>
+                            updateTV(
+                              'metacritic',
+                              'series_critics_count',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.metacritic.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧用户评分（userscore）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.metacritic.series_userscore}
+                          onChange={(e) =>
+                            updateTV(
+                              'metacritic',
+                              'series_userscore',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.metacritic.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧用户人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.metacritic.series_users_count}
+                          onChange={(e) =>
+                            updateTV(
+                              'metacritic',
+                              'series_users_count',
+                              e.target.value,
+                            )
+                          }
+                          disabled={!tvOverrides.metacritic.enabled}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 items-end text-xs mb-2">
+                      <div className="w-32">
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          状态
+                        </label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.metacritic.status}
+                          onChange={(e) =>
+                            updateTV(
+                              'metacritic',
+                              'status',
+                              e.target.value as TVMetacriticState['status'],
+                            )
+                          }
+                          disabled={!tvOverrides.metacritic.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex-1 min-w-[160px]">
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          来源链接（剧集主页，可选）
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.metacritic.url}
+                          onChange={(e) =>
+                            updateTV('metacritic', 'url', e.target.value)
+                          }
+                          disabled={!tvOverrides.metacritic.enabled}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        className="text-xs px-3 py-1"
+                        onClick={() => addTVSeasonRow('metacritic')}
+                        disabled={!tvOverrides.metacritic.enabled}
+                      >
+                        新增一季
+                      </Button>
+                    </div>
+
+                    {/* 分季 */}
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-800">
+                            <th className="py-1 pr-2 text-left">季号</th>
+                            <th className="py-1 pr-2 text-left">专业评分</th>
+                            <th className="py-1 pr-2 text-left">专业人数</th>
+                            <th className="py-1 pr-2 text-left">用户评分</th>
+                            <th className="py-1 pr-2 text-left">用户人数</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tvOverrides.metacritic.seasons.map((season, index) => (
+                            <tr
+                              key={index}
+                              className="border-b border-gray-100 dark:border-gray-900 last:border-b-0"
+                            >
+                              {[
+                                'season_number',
+                                'metascore',
+                                'critics_count',
+                                'userscore',
+                                'users_count',
+                              ].map((field) => (
+                                <td key={field} className="py-1 pr-2">
+                                  <input
+                                    type="text"
+                                    className="w-20 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    value={(season as any)[field] || ''}
+                                    onChange={(e) =>
+                                      updateTVSeasonRow(
+                                        'metacritic',
+                                        index,
+                                        field,
+                                        e.target.value,
+                                      )
+                                    }
+                                    disabled={!tvOverrides.metacritic.enabled}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* TMDB & Trakt（总分 + 分季） */}
+                <div className="grid gap-4 md:grid-cols-2">
+                  {/* TMDB */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/tmdb.png" alt="TMDB" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          TMDB（整剧 + 分季）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={tvOverrides.tmdb.enabled}
+                          onChange={(e) =>
+                            updateTV('tmdb', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧评分
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.tmdb.rating}
+                          onChange={(e) =>
+                            updateTV('tmdb', 'rating', e.target.value)
+                          }
+                          disabled={!tvOverrides.tmdb.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧评分人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.tmdb.voteCount}
+                          onChange={(e) =>
+                            updateTV('tmdb', 'voteCount', e.target.value)
+                          }
+                          disabled={!tvOverrides.tmdb.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 items-end text-xs mb-2">
+                      <div className="w-32">
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          状态
+                        </label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.tmdb.status}
+                          onChange={(e) =>
+                            updateTV(
+                              'tmdb',
+                              'status',
+                              e.target.value as TVTMDBState['status'],
+                            )
+                          }
+                          disabled={!tvOverrides.tmdb.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <Button
+                        type="button"
+                        className="text-xs px-3 py-1"
+                        onClick={() => addTVSeasonRow('tmdb')}
+                        disabled={!tvOverrides.tmdb.enabled}
+                      >
+                        新增一季
+                      </Button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-800">
+                            <th className="py-1 pr-2 text-left">季号</th>
+                            <th className="py-1 pr-2 text-left">评分</th>
+                            <th className="py-1 pr-2 text-left">评分人数</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tvOverrides.tmdb.seasons.map((season, index) => (
+                            <tr
+                              key={index}
+                              className="border-b border-gray-100 dark:border-gray-900 last:border-b-0"
+                            >
+                              <td className="py-1 pr-2">
+                                <input
+                                  type="text"
+                                  className="w-14 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  value={season.season_number}
+                                  onChange={(e) =>
+                                    updateTVSeasonRow(
+                                      'tmdb',
+                                      index,
+                                      'season_number',
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={!tvOverrides.tmdb.enabled}
+                                />
+                              </td>
+                              <td className="py-1 pr-2">
+                                <input
+                                  type="text"
+                                  className="w-20 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  value={season.rating}
+                                  onChange={(e) =>
+                                    updateTVSeasonRow(
+                                      'tmdb',
+                                      index,
+                                      'rating',
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={!tvOverrides.tmdb.enabled}
+                                />
+                              </td>
+                              <td className="py-1 pr-2">
+                                <input
+                                  type="text"
+                                  className="w-24 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  value={season.votes}
+                                  onChange={(e) =>
+                                    updateTVSeasonRow(
+                                      'tmdb',
+                                      index,
+                                      'votes',
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={!tvOverrides.tmdb.enabled}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Trakt */}
+                  <div className="space-y-3 border border-gray-200 dark:border-gray-800 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <img src="/logos/trakt.png" alt="Trakt" className="w-5 h-5" />
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          Trakt（整剧 + 分季）
+                        </span>
+                      </div>
+                      <label className="inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          className="accent-blue-500"
+                          checked={tvOverrides.trakt.enabled}
+                          onChange={(e) =>
+                            updateTV('trakt', 'enabled', e.target.checked)
+                          }
+                        />
+                        启用
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧评分
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.trakt.rating}
+                          onChange={(e) =>
+                            updateTV('trakt', 'rating', e.target.value)
+                          }
+                          disabled={!tvOverrides.trakt.enabled}
+                        />
+                      </div>
+                      <div>
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          全剧评分人数
+                        </label>
+                        <input
+                          type="text"
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.trakt.votes}
+                          onChange={(e) =>
+                            updateTV('trakt', 'votes', e.target.value)
+                          }
+                          disabled={!tvOverrides.trakt.enabled}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 items-end text-xs mb-2">
+                      <div className="w-32">
+                        <label className="block mb-1 text-gray-500 dark:text-gray-400">
+                          状态
+                        </label>
+                        <select
+                          className="w-full rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-2 py-1 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          value={tvOverrides.trakt.status}
+                          onChange={(e) =>
+                            updateTV(
+                              'trakt',
+                              'status',
+                              e.target.value as TVTraktState['status'],
+                            )
+                          }
+                          disabled={!tvOverrides.trakt.enabled}
+                        >
+                          {STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <Button
+                        type="button"
+                        className="text-xs px-3 py-1"
+                        onClick={() => addTVSeasonRow('trakt')}
+                        disabled={!tvOverrides.trakt.enabled}
+                      >
+                        新增一季
+                      </Button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-800">
+                            <th className="py-1 pr-2 text-left">季号</th>
+                            <th className="py-1 pr-2 text-left">评分</th>
+                            <th className="py-1 pr-2 text-left">评分人数</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tvOverrides.trakt.seasons.map((season, index) => (
+                            <tr
+                              key={index}
+                              className="border-b border-gray-100 dark:border-gray-900 last:border-b-0"
+                            >
+                              <td className="py-1 pr-2">
+                                <input
+                                  type="text"
+                                  className="w-14 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  value={season.season_number}
+                                  onChange={(e) =>
+                                    updateTVSeasonRow(
+                                      'trakt',
+                                      index,
+                                      'season_number',
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={!tvOverrides.trakt.enabled}
+                                />
+                              </td>
+                              <td className="py-1 pr-2">
+                                <input
+                                  type="text"
+                                  className="w-20 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  value={season.rating}
+                                  onChange={(e) =>
+                                    updateTVSeasonRow(
+                                      'trakt',
+                                      index,
+                                      'rating',
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={!tvOverrides.trakt.enabled}
+                                />
+                              </td>
+                              <td className="py-1 pr-2">
+                                <input
+                                  type="text"
+                                  className="w-24 rounded-md border border-gray-300 dark:border-gray-700 bg-transparent px-1 py-0.5 text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  value={season.votes}
+                                  onChange={(e) =>
+                                    updateTVSeasonRow(
+                                      'trakt',
+                                      index,
+                                      'votes',
+                                      e.target.value,
+                                    )
+                                  }
+                                  disabled={!tvOverrides.trakt.enabled}
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-gray-200 dark:border-gray-800">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    说明：剧集支持全剧 + 分季手动覆盖，字段结构与抓取结果一致，方便后端直接替换。
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {saveMessage && (
+                      <span className="text-xs text-gray-600 dark:text-gray-300">
+                        {saveMessage}
+                      </span>
+                    )}
+                    <Button onClick={handleSave} disabled={isSaving}>
+                      {isSaving ? '保存中…' : '保存手动录入'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         )}
       </div>
     </div>
   );
 }
-
