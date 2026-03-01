@@ -304,11 +304,23 @@ export default function AdminRatingsPage() {
         credentials: 'include',
       });
       if (!res.ok) {
-        // 没有覆盖也无所谓，静默失败即可
+        setSaveMessage('该影视无缓存数据，可手动填写');
+        // 重置为初始空表单
+        if (mediaType === 'movie') {
+          setMovieOverrides(createInitialMovieOverrides());
+        } else {
+          setTvOverrides(createInitialTVOverrides());
+        }
         return;
       }
       const data = await res.json().catch(() => null);
       if (!data || !data.overrides || typeof data.overrides !== 'object') {
+        setSaveMessage('该影视无缓存数据，可手动填写');
+        if (mediaType === 'movie') {
+          setMovieOverrides(createInitialMovieOverrides());
+        } else {
+          setTvOverrides(createInitialTVOverrides());
+        }
         return;
       }
       const overrides = data.overrides as any;
@@ -379,6 +391,9 @@ export default function AdminRatingsPage() {
         }
 
         setMovieOverrides(next);
+        setSaveMessage(
+          data.has_data ? '已加载缓存数据（rating:movie:' + trimmed + '）' : '该影视无缓存数据，可手动填写',
+        );
       } else {
         const base = createInitialTVOverrides();
         const next: TVOverridesState = { ...base };
@@ -505,9 +520,17 @@ export default function AdminRatingsPage() {
         }
 
         setTvOverrides(next);
+        setSaveMessage(
+          data.has_data ? '已加载缓存数据（rating:tv:' + trimmed + '）' : '该影视无缓存数据，可手动填写',
+        );
       }
     } catch {
-      // 忽略加载错误，仍然可以从空表单开始录入
+      setSaveMessage('加载缓存数据失败，可手动填写');
+      if (mediaType === 'movie') {
+        setMovieOverrides(createInitialMovieOverrides());
+      } else {
+        setTvOverrides(createInitialTVOverrides());
+      }
     }
   };
 
