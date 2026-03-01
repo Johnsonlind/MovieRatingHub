@@ -107,14 +107,14 @@ const TOP_250_CHARTS = [
 // 已改为手动录入的榜单（不显示"更新 Top 250"按钮）
 const MANUAL_ONLY_CHARTS: string[] = [];
 
-// 支持手动录入的榜单（即使已支持自动抓取，仍可手动录入）
+// 支持手动录入的榜单（即使也支持自动抓取，仍可手动录入）
 const MANUAL_ENTRY_CHARTS = [
   'IMDb 电影 Top 250',
   'IMDb 剧集 Top 250',
+  'Letterboxd 电影 Top 250',
   '豆瓣 电影 Top 250',
   'Metacritic 史上最佳电影 Top 250',
   'Metacritic 史上最佳剧集 Top 250',
-  'Letterboxd 电影 Top 250',
 ];
 
 // 支持手动录入的自定义数量榜单（显示指定行数表格，支持导出）
