@@ -244,6 +244,7 @@ async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
     except Exception as e:
         logger.error(f"设置缓存出错: {e}")
 
+
 async def get_tmdb_info_cached(id: str, type: str, request: Request):
     """带 Redis 缓存的 TMDB 基础信息获取"""
     cache_key = f"tmdb:info:{type}:{id}"
@@ -333,6 +334,7 @@ def _login_verify_sync(email: str, password: str) -> tuple[Optional[User], Optio
         return user, None
     finally:
         db.close()
+
 
 @app.post("/auth/login")
 async def login(request: Request):
@@ -1920,6 +1922,7 @@ _tmdb_rate_lock = asyncio.Lock()
 TMDB_SEARCH_LIMIT = 10
 TMDB_SEARCH_WINDOW = 10.0
 
+
 async def _check_tmdb_search_rate_limit(client_ip: str) -> None:
     """仅对 search 路径限流，超限抛 429"""
     if not client_ip:
@@ -1933,6 +1936,7 @@ async def _check_tmdb_search_rate_limit(client_ip: str) -> None:
         if len(times) >= TMDB_SEARCH_LIMIT:
             raise HTTPException(status_code=429, detail="TMDB 搜索请求过于频繁，请稍后再试")
         times.append(now)
+
 
 @router.get("/api/tmdb-proxy/{path:path}")
 async def tmdb_proxy(path: str, request: Request):
@@ -2099,7 +2103,6 @@ async def trakt_proxy(path: str, request: Request):
         raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
 
 app.include_router(router)
-
 # ==========================================
 # 6.1 手工榜单录入与聚合（管理员）
 # ==========================================
@@ -3198,6 +3201,7 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
         logger.error(f"获取调度器状态失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取调度器状态失败: {str(e)}")
 
+
 @app.get("/api/health")
 async def health_check():
     """健康检查端点"""
@@ -3211,99 +3215,6 @@ async def health_check():
         "redis": redis_status,
         "browser_pool": browser_pool_status,
         "browser_pool_stats": browser_pool_stats
-    }
-
-# ==========================================
-# 6.2 手动评分覆盖（管理员）
-# ==========================================
-
-def _build_manual_ratings_cache_key(media_type: str, tmdb_id: str) -> str:
-    return f"rating:{media_type}:{tmdb_id}"
-
-@app.post("/api/manual-ratings")
-async def save_manual_ratings(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-):
-    """管理员手动录入评分及平台收录状态"""
-    require_admin(current_user)
-
-    try:
-        body = await request.json()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"请求体解析失败: {e}")
-
-    tmdb_id = str(body.get("tmdb_id") or "").strip()
-    media_type = str(body.get("media_type") or "").strip()
-    overrides = body.get("overrides")
-
-    if not tmdb_id:
-        raise HTTPException(status_code=400, detail="tmdb_id 不能为空")
-    if media_type not in ("movie", "tv"):
-        raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
-    if not isinstance(overrides, dict) or not overrides:
-        raise HTTPException(status_code=400, detail="overrides 必须是非空对象")
-
-    if redis:
-        try:
-            cache_key = _build_manual_ratings_cache_key(media_type, tmdb_id)
-            await redis.set(cache_key, json.dumps(overrides, ensure_ascii=False))
-
-            try:
-                all_key = f"ratings:all:{media_type}:{tmdb_id}"
-                await redis.delete(all_key)
-                for platform in ["douban", "imdb", "letterboxd", "rottentomatoes", "metacritic"]:
-                    single_key = f"rating:{platform}:{media_type}:{tmdb_id}"
-                    await redis.delete(single_key)
-            except Exception as e:
-                logger.warning(f"清理旧评分缓存失败: {e}")
-        except Exception as e:
-            logger.error(f"保存手动评分到 Redis 失败: {e}")
-            raise HTTPException(status_code=500, detail=f"保存到缓存失败: {e}")
-    else:
-        logger.warning("Redis 未初始化，手动评分仅保存在请求生命周期内（实际上不会持久化）")
-
-    return {
-        "status": "success",
-        "message": "手动评分已保存到 Redis 缓存",
-        "tmdb_id": tmdb_id,
-        "media_type": media_type,
-    }
-
-
-@app.get("/api/manual-ratings")
-async def get_manual_ratings(
-    tmdb_id: str,
-    media_type: str,
-    current_user: User = Depends(get_current_user),
-):
-    """获取某个 TMDB 作品的手动评分覆盖（如果不存在则返回空对象）。仅管理员可用。"""
-    require_admin(current_user)
-
-    tmdb_id = str(tmdb_id or "").strip()
-    media_type = str(media_type or "").strip()
-
-    if not tmdb_id:
-        raise HTTPException(status_code=400, detail="tmdb_id 不能为空")
-    if media_type not in ("movie", "tv"):
-        raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
-
-    overrides: dict | None = None
-
-    if redis:
-        try:
-            cache_key = _build_manual_ratings_cache_key(media_type, tmdb_id)
-            raw = await redis.get(cache_key)
-            if raw:
-                overrides = json.loads(raw)
-        except Exception as e:
-            logger.error(f"从 Redis 读取手动评分失败: {e}")
-
-    return {
-        "tmdb_id": tmdb_id,
-        "media_type": media_type,
-        "has_data": overrides is not None,
-        "overrides": overrides or {},
     }
 
 # ==========================================
