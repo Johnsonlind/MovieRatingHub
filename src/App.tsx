@@ -34,7 +34,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const AuthConfirmPage = lazy(() => import('./pages/AuthConfirmPage'));
 const AuthErrorPage = lazy(() => import('./pages/AuthErrorPage'));
 const AdminChartsPage = lazy(() => import('./pages/AdminChartsPage'));
-const AdminRatingsPage = lazy(() => import('./pages/AdminRatingsPage'));
+const AdminRatingsPage = lazy(() => import('./pages/AdminRatingsPage.tsx'));
 const ChartsPage = lazy(() => import('./pages/ChartsPage'));
 const ChartDetailPage = lazy(() => import('./pages/ChartDetailPage'));
 
