@@ -1476,7 +1476,7 @@ class ChartScraper:
         logger.info(f"IMDb Top 250 Movies: 清空旧数据 {deleted} 条")
         
         matcher = TMDBMatcher(self.db)
-        items = await self.scrape_imdb_top250("https://www.imdb.com/chart/top/?ref_=hm_nv_menu", "movie")
+        items = await self.scrape_imdb_top250_stable("https://www.imdb.com/chart/top/", "movie")
         
         if not items:
             logger.error("未能获取到 IMDb Top 250 Movies 数据")
@@ -1558,7 +1558,7 @@ class ChartScraper:
         logger.info(f"IMDb Top 250 TV Shows: 清空旧数据 {deleted} 条")
         
         matcher = TMDBMatcher(self.db)
-        items = await self.scrape_imdb_top250("https://www.imdb.com/chart/toptv/?ref_=hm_nv_menu", "tv")
+        items = await self.scrape_imdb_top250("https://www.imdb.com/chart/toptv/", "tv")
         
         if not items:
             logger.error("未能获取到 IMDb Top 250 TV Shows 数据")
