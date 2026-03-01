@@ -34,6 +34,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const AuthConfirmPage = lazy(() => import('./pages/AuthConfirmPage'));
 const AuthErrorPage = lazy(() => import('./pages/AuthErrorPage'));
 const AdminChartsPage = lazy(() => import('./pages/AdminChartsPage'));
+const AdminRatingsPage = lazy(() => import('./pages/AdminRatingsPage'));
 const ChartsPage = lazy(() => import('./pages/ChartsPage'));
 const ChartDetailPage = lazy(() => import('./pages/ChartDetailPage'));
 
@@ -60,6 +61,7 @@ function App() {
                 <Route path="/charts/:platform/:chartName" element={<ChartDetailPage />} />
                 {/* 隐藏入口，仅路径访问 */}
                 <Route path="/admin/charts" element={<AdminChartsPage />} />
+                <Route path="/admin/ratings" element={<AdminRatingsPage />} />
               </Routes>
             </Suspense>
           </div>
