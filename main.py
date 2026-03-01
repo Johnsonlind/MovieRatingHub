@@ -3218,7 +3218,7 @@ async def health_check():
 # ==========================================
 
 def _build_manual_ratings_cache_key(media_type: str, tmdb_id: str) -> str:
-  return f"manual_ratings:{media_type}:{tmdb_id}"
+    return f"manual_ratings:{media_type}:{tmdb_id}"
 
 @app.post("/api/manual-ratings")
 async def save_manual_ratings(
@@ -3268,6 +3268,41 @@ async def save_manual_ratings(
         "message": "手动评分已保存到 Redis 缓存",
         "tmdb_id": tmdb_id,
         "media_type": media_type,
+    }
+
+
+@app.get("/api/manual-ratings")
+async def get_manual_ratings(
+    tmdb_id: str,
+    media_type: str,
+    current_user: User = Depends(get_current_user),
+):
+    """获取某个 TMDB 作品的手动评分覆盖（如果不存在则返回空对象）。仅管理员可用。"""
+    require_admin(current_user)
+
+    tmdb_id = str(tmdb_id or "").strip()
+    media_type = str(media_type or "").strip()
+
+    if not tmdb_id:
+        raise HTTPException(status_code=400, detail="tmdb_id 不能为空")
+    if media_type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
+
+    overrides: dict | None = None
+
+    if redis:
+        try:
+          cache_key = _build_manual_ratings_cache_key(media_type, tmdb_id)
+          raw = await redis.get(cache_key)
+          if raw:
+              overrides = json.loads(raw)
+        except Exception as e:
+          logger.error(f"从 Redis 读取手动评分失败: {e}")
+
+    return {
+        "tmdb_id": tmdb_id,
+        "media_type": media_type,
+        "overrides": overrides or {},
     }
 
 # ==========================================
