@@ -283,7 +283,7 @@ export default function AdminRatingsPage() {
     [platformStatuses],
   );
 
-  const handleLoadMedia = () => {
+  const handleLoadMedia = async () => {
     const trimmed = mediaIdInput.trim();
     if (!trimmed) {
       alert('请先输入 TMDB ID');
@@ -291,6 +291,224 @@ export default function AdminRatingsPage() {
     }
     setActiveMediaId(trimmed);
     setSaveMessage(null);
+    try {
+      const token = localStorage.getItem('token');
+      const params = new URLSearchParams({
+        tmdb_id: trimmed,
+        media_type: mediaType,
+      });
+      const res = await fetch(`/api/manual-ratings?${params.toString()}`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        // 没有覆盖也无所谓，静默失败即可
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      if (!data || !data.overrides || typeof data.overrides !== 'object') {
+        return;
+      }
+      const overrides = data.overrides as any;
+
+      if (mediaType === 'movie') {
+        const base = createInitialMovieOverrides();
+        const next: MovieOverridesState = { ...base };
+
+        if (overrides.douban) {
+          next.douban.enabled = true;
+          next.douban.status = overrides.douban.status ?? next.douban.status;
+          next.douban.rating = overrides.douban.rating ?? '';
+          next.douban.rating_people = overrides.douban.rating_people ?? '';
+          next.douban.url = overrides.douban.url ?? '';
+        }
+        if (overrides.imdb) {
+          next.imdb.enabled = true;
+          next.imdb.status = overrides.imdb.status ?? next.imdb.status;
+          next.imdb.rating = overrides.imdb.rating ?? '';
+          next.imdb.rating_people = overrides.imdb.rating_people ?? '';
+          next.imdb.url = overrides.imdb.url ?? '';
+        }
+        if (overrides.letterboxd) {
+          next.letterboxd.enabled = true;
+          next.letterboxd.status = overrides.letterboxd.status ?? next.letterboxd.status;
+          next.letterboxd.rating = overrides.letterboxd.rating ?? '';
+          next.letterboxd.rating_count = overrides.letterboxd.rating_count ?? '';
+          next.letterboxd.url = overrides.letterboxd.url ?? '';
+        }
+        if (overrides.rottentomatoes) {
+          next.rottentomatoes.enabled = true;
+          next.rottentomatoes.status =
+            overrides.rottentomatoes.status ?? next.rottentomatoes.status;
+          const series = overrides.rottentomatoes.series || {};
+          next.rottentomatoes.tomatometer = series.tomatometer ?? '';
+          next.rottentomatoes.critics_count = series.critics_count ?? '';
+          next.rottentomatoes.critics_avg = series.critics_avg ?? '';
+          next.rottentomatoes.audience_score = series.audience_score ?? '';
+          next.rottentomatoes.audience_count = series.audience_count ?? '';
+          next.rottentomatoes.audience_avg = series.audience_avg ?? '';
+          next.rottentomatoes.url = overrides.rottentomatoes.url ?? '';
+        }
+        if (overrides.metacritic) {
+          next.metacritic.enabled = true;
+          next.metacritic.status = overrides.metacritic.status ?? next.metacritic.status;
+          const overall = overrides.metacritic.overall || {};
+          next.metacritic.metascore = overall.metascore ?? '';
+          next.metacritic.critics_count = overall.critics_count ?? '';
+          next.metacritic.userscore = overall.userscore ?? '';
+          next.metacritic.users_count = overall.users_count ?? '';
+          next.metacritic.url = overrides.metacritic.url ?? '';
+        }
+        if (overrides.tmdb) {
+          next.tmdb.enabled = true;
+          next.tmdb.status = overrides.tmdb.status ?? next.tmdb.status;
+          next.tmdb.rating =
+            overrides.tmdb.rating != null ? String(overrides.tmdb.rating) : '';
+          next.tmdb.voteCount =
+            overrides.tmdb.voteCount != null ? String(overrides.tmdb.voteCount) : '';
+        }
+        if (overrides.trakt) {
+          next.trakt.enabled = true;
+          next.trakt.status = overrides.trakt.status ?? next.trakt.status;
+          next.trakt.rating =
+            overrides.trakt.rating != null ? String(overrides.trakt.rating) : '';
+          next.trakt.votes =
+            overrides.trakt.votes != null ? String(overrides.trakt.votes) : '';
+        }
+
+        setMovieOverrides(next);
+      } else {
+        const base = createInitialTVOverrides();
+        const next: TVOverridesState = { ...base };
+
+        if (overrides.douban) {
+          next.douban.enabled = true;
+          next.douban.status = overrides.douban.status ?? next.douban.status;
+          next.douban.url = overrides.douban.url ?? '';
+          const seasons = Array.isArray(overrides.douban.seasons)
+            ? overrides.douban.seasons
+            : [];
+          next.douban.seasons = seasons.map((s: any) => ({
+            season_number:
+              s.season_number != null ? String(s.season_number) : '',
+            rating: s.rating ?? '',
+            rating_people: s.rating_people ?? '',
+          }));
+        }
+        if (overrides.imdb) {
+          next.imdb.enabled = true;
+          next.imdb.status = overrides.imdb.status ?? next.imdb.status;
+          next.imdb.rating = overrides.imdb.rating ?? '';
+          next.imdb.rating_people = overrides.imdb.rating_people ?? '';
+          next.imdb.url = overrides.imdb.url ?? '';
+        }
+        if (overrides.letterboxd) {
+          next.letterboxd.enabled = true;
+          next.letterboxd.status = overrides.letterboxd.status ?? next.letterboxd.status;
+          next.letterboxd.rating = overrides.letterboxd.rating ?? '';
+          next.letterboxd.rating_count = overrides.letterboxd.rating_count ?? '';
+          next.letterboxd.url = overrides.letterboxd.url ?? '';
+        }
+        if (overrides.rottentomatoes) {
+          next.rottentomatoes.enabled = true;
+          next.rottentomatoes.status =
+            overrides.rottentomatoes.status ?? next.rottentomatoes.status;
+          const series = overrides.rottentomatoes.series || {};
+          next.rottentomatoes.series_tomatometer = series.tomatometer ?? '';
+          next.rottentomatoes.series_critics_count = series.critics_count ?? '';
+          next.rottentomatoes.series_critics_avg = series.critics_avg ?? '';
+          next.rottentomatoes.series_audience_score = series.audience_score ?? '';
+          next.rottentomatoes.series_audience_count = series.audience_count ?? '';
+          next.rottentomatoes.series_audience_avg = series.audience_avg ?? '';
+          next.rottentomatoes.url = overrides.rottentomatoes.url ?? '';
+          const seasons = Array.isArray(overrides.rottentomatoes.seasons)
+            ? overrides.rottentomatoes.seasons
+            : [];
+          next.rottentomatoes.seasons = seasons.map((s: any) => ({
+            season_number:
+              s.season_number != null ? String(s.season_number) : '',
+            tomatometer: s.tomatometer ?? '',
+            critics_count: s.critics_count ?? '',
+            critics_avg: s.critics_avg ?? '',
+            audience_score: s.audience_score ?? '',
+            audience_count: s.audience_count ?? '',
+            audience_avg: s.audience_avg ?? '',
+          }));
+        }
+        if (overrides.metacritic) {
+          next.metacritic.enabled = true;
+          next.metacritic.status =
+            overrides.metacritic.status ?? next.metacritic.status;
+          const overall = overrides.metacritic.overall || {};
+          next.metacritic.series_metascore = overall.metascore ?? '';
+          next.metacritic.series_critics_count = overall.critics_count ?? '';
+          next.metacritic.series_userscore = overall.userscore ?? '';
+          next.metacritic.series_users_count = overall.users_count ?? '';
+          next.metacritic.url = overrides.metacritic.url ?? '';
+          const seasons = Array.isArray(overrides.metacritic.seasons)
+            ? overrides.metacritic.seasons
+            : [];
+          next.metacritic.seasons = seasons.map((s: any) => ({
+            season_number:
+              s.season_number != null ? String(s.season_number) : '',
+            metascore: s.metascore ?? '',
+            critics_count: s.critics_count ?? '',
+            userscore: s.userscore ?? '',
+            users_count: s.users_count ?? '',
+          }));
+        }
+        if (overrides.tmdb) {
+          next.tmdb.enabled = true;
+          next.tmdb.status = overrides.tmdb.status ?? next.tmdb.status;
+          next.tmdb.rating =
+            overrides.tmdb.rating != null ? String(overrides.tmdb.rating) : '';
+          next.tmdb.voteCount =
+            overrides.tmdb.voteCount != null ? String(overrides.tmdb.voteCount) : '';
+          const seasons = Array.isArray(overrides.tmdb.seasons)
+            ? overrides.tmdb.seasons
+            : [];
+          next.tmdb.seasons = seasons.map((s: any) => ({
+            season_number:
+              s.season_number != null ? String(s.season_number) : '',
+            rating: s.rating != null ? String(s.rating) : '',
+            votes:
+              s.voteCount != null
+                ? String(s.voteCount)
+                : s.votes != null
+                  ? String(s.votes)
+                  : '',
+          }));
+        }
+        if (overrides.trakt) {
+          next.trakt.enabled = true;
+          next.trakt.status = overrides.trakt.status ?? next.trakt.status;
+          next.trakt.rating =
+            overrides.trakt.rating != null ? String(overrides.trakt.rating) : '';
+          next.trakt.votes =
+            overrides.trakt.votes != null ? String(overrides.trakt.votes) : '';
+          const seasons = Array.isArray(overrides.trakt.seasons)
+            ? overrides.trakt.seasons
+            : [];
+          next.trakt.seasons = seasons.map((s: any) => ({
+            season_number:
+              s.season_number != null ? String(s.season_number) : '',
+            rating: s.rating != null ? String(s.rating) : '',
+            votes:
+              s.votes != null
+                ? String(s.votes)
+                : s.voteCount != null
+                  ? String(s.voteCount)
+                  : '',
+          }));
+        }
+
+        setTvOverrides(next);
+      }
+    } catch {
+      // 忽略加载错误，仍然可以从空表单开始录入
+    }
   };
 
   const updateMovie = <K extends keyof MovieOverridesState, F extends keyof MovieOverridesState[K]>(
