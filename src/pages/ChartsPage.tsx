@@ -13,6 +13,7 @@ import { Download } from 'lucide-react';
 import { ExportChartCard } from '../components/export/ExportChartCard';
 import { useAggressiveImagePreload } from '../hooks/useAggressiveImagePreload';
 import { Footer } from '../components/common/Footer';
+import { CardTabs } from '../components/ui/CardTabs';
 
 const DOWNSCALE_SIZE = 'w185';
 
@@ -296,55 +297,22 @@ export default function ChartsPage() {
 
     return result;
   }, [sortedCharts]);
+ 
+  const platformsWithCharts = useMemo(() => {
+    const available = Object.keys(chartsByPlatform || {});
+    const ordered = CHART_ORDER.filter((p) => available.includes(p));
+    const others = available.filter((p) => !CHART_ORDER.includes(p));
+    return [...ordered, ...others];
+  }, [chartsByPlatform]);
 
-  const [visiblePlatforms, setVisiblePlatforms] = useState<string[]>([]);
-  
+  const [activePlatform, setActivePlatform] = useState<string | null>(null);
+
   useEffect(() => {
-    if (!chartsByPlatform) return;
-    
-    const platforms = Object.keys(chartsByPlatform);
-    
-    if (isSafariMobile) {
-      setVisiblePlatforms(platforms.slice(0, 1));
-      
-      const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting) {
-              const platform = entry.target.getAttribute('data-platform');
-              if (platform) {
-                setVisiblePlatforms((prev) => {
-                  if (!prev.includes(platform)) {
-                    return [...prev, platform];
-                  }
-                  return prev;
-                });
-              }
-            }
-          });
-        },
-        {
-          rootMargin: '200px',
-        }
-      );
-
-      const timer = setTimeout(() => {
-        platforms.slice(1).forEach((platform) => {
-          const placeholder = document.getElementById(`platform-placeholder-${platform}`);
-          if (placeholder) {
-            observer.observe(placeholder);
-          }
-        });
-      }, 100);
-
-      return () => {
-        clearTimeout(timer);
-        observer.disconnect();
-      };
-    } else {
-      setVisiblePlatforms(platforms);
-    }
-  }, [isSafariMobile, chartsByPlatform]);
+    if (!platformsWithCharts.length) return;
+    setActivePlatform((prev) =>
+      prev && platformsWithCharts.includes(prev) ? prev : platformsWithCharts[0],
+    );
+  }, [platformsWithCharts]);
 
   const [exportingChart, setExportingChart] = useState<string | null>(null);
   const [activeExportChart, setActiveExportChart] = useState<{
@@ -489,56 +457,37 @@ export default function ChartsPage() {
                 暂无榜单数据
               </div>
             </div>
+          ) : platformsWithCharts.length === 0 || !activePlatform ? (
+            <div className="text-center py-12">
+              <div className="text-gray-600 dark:text-gray-400">
+                暂无可用平台数据
+              </div>
+            </div>
           ) : (
-            <div className="space-y-8">
-              {CHART_ORDER.map(platform => {
-                const platformCharts = chartsByPlatform[platform] || [];
-                if (platformCharts.length === 0) return null;
-                
-                if (isSafariMobile && !visiblePlatforms.includes(platform)) {
-                  return (
-                    <div
-                      key={`placeholder-${platform}`}
-                      id={`platform-placeholder-${platform}`}
-                      data-platform={platform}
-                      className="glass-card rounded-2xl p-6"
-                      style={{ minHeight: '200px' }}
-                    >
-                      <div className="flex items-center gap-3 mb-6">
+            <div className="glass-card rounded-2xl overflow-hidden">
+              <div className="px-6 pt-4">
+                <CardTabs
+                  tabs={platformsWithCharts.map((platform) => ({
+                    id: platform,
+                    label: (
+                      <div className="flex items-center gap-2">
                         {PLATFORM_LOGOS[platform] && (
-                          <img 
-                            src={PLATFORM_LOGOS[platform]} 
+                          <img
+                            src={PLATFORM_LOGOS[platform]}
                             alt={platform}
-                            className="w-8 h-8 object-contain"
+                            className="w-5 h-5 object-contain"
                           />
                         )}
-                        <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
-                          {platform}
-                        </h2>
+                        <span>{platform}</span>
                       </div>
-                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        加载中...
-                      </div>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div key={platform} className="glass-card rounded-2xl p-6">
-                    <div className="flex items-center gap-3 mb-6">
-                      {PLATFORM_LOGOS[platform] && (
-                        <img 
-                          src={PLATFORM_LOGOS[platform]} 
-                          alt={platform}
-                          className="w-8 h-8 object-contain"
-                        />
-                      )}
-                      <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
-                        {platform}
-                      </h2>
-                    </div>
-                    <div className="space-y-6">
-                      {platformCharts.map((chart, idx) => {
+                    ),
+                  }))}
+                  activeId={activePlatform}
+                  onChange={setActivePlatform}
+                />
+              </div>
+              <div className="px-6 pb-6 pt-4 space-y-6">
+                {(chartsByPlatform[activePlatform] || []).map((chart, idx) => {
                         const chartKey = `${chart.platform}-${chart.chart_name}-${idx}`;
                         const sortedEntries = [...chart.entries].sort((a, b) => a.rank - b.rank);
                         
@@ -548,7 +497,7 @@ export default function ChartsPage() {
                           ? sortedEntries.slice(0, 10) 
                           : sortedEntries.slice(0, maxDisplayEntries);
                         
-                        return (
+                  return (
                         <div key={chartKey}>
                           <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
@@ -694,10 +643,7 @@ export default function ChartsPage() {
                         </div>
                         );
                       })}
-                    </div>
-                  </div>
-                );
-              })}
+              </div>
             </div>
           )}
           </div>
