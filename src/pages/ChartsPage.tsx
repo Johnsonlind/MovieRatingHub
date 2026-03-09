@@ -478,7 +478,7 @@ export default function ChartsPage() {
                             className="w-5 h-5 object-contain"
                           />
                         )}
-                        <span>{platform}</span>
+                        <span className="hidden sm:inline">{platform}</span>
                       </div>
                     ),
                   }))}
