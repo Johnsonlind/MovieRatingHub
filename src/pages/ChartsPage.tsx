@@ -475,7 +475,7 @@ export default function ChartsPage() {
                           <img
                             src={PLATFORM_LOGOS[platform]}
                             alt={platform}
-                            className="w-5 h-5 object-contain"
+                            className="w-10 h-10 sm:w-5 h-5 object-contain"
                           />
                         )}
                         <span className="hidden sm:inline">{platform}</span>
