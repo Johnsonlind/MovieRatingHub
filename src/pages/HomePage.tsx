@@ -226,7 +226,7 @@ export default function HomePage() {
             >
               <div className="flex items-center justify-center mb-3">
                 <img
-                  src="/logos/home.png"
+                  src="/logos/chinesenewyearhome.png"
                   alt="Rating Card"
                   className="w-12 h-12 object-contain"
                 />
@@ -251,31 +251,33 @@ export default function HomePage() {
           />
         </div>
 
-        {/* 移动端标签 */}
-        <div className="lg:hidden mb-4">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setActiveTab('movies')}
-              className={`flex-1 py-2 px-4 rounded-lg transition-colors ${
-                activeTab === 'movies'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-white'
-              }`}
-            >
-              电影
-            </button>
-            <button
-              onClick={() => setActiveTab('tvShows')}
-              className={`flex-1 py-2 px-4 rounded-lg transition-colors ${
-                activeTab === 'tvShows'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-              }`}
-            >
-              剧集
-            </button>
+        {/* 移动端标签：仅在有搜索时显示 */}
+        {searchQuery && (
+          <div className="lg:hidden mb-4">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setActiveTab('movies')}
+                className={`flex-1 py-2 px-4 rounded-lg transition-colors ${
+                  activeTab === 'movies'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-white'
+                }`}
+              >
+                电影
+              </button>
+              <button
+                onClick={() => setActiveTab('tvShows')}
+                className={`flex-1 py-2 px-4 rounded-lg transition-colors ${
+                  activeTab === 'tvShows'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                剧集
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* 无搜索时显示Top10板块（聚合） */}
         {!searchQuery && <MemoizedTopSectionsFromBackend />}
