@@ -16,6 +16,7 @@ import { Switch } from '../components/common/Switch';
 import { toast } from "sonner";
 import { ScrollToTopButton } from '../components/ui/ScrollToTopButton';
 import { Footer } from '../components/common/Footer';
+import { CardTabs } from '../components/ui/CardTabs';
 
 interface Creator {
   id: number;
@@ -780,32 +781,19 @@ export default function ProfilePage() {
             </form>
           </div>
 
-          {/* 收藏内容区域 */}
+          {/* 收藏 / 关注 区域 - 卡片式标签 */}
           <div className="glass-card rounded-2xl p-8">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex gap-4">
-                <button
-                  onClick={() => setActiveTab('collections')}
-                  className={`text-xl font-semibold ${
-                    activeTab === 'collections'
-                      ? 'text-blue-500 dark:text-blue-400'
-                      : 'text-gray-600 dark:text-gray-400'
-                  }`}
-                >
-                  我的收藏
-                </button>
-                <button
-                  onClick={() => setActiveTab('following')}
-                  className={`text-xl font-semibold ${
-                    activeTab === 'following'
-                      ? 'text-blue-500 dark:text-blue-400'
-                      : 'text-gray-600 dark:text-gray-400'
-                  }`}
-                >
-                  我的关注
-                </button>
-              </div>
-              {activeTab === 'collections' && (
+            <CardTabs
+              tabs={[
+                { id: 'collections', label: '我的收藏' },
+                { id: 'following', label: '我的关注' },
+              ]}
+              activeId={activeTab}
+              onChange={(id) => setActiveTab(id as 'collections' | 'following')}
+            />
+
+            {activeTab === 'collections' && (
+              <div className="flex justify-end mt-4 mb-4">
                 <button
                   onClick={() => setShowCreateDialog(true)}
                   className="p-2 text-gray-500 hover:text-blue-600 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -815,8 +803,8 @@ export default function ProfilePage() {
                     <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                   </svg>
                 </button>
-              )}
-            </div>
+              </div>
+            )}
             
             {activeTab === 'collections' ? (
               isLoadingLists ? (
