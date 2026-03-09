@@ -22,20 +22,21 @@ export function CardTabs({ tabs, activeId, onChange, className }: CardTabsProps)
   return (
     <div
       className={cn(
-        'flex gap-2 border-b border-gray-200 dark:border-gray-800',
+        'overflow-x-auto -mx-1',
         className,
       )}
     >
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeId;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => onChange(tab.id)}
-            className={cn(
-              'px-4 py-2 text-sm font-medium rounded-t-xl transition-all duration-150',
-              'border border-transparent border-b-0',
+      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-800 min-w-0">
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeId;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onChange(tab.id)}
+              className={cn(
+                'flex-shrink-0 px-3 py-2 sm:px-4 text-sm font-medium rounded-t-xl transition-all duration-150',
+                'border border-transparent border-b-0',
               isActive
                 ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-sm -mb-px border-gray-200 dark:border-gray-700'
                 : 'bg-gray-100/70 dark:bg-gray-900/20 text-gray-600 dark:text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/60',
@@ -45,6 +46,7 @@ export function CardTabs({ tabs, activeId, onChange, className }: CardTabsProps)
           </button>
         );
       })}
+      </div>
     </div>
   );
 }
