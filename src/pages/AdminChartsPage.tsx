@@ -1121,7 +1121,7 @@ export default function AdminChartsPage() {
                   <img
                     src={PLATFORM_LOGOS[platform]}
                     alt={platform}
-                    className="w-20 h-20 sm:w-10 h-10 object-contain"
+                    className="w-10 h-10 sm:w-5 h-5 object-contain flex-shrink-0"
                   />
                 )}
                 <span className="hidden sm:inline">{platform}</span>
@@ -1144,7 +1144,7 @@ export default function AdminChartsPage() {
                     <img
                       src={PLATFORM_LOGOS[platform]}
                       alt={platform}
-                      className="w-16 h-16 sm:w-12 h-12 object-contain"
+                      className="w-6 h-6 object-contain"
                     />
                   )}
                   <h2 className={`text-xl font-bold text-gray-800 dark:text-white`}>
