@@ -23,7 +23,9 @@ export function SearchResults({
   return (
     <div>
       {title && (
-        <h2 className="text-xl sm:text-2xl font-bold mb-4 hidden lg:block dark:text-white">{title}</h2>
+        <h2 className="text-lg sm:text-xl lg:text-2xl font-bold mb-4 dark:text-white">
+          {title}
+        </h2>
       )}
       <div className="space-y-3">
         {items.map((item) => (
