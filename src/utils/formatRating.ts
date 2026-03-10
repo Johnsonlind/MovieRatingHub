@@ -17,7 +17,6 @@ export const formatRating = {
       return undefined;
     }
     
-    // 处理百分比字符串
     if (typeof value === 'string' && value.includes('%')) {
       value = value.replace('%', '');
     }
