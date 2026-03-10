@@ -27,7 +27,7 @@ interface UseFavoriteOptions {
   poster: string;
   year?: string;
   overview?: string;
-  useReactQuery?: boolean; // 是否使用 React Query（MiniFavoriteButton 使用）
+  useReactQuery?: boolean;
 }
 
 interface UseFavoriteReturn {
@@ -75,7 +75,6 @@ export function useFavorite({
     is_public: false
   });
 
-  // 使用 React Query 获取列表（MiniFavoriteButton）
   const { data: queryLists = [], refetch } = useQuery<FavoriteList[]>({
     queryKey: ['favorite-lists'],
     queryFn: async () => {
@@ -91,7 +90,6 @@ export function useFavorite({
     staleTime: 1000 * 60 * 5,
   });
 
-  // 不使用 React Query 获取列表（FavoriteButton）
   const [lists, setLists] = useState<FavoriteList[]>([]);
 
   useEffect(() => {
@@ -118,7 +116,6 @@ export function useFavorite({
     }
   }, [user, useReactQuery]);
 
-  // 使用 React Query 的列表
   const currentLists = useReactQuery ? queryLists : lists;
 
   useEffect(() => {
@@ -182,7 +179,6 @@ export function useFavorite({
       let finalYear = year;
       let finalOverview = overview;
       
-      // MiniFavoriteButton 的逻辑：如果缺少信息，从 API 获取
       if ((!year || !overview) && useReactQuery) {
         try {
           const details = await getMediaDetails(mediaType, mediaId);
