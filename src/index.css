@@ -6,7 +6,6 @@
 @import 'tailwindcss/utilities';
 @import './styles/gentle-scroll.css';
 
-/* Lenis 平滑滚动必需的 CSS */
 html.lenis,
 html.lenis body {
   height: auto;
@@ -28,7 +27,6 @@ html.lenis body {
   pointer-events: none;
 }
 
-/* 自定义样式 */
 :root {
   --bg-color: #f0f9ff;
   --text-color: #1f2937;
@@ -41,7 +39,6 @@ html.lenis body {
     linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 30%, #bae6fd 70%, #7dd3fc 100%);
   --gradient-start: #38bdf8;
   --gradient-end: #0ea5e9;
-  /* 玻璃拟态变量 - 浅色主题（天蓝白） */
   --glass-bg: rgba(255, 255, 255, 0.25);
   --glass-border: rgba(255, 255, 255, 0.7);
   --glass-shadow: rgba(56, 189, 248, 0.1);
@@ -60,7 +57,6 @@ html.lenis body {
     linear-gradient(180deg, #0a0e1a 0%, #0f172a 50%, #1e293b 100%);
   --gradient-start: #3b82f6;
   --gradient-end: #1e40af;
-  /* 玻璃拟态变量 - 深色主题（黑蓝） */
   --glass-bg: rgba(15, 23, 42, 0.2);
   --glass-border: rgba(255, 255, 255, 0.12);
   --glass-shadow: rgba(30, 58, 138, 0.2);
@@ -79,7 +75,6 @@ html {
   overflow-x: hidden;
 }
 
-/* Lenis 会处理平滑滚动，不需要 CSS scroll-behavior */
 html, body {
   overflow-y: auto;
   overflow-x: hidden;
@@ -101,7 +96,6 @@ body {
   position: relative;
 }
 
-/* 覆盖整个视口包括安全区域，确保移动设备正确显示 */
 body::before {
   content: '';
   position: fixed;
@@ -122,7 +116,6 @@ body::before {
   pointer-events: none;
 }
 
-/* 玻璃拟态基础类 - 精致磨砂毛玻璃效果 */
 .glass {
   background: var(--glass-bg);
   backdrop-filter: blur(40px) saturate(180%);
@@ -139,7 +132,6 @@ body::before {
   overflow: hidden;
 }
 
-/* NavBar 容器需要 overflow-visible 以显示下拉菜单 */
 .glass.overflow-visible {
   overflow: visible;
 }
@@ -182,7 +174,6 @@ body::before {
   z-index: 1;
 }
 
-/* 玻璃拟态按钮样式 */
 .glass-button {
   background: var(--glass-bg);
   backdrop-filter: blur(20px) saturate(180%);
@@ -227,7 +218,6 @@ body::before {
     inset 0 -1px 0 0 rgba(255, 255, 255, 0.03);
 }
 
-/* 玻璃拟态下拉菜单样式 */
 .glass-dropdown {
   background: var(--glass-bg);
   backdrop-filter: blur(24px) saturate(180%);
@@ -304,7 +294,6 @@ body::before {
   z-index: 1;
 }
 
-/* 确保绝对定位的按钮不被裁剪且层级正确 */
 .glass-card > [class*="absolute"],
 .glass-card > div[class*="absolute"] {
   z-index: 20 !important;
@@ -334,7 +323,6 @@ body::before {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-/* 导出卡片专用玻璃拟态样式 */
 .export-glass-container {
   background: var(--page-bg);
   background-size: cover;
@@ -445,7 +433,6 @@ body::before {
   z-index: 1;
 }
 
-/* 确保首页logo在毛玻璃容器中正确显示 */
 .export-poster-glass-divider img[alt="Home"] {
   display: block !important;
   visibility: visible !important;
@@ -533,7 +520,6 @@ body::before {
   color: rgba(255, 255, 255, 0.9) !important;
 }
 
-/* 标题文字增强可读性 */
 h1, h2, h3, h4, h5, h6 {
   text-shadow: 
     0 1px 2px var(--text-shadow),
@@ -651,7 +637,6 @@ button:hover,
   transform: scale(1.05);
 }
 
-/* 所有输入框的基础样式 */
 textarea,
 input[type="text"],
 input[type="email"],
@@ -699,7 +684,6 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type=
   border-color: #c0c0c0;
 }
 
-/* 只在聚焦状态下应用流光溢彩效果 */
 textarea:focus,
 input[type="text"]:focus,
 input[type="email"]:focus,
@@ -763,7 +747,6 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type=
   animation: none !important;
 }
 
-/* 深色模式适配 */
 :root[data-theme='dark'] textarea,
 :root[data-theme='dark'] input[type="text"],
 :root[data-theme='dark'] input[type="email"],
