@@ -160,7 +160,6 @@ const NON_EXPORTABLE_CHARTS = [
   'Metacritic 2025 最佳剧集',
 ];
 
-// 平台logo映射
 const PLATFORM_LOGOS: Record<string, string> = {
   '豆瓣': '/logos/douban.png',
   'IMDb': '/logos/imdb.png',
@@ -329,10 +328,8 @@ export default function ChartsPage() {
 
     setExportingChart(exportKey);
     
-    // 设置要导出的榜单信息，触发渲染
     setActiveExportChart({ platform, chartName, chartKey, layout });
 
-    // 等待 DOM 更新
     await new Promise(resolve => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -651,7 +648,7 @@ export default function ChartsPage() {
         <Footer />
       </div>
 
-      {/* 按需渲染的导出容器 - 只在导出时创建 */}
+      {/* 按需渲染的导出容器 */}
       {activeExportChart && (() => {
         const chart = sortedCharts?.find(c => 
           c.platform === activeExportChart.platform && 
