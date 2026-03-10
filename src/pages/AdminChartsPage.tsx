@@ -1348,7 +1348,7 @@ export default function AdminChartsPage() {
                               </table>
                             </div>
                           ) : (
-                            <div className="flex gap-3 flex-wrap items-end">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 items-end">
                               {Array.from(
                                 { length: sec.name === '豆瓣2025评分月度热搜影视' ? 12 : 10 },
                                 (_, idx) => idx + 1,
