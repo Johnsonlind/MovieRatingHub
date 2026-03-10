@@ -346,8 +346,6 @@ export default function AdminChartsPage() {
     if (!item) return;
     const choice = { id: item.id };
     
-    // 本地重复校验：相同 media_type 下相同 rank 已存在则阻止
-    // 对于 Metacritic Top 250 榜单，需要检查两种类型
     const isMetacriticTop250 = chart_name === 'Metacritic 史上最佳电影 Top 250' || chart_name === 'Metacritic 史上最佳剧集 Top 250';
     let conflictExists = false;
     if (isMetacriticTop250) {
@@ -726,10 +724,8 @@ export default function AdminChartsPage() {
         const movies = movieResponse.ok ? await movieResponse.json() : [];
         const tvs = tvResponse.ok ? await tvResponse.json() : [];
         
-        // 合并数据，按排名排序（对于 Top 250，合并所有250个排名）
         const byRank: Record<number, any> = {};
         [...movies, ...tvs].forEach((i: any) => {
-          // 如果同一排名有多个条目，保留最新的（id更大的）
           if (!byRank[i.rank] || byRank[i.rank].id < i.id) {
             byRank[i.rank] = i;
           }
@@ -1109,7 +1105,7 @@ export default function AdminChartsPage() {
         </div>
       )}
 
-      {/* 平台卡片式标签 + 内容 */}
+      {/* 平台卡片式标签 */}
 
       <div className="glass-card rounded-2xl p-4 space-y-4">
         <CardTabs
