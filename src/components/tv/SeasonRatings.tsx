@@ -49,7 +49,6 @@ export function SeasonRatings({
       {seasons.map((season) => {
         if (!season.seasonNumber) return null;
 
-        // 豆瓣：若该季无分季评分且为第1季，则把整剧评分视作该季有评分（用于显示该季卡片）
         const doubanSeason = ratingData.douban?.seasons?.find(s => 
           s.season_number === season.seasonNumber
         );
