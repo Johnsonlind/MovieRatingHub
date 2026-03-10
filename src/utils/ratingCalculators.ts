@@ -23,32 +23,21 @@ interface RatingCalculationState {
   normalizedRatings: NormalizedRating[];
 }
 
-/**
- * 判断平台评分类型（专业评分 vs 用户评分）
- */
 function determineRatingType(platformLabel: string): 'critic' | 'user' {
-  // 专业评分标识
   if (platformLabel.includes('critics') || 
       platformLabel.includes('metascore') || 
       platformLabel.includes('tomatometer')) {
     return 'critic';
   }
-  // 用户评分标识
   return 'user';
 }
 
-/**
- * 映射平台名称到标准平台代码
- */
 function mapPlatformName(platformName: string): NormalizedRating['platform'] {
   if (platformName === 'rottentomatoes') return 'rt';
   if (platformName === 'metacritic') return 'mc';
   return platformName as NormalizedRating['platform'];
 }
 
-/**
- * 处理单个平台评分
- */
 function processPlatformRating(
   ratingData: any,
   platformConfig: {
@@ -95,7 +84,6 @@ function processPlatformRating(
 
   const platformLabel = platformConfig.platformLabel || platformConfig.name;
   
-  // 创建统一的评分数据结构
   const normalizedRatingData: NormalizedRating = {
     platform: mapPlatformName(platformConfig.name),
     type: determineRatingType(platformLabel),
@@ -123,9 +111,6 @@ function processPlatformRating(
   return result;
 }
 
-/**
- * 处理豆瓣评分
- */
 export function processDoubanRating(
   ratingData: any,
   medianVoteCount: number,
@@ -160,9 +145,6 @@ export function processDoubanRating(
   );
 }
 
-/**
- * 处理 IMDB 评分
- */
 export function processIMDBRating(
   ratingData: any,
   medianVoteCount: number,
@@ -180,9 +162,6 @@ export function processIMDBRating(
   );
 }
 
-/**
- * 处理烂番茄评分
- */
 export function processRottenTomatoesRating(
   ratingData: any,
   medianVoteCount: number,
@@ -195,7 +174,6 @@ export function processRottenTomatoesRating(
 
   if (!rtData) return;
 
-  // 处理专业评分
   if (isValidRatingData(rtData.critics_avg)) {
     processPlatformRating(
       { rottentomatoes: { current: rtData } },
@@ -225,7 +203,6 @@ export function processRottenTomatoesRating(
     );
   }
 
-  // 处理观众评分
   if (isValidRatingData(rtData.audience_avg)) {
     processPlatformRating(
       { rottentomatoes: { current: rtData } },
@@ -257,9 +234,6 @@ export function processRottenTomatoesRating(
   }
 }
 
-/**
- * 处理 Metacritic 评分
- */
 export function processMetacriticRating(
   ratingData: any,
   medianVoteCount: number,
@@ -272,7 +246,6 @@ export function processMetacriticRating(
 
   if (!mcData) return;
 
-  // 处理专业评分
   if (isValidRatingData(mcData.metascore)) {
     processPlatformRating(
       { metacritic: { current: mcData } },
@@ -289,7 +262,6 @@ export function processMetacriticRating(
     );
   }
 
-  // 处理用户评分
   if (isValidRatingData(mcData.userscore)) {
     processPlatformRating(
       { metacritic: { current: mcData } },
@@ -307,9 +279,6 @@ export function processMetacriticRating(
   }
 }
 
-/**
- * 处理 TMDB 评分
- */
 export function processTMDBRating(
   ratingData: any,
   medianVoteCount: number,
@@ -345,9 +314,6 @@ export function processTMDBRating(
   }
 }
 
-/**
- * 处理 Trakt 评分
- */
 export function processTraktRating(
   ratingData: any,
   medianVoteCount: number,
@@ -383,9 +349,6 @@ export function processTraktRating(
   }
 }
 
-/**
- * 处理 Letterboxd 评分
- */
 export function processLetterboxdRating(
   ratingData: any,
   medianVoteCount: number,
@@ -403,9 +366,6 @@ export function processLetterboxdRating(
   );
 }
 
-/**
- * 计算最终评分
- */
 export function calculateFinalRating(state: RatingCalculationState): number | null {
   if (state.normalizedRatings.length === 0) {
     return null;
@@ -430,9 +390,6 @@ export function calculateFinalRating(state: RatingCalculationState): number | nu
   return finalScore;
 }
 
-/**
- * 创建初始计算状态
- */
 export function createRatingCalculationState(): RatingCalculationState {
   return {
     ratingTimesVoteSum: 0,
