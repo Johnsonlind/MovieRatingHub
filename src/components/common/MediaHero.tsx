@@ -45,7 +45,7 @@ export function MediaHero({ media, backdropUrl }: MediaHeroProps) {
                 {media.title} <span className="text-gray-200">({media.year})</span>
               </h1>
 
-              {/* 移动端概览预览 */}
+              {/* 移动端概览 */}
               <div className="sm:hidden">
                 <p className="text-sm text-gray-200 leading-relaxed line-clamp-3">
                   {media.overview}
