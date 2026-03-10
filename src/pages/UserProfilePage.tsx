@@ -422,7 +422,7 @@ export default function UserProfilePage() {
     return (
       <>
         <NavBar />
-        <div className="min-h-screen pt-16 p-4 safe-area-bottom">
+        <div className="min-h-screen pt-16 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <ThemeToggle />
           <ScrollToTopButton />
           
@@ -454,13 +454,27 @@ export default function UserProfilePage() {
   }
 
   if (!userInfo) {
-    return <div>未找到该用户</div>;
+    return (
+      <>
+        <NavBar />
+        <div className="min-h-screen pt-16 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <ThemeToggle />
+          <ScrollToTopButton />
+          <div className="max-w-4xl mx-auto">
+            <div className="glass-card rounded-2xl p-8 text-center">
+              <p className="text-gray-600 dark:text-gray-400">未找到该用户</p>
+            </div>
+          </div>
+          <Footer />
+        </div>
+      </>
+    );
   }
 
   return (
     <>
       <NavBar />
-      <div className="min-h-screen bg-gradient-to-b from-blue-400 to-indigo-600 pt-16 p-4 safe-area-bottom">
+      <div className="min-h-screen pt-16 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
         <ThemeToggle />
         <ScrollToTopButton />
 
@@ -472,7 +486,7 @@ export default function UserProfilePage() {
         <div className="max-w-4xl mx-auto">
           <div className="glass-card rounded-2xl p-8 mb-8">
             <div className="flex items-center gap-4">
-              <div className="w-24 h-24 rounded-full overflow-hidden">
+              <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white dark:border-gray-700">
                 <img
                   src={userInfo.avatar || '/default-avatar.png'}
                   alt={userInfo.username}
@@ -502,11 +516,11 @@ export default function UserProfilePage() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+          <div className="glass-card rounded-2xl p-8">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold dark:text-white">片单</h2>
+              <h2 className="text-xl font-semibold text-gray-800 dark:text-white">片单</h2>
             </div>
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {lists.filter(list => list.is_public || user?.id === parseInt(id!)).map(list => (
                 <FavoriteListCard key={list.id} list={list} />
