@@ -1384,11 +1384,11 @@ export default function AdminChartsPage() {
                                         </div>
                                       )}
                                     </div>
-                                    <div className="flex gap-1 flex-wrap justify-center">
+                                    <div className="flex gap-1 flex-nowrap justify-center">
                                       <button
                                         disabled={locked}
                                         onClick={() => openPicker(platform, sec.name, sec.media_type, r)}
-                                        className={`shrink-0 min-w-[3.25rem] px-2 py-1 rounded text-sm transition-colors ${
+                                        className={`shrink-0 min-w-[2.75rem] sm:min-w-[3.25rem] px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-xs sm:text-sm transition-colors ${
                                           locked
                                             ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                                             : 'bg-green-600 text-white hover:bg-green-700'
@@ -1428,7 +1428,7 @@ export default function AdminChartsPage() {
                                             );
                                             setSubmitting((s) => !s);
                                           }}
-                                          className={`shrink-0 px-2 py-1 rounded text-sm transition-colors whitespace-nowrap ${
+                                          className={`shrink-0 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-xs sm:text-sm transition-colors whitespace-nowrap ${
                                             locked
                                               ? 'bg-red-500 text-white hover:bg-red-600'
                                               : 'bg-blue-500 text-white hover:bg-blue-600'
@@ -1467,7 +1467,7 @@ export default function AdminChartsPage() {
                                             );
                                             setSubmitting((s) => !s);
                                           }}
-                                          className={`shrink-0 px-2 py-1 rounded text-sm transition-colors whitespace-nowrap bg-gray-600 text-gray-200 hover:bg-gray-500`}
+                                          className={`shrink-0 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded text-xs sm:text-sm transition-colors whitespace-nowrap bg-gray-600 text-gray-200 hover:bg-gray-500`}
                                         >
                                           清空
                                         </button>
