@@ -24,7 +24,6 @@ export function ExportChartCard({
   platformLogo,
   layout = 'portrait'
 }: ExportChartCardProps) {
-  // 确保所有海报URL都通过代理 - 避免CORS问题
   const processedEntries = entries.map(entry => {
     let posterUrl = entry.poster || '';
     if (!posterUrl || posterUrl.trim() === '') {
@@ -50,7 +49,6 @@ export function ExportChartCard({
     return { ...entry, poster: `/api/image-proxy?url=${encodeURIComponent(posterUrl)}` };
   });
 
-  // 检测主题
   const isDark = typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark';
 
   // 横版布局
