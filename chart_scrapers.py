@@ -1929,7 +1929,6 @@ class ChartScraper:
                                 if m2:
                                     return m2.group(1)
                         
-                        # 如果找到了页面但没有 IMDb ID，直接返回 None（不重试）
                         return None
                         
                     except Exception as e:
