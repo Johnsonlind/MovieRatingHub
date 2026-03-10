@@ -9,12 +9,11 @@ from fuzzywuzzy import fuzz
 
 logger = logging.getLogger(__name__)
 
-# 用于识别选集剧的标题模式
 ANTHOLOGY_TITLE_PATTERNS = [
-    r'^(.+?):\s*(?:The\s+)?(.+?)\s+Story',  # "Monster: The Jeffrey Dahmer Story"
-    r'^(.+?):\s*Season\s+\d+',               # "American Horror Story: Season 1"
-    r'^(.+?)\s*[-–]\s*(.+?)$',               # "Dahmer - Monster: ..."
-    r'^(.+?):\s*(.+?)$',                     # 通用冒号分隔
+    r'^(.+?):\s*(?:The\s+)?(.+?)\s+Story',
+    r'^(.+?):\s*Season\s+\d+',
+    r'^(.+?)\s*[-–]\s*(.+?)$',
+    r'^(.+?):\s*(.+?)$',
 ]
 
 class AnthologyHandler:
@@ -43,7 +42,6 @@ class AnthologyHandler:
                 logger.info(f"通过原标题模式识别为可能的选集剧: {original_title}")
                 return True
         
-        # 单季剧集含特定关键词时可能是选集剧的一部分
         number_of_seasons = tmdb_info.get("number_of_seasons", 0)
         if number_of_seasons == 1:
             keywords = ["story", "tale", "chapter", "anthology"]
@@ -87,10 +85,7 @@ class AnthologyHandler:
         return None
     
     def extract_subtitle_from_title(self, title: str) -> Optional[str]:
-        """
-        提取完整副标题用于精确匹配
-        例: "Monster: The Ed Gein Story" -> "The Ed Gein Story"
-        """
+        """提取完整副标题用于精确匹配"""
         if ': ' in title:
             parts = title.split(': ', 1)
             if len(parts) == 2:
@@ -112,10 +107,7 @@ class AnthologyHandler:
         tmdb_info: Dict[str, Any], 
         series_info: Optional[Dict[str, Any]] = None
     ) -> Optional[str]:
-        """
-        多来源获取IMDB ID
-        优先使用TMDB外部ID API（最可靠），搜索作为兜底
-        """
+        """多来源获取IMDB ID"""
         if tmdb_info.get("imdb_id"):
             logger.info(f"✓ 从TMDB获取到IMDB ID: {tmdb_info['imdb_id']}")
             return tmdb_info["imdb_id"]
@@ -132,7 +124,6 @@ class AnthologyHandler:
         except Exception as e:
             logger.error(f"✗ 从TMDB外部ID API获取IMDB ID失败: {e}")
         
-        # 搜索作为最后手段，结果可能不准确
         try:
             title = tmdb_info.get("title") or tmdb_info.get("original_title")
             year = tmdb_info.get("year")
@@ -217,17 +208,11 @@ class AnthologyHandler:
         return None
     
     async def _get_main_series_from_episode_imdb(self, episode_imdb_id: str) -> Optional[Dict[str, Any]]:
-        """
-        通过第一集的IMDB ID获取主系列信息
-        从IMDB网页的__NEXT_DATA__中提取
-        """
+        """通过第一集的IMDB ID获取主系列信息"""
         return await self._get_main_series_from_episode_web(episode_imdb_id)
     
     async def _get_main_series_from_episode_web(self, episode_imdb_id: str) -> Optional[Dict[str, Any]]:
-        """
-        通过网页抓取方式从第一集的IMDB ID获取主系列信息
-        从IMDB网页的__NEXT_DATA__中提取aboveTheFoldData.series.series
-        """
+        """通过网页抓取方式从第一集的IMDB ID获取主系列信息"""
         try:
             import re
             import json
@@ -328,10 +313,7 @@ class AnthologyHandler:
         tmdb_info: Dict[str, Any],
         series_info: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
-        """
-        Trakt搜索入口
-        按准确度依次尝试: TMDB ID -> 主系列标题 -> 原始标题
-        """
+        """Trakt搜索入口"""
         try:
             title = tmdb_info.get("title") or tmdb_info.get("original_title")
             year = tmdb_info.get("year")
@@ -444,13 +426,7 @@ class AnthologyHandler:
         return None
     
     async def _get_trakt_rating(self, slug: str, media_type: str, tmdb_info: Dict[str, Any] = None, series_info: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-        """
-        获取Trakt评分
-        
-        分季评分策略:
-        - 选集剧/单季剧: 整体评分 + 第1季（因为整体评分可能是混合多季的）
-        - 多季剧: 整体评分 + 所有季
-        """
+        """获取Trakt评分"""
         try:
             headers = {
                 "Content-Type": "application/json",
@@ -603,14 +579,7 @@ class AnthologyHandler:
             return None
     
     def generate_search_variants(self, tmdb_info: Dict[str, Any], series_info: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
-        """
-        生成多策略搜索变体
-        
-        不同平台组织内容方式不同：
-        - 豆瓣/Letterboxd: 完整标题搜索
-        - IMDB/烂番茄/Metacritic: 主系列标题搜索
-        - 烂番茄选集剧: 副标题搜索效果最好
-        """
+        """生成多策略搜索变体"""
         variants = []
         
         title = tmdb_info.get("title", "")
@@ -651,7 +620,6 @@ class AnthologyHandler:
             if main_title:
                 subtitle_hint = self.extract_subtitle_from_title(tmdb_info.get("title", ""))
                 
-                # 不带年份搜索更通用，因为选集剧首播年份难以确定
                 variants.append({
                     "title": main_title,
                     "year": "",
@@ -710,6 +678,5 @@ class AnthologyHandler:
             logger.info(f"  {i}. {v['title']} ({v['year']}) [策略:{v['strategy']}, 类型:{v['type']}]")
         
         return unique_variants
-
 
 anthology_handler = AnthologyHandler()
