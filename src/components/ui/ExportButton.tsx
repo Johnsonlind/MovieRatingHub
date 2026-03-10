@@ -50,7 +50,6 @@ export function ExportButton({
   }, [showLayoutMenu]);
 
   const handleClick = async () => {
-    // 先选择横竖版，再选择季数（如果有）
     if (showLayoutSelect && !showLayoutMenu && !showSeasonSelect) {
       setShowLayoutMenu(true);
       return;
@@ -83,7 +82,6 @@ export function ExportButton({
   const handleLayoutChange = (layout: ExportLayout) => {
     setSelectedLayout(layout);
     setShowLayoutMenu(false);
-    // 如果有季数选择，先选择季数；否则直接导出
     if (seasons.length > 0) {
       setShowSeasonSelect(true);
     } else {
