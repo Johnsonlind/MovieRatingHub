@@ -66,9 +66,9 @@ class ChartEntry(Base):
     __tablename__ = "chart_entries"
     
     id = Column(Integer, primary_key=True, index=True)
-    platform = Column(String(50), index=True)  # imdb/tmdb/douban/letterboxd/trakt/metacritic/rottentomatoes
+    platform = Column(String(50), index=True)
     chart_name = Column(String(100), index=True)
-    media_type = Column(String(10), index=True)  # movie | tv
+    media_type = Column(String(10), index=True)
     tmdb_id = Column(Integer, index=True)
     title = Column(String(255))
     poster = Column(Text)
@@ -89,7 +89,7 @@ class PublicChartEntry(Base):
     id = Column(Integer, primary_key=True, index=True)
     platform = Column(String(50), index=True)
     chart_name = Column(String(100), index=True)
-    media_type = Column(String(10), index=True)  # movie | tv
+    media_type = Column(String(10), index=True)
     tmdb_id = Column(Integer, index=True)
     title = Column(String(255))
     poster = Column(Text)
@@ -119,7 +119,6 @@ class Follow(Base):
     note = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
     
-    # 添加唯一约束，确保一个用户不能重复关注同一个用户
     __table_args__ = (
         UniqueConstraint('follower_id', 'following_id', name='follower_id'),
     )
