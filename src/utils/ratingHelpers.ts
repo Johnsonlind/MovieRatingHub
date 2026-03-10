@@ -5,9 +5,9 @@ import type { DoubanSeasonRating, RottenTomatoesSeasonRating, MetacriticSeasonRa
 
 /**
  * 安全解析投票数，如果解析失败或无效则返回中位数
- * @param value 要解析的值（字符串或数字）
- * @param median 中位数默认值
- * @returns 解析后的数字或中位数
+ * @param value
+ * @param median
+ * @returns
  */
 export function safeParseCount(value: string | number | undefined | null, median: number): number {
   if (value === undefined || value === null) return median;
@@ -113,9 +113,7 @@ export function calculateMedianVoteCount(
 ): number {
   const { includeSeasons = false, checkOtherSeasons = false } = options;
   const voteCounts: number[] = [];
-  
-  // 收集所有有效的评分人数（必须>0且非NaN）
-  // 豆瓣
+
   if (ratingData.douban?.rating_people) {
     const count = parseFloat(ratingData.douban.rating_people.replace(/[^0-9]/g, ''));
     if (!isNaN(count) && count > 0) {
@@ -123,7 +121,6 @@ export function calculateMedianVoteCount(
     }
   }
   
-  // IMDB
   if (ratingData.imdb?.rating_people) {
     const count = parseFloat(ratingData.imdb.rating_people.replace(/[^0-9]/g, ''));
     if (!isNaN(count) && count > 0) {
@@ -131,7 +128,6 @@ export function calculateMedianVoteCount(
     }
   }
   
-  // 烂番茄
   if (ratingData.rottentomatoes?.series?.critics_count) {
     const count = parseFloat(ratingData.rottentomatoes.series.critics_count.replace(/[^0-9]/g, ''));
     if (!isNaN(count) && count > 0) voteCounts.push(count);
@@ -148,7 +144,6 @@ export function calculateMedianVoteCount(
     if (!isNaN(count) && count > 0) voteCounts.push(count);
   }
   
-  // Metacritic
   if (ratingData.metacritic?.overall?.critics_count) {
     const count = parseFloat(ratingData.metacritic.overall.critics_count);
     if (!isNaN(count) && count > 0) voteCounts.push(count);
@@ -165,7 +160,6 @@ export function calculateMedianVoteCount(
     if (!isNaN(count) && count > 0) voteCounts.push(count);
   }
   
-  // TMDB
   if (ratingData.tmdb?.voteCount) {
     const count = ratingData.tmdb.voteCount;
     if (!isNaN(count) && count > 0) {
@@ -173,7 +167,6 @@ export function calculateMedianVoteCount(
     }
   }
   
-  // Trakt
   if (ratingData.trakt?.votes) {
     const count = parseInt(ratingData.trakt.votes);
     if (!isNaN(count) && count > 0) {
@@ -181,7 +174,6 @@ export function calculateMedianVoteCount(
     }
   }
   
-  // Letterboxd
   if (ratingData.letterboxd?.rating_count) {
     const count = parseFloat(ratingData.letterboxd.rating_count.replace(/[^0-9]/g, ''));
     if (!isNaN(count) && count > 0) {
