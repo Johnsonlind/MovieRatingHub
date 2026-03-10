@@ -49,8 +49,8 @@ export function MediaHero({ media, backdropUrl, posterBelow, rightPanel, bottomR
               </div>
 
               {/* 文本列 */}
-              <div className="flex-1 text-center sm:text-left flex flex-col min-w-0">
-                <div className="flex items-center justify-between gap-3 mb-2">
+              <div className="flex-1 text-center sm:text-left flex flex-col min-w-0 w-full">
+                <div className="flex items-center justify-center sm:justify-between gap-3 mb-2 w-full">
                   <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white drop-shadow-lg">
                     {media.title} <span className="text-gray-200">({media.year})</span>
                   </h1>
