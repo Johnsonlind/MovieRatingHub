@@ -24,7 +24,6 @@ const downscaleTmdb = (url: string) => {
   return url;
 };
 
-// 平台logo映射
 const PLATFORM_LOGOS: Record<string, string> = {
   '豆瓣': '/logos/douban.png',
   'IMDb': '/logos/imdb.png',
@@ -65,7 +64,6 @@ export default function ChartDetailPage() {
     }
   }, [chartName]);
 
-  // 获取完整榜单数据
   const { data, isLoading, error } = useQuery<ChartDetail>({
     queryKey: ['chart-detail', platform, chartName],
     queryFn: async () => {
@@ -122,7 +120,6 @@ export default function ChartDetailPage() {
     );
   }
 
-  // 对条目按排名排序
   const sortedEntries = [...data.entries].sort((a, b) => a.rank - b.rank);
 
   const isMetacriticTop250 = chartName === 'Metacritic 史上最佳电影 Top 250' || 
