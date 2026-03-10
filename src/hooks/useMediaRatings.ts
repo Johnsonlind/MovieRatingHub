@@ -101,7 +101,6 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      // 重置所有平台状态为 loading
       BACKEND_PLATFORMS.forEach(platform => {
         setPlatformStatuses(prev => ({
           ...prev,
@@ -116,7 +115,6 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
         const apiType = mediaType === 'movie' ? 'movie' : 'tv';
         const traktType = mediaType === 'movie' ? 'movies' : 'shows';
 
-        // 获取后端平台评分
         const backendPromises = BACKEND_PLATFORMS.map(async platform => {
           const platformAbort = new AbortController();
           const timeoutId = setTimeout(() => platformAbort.abort(), BACKEND_PLATFORM_FETCH_TIMEOUT_MS);
@@ -149,7 +147,6 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
           }
         });
 
-        // 获取 TMDB 评分
         const tmdbPromise = fetchTMDBRating(apiType, mediaId)
           .then(data => {
             if (!data || !data.rating) {
@@ -178,7 +175,6 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
             setTmdbRating(null);
           });
 
-        // 获取 Trakt 评分
         const traktPromise = fetchTraktRating(traktType, mediaId)
           .then((data: any) => {
             if (!data || !data.rating) {
@@ -297,7 +293,6 @@ export function useMediaRatings({ mediaId, mediaType }: UseMediaRatingsOptions):
         setTraktRating(null);
       }
     } else {
-      // 后端平台重试
       setPlatformStatuses(prev => ({
         ...prev,
         [platform]: { ...prev[platform], status: 'loading' }
