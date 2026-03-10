@@ -357,11 +357,7 @@ async function compressImage(dataUrl: string, targetSizeMB: number = 10): Promis
   });
 }
 
-/**
- * 显示图片预览弹窗（用于移动端长按保存）
- */
 function showImagePreview(dataUrl: string, filename: string): void {
-  // 创建遮罩层
   const overlay = document.createElement('div');
   overlay.style.cssText = `
     position: fixed;
@@ -379,7 +375,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     animation: fadeIn 0.3s ease;
   `;
 
-  // 创建提示文字
   const hint = document.createElement('div');
   hint.style.cssText = `
     color: white;
@@ -398,7 +393,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     <div>选择"保存图片"或"添加到相册"</div>
   `;
 
-  // 创建图片容器
   const imgContainer = document.createElement('div');
   imgContainer.style.cssText = `
     max-width: 90%;
@@ -408,7 +402,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   `;
 
-  // 创建图片
   const img = document.createElement('img');
   img.src = dataUrl;
   img.alt = filename;
@@ -419,7 +412,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     border-radius: 10px;
   `;
 
-  // 创建关闭按钮
   const closeBtn = document.createElement('button');
   closeBtn.textContent = '✕ 关闭';
   closeBtn.style.cssText = `
@@ -439,7 +431,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
     setTimeout(() => document.body.removeChild(overlay), 300);
   };
 
-  // 点击遮罩层也关闭
   overlay.onclick = (e) => {
     if (e.target === overlay) {
       closeBtn.click();
@@ -451,7 +442,6 @@ function showImagePreview(dataUrl: string, filename: string): void {
   overlay.appendChild(imgContainer);
   overlay.appendChild(closeBtn);
 
-  // 添加动画样式
   const style = document.createElement('style');
   style.textContent = `
     @keyframes fadeIn {
@@ -469,18 +459,15 @@ function showImagePreview(dataUrl: string, filename: string): void {
   console.log('显示图片预览弹窗');
 }
 
-/**
- * 检测是否为微信浏览器
- */
 function isWeChat(): boolean {
   return /MicroMessenger/i.test(navigator.userAgent);
 }
 
 /**
  * 下载图片 - 兼容移动端浏览器
- * @param dataUrl - 图片的 data URL
- * @param filename - 文件名
- * @param isMobile - 是否为移动设备
+ * @param dataUrl
+ * @param filename
+ * @param isMobile
  */
 async function downloadImage(dataUrl: string, filename: string, isMobile: boolean): Promise<void> {
   if (isMobile) {
@@ -500,7 +487,6 @@ async function downloadImage(dataUrl: string, filename: string, isMobile: boolea
     console.log('移动浏览器：显示预览窗口供用户长按保存');
     showImagePreview(dataUrl, filename);
   } else {
-    // 桌面端直接下载
     const link = document.createElement('a');
     link.download = filename;
     link.href = dataUrl;
