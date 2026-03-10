@@ -335,7 +335,6 @@ def _login_verify_sync(email: str, password: str) -> tuple[Optional[User], Optio
     finally:
         db.close()
 
-
 @app.post("/auth/login")
 async def login(request: Request):
     login_start = time.time()
@@ -398,7 +397,6 @@ async def login(request: Request):
             status_code=500,
             detail=f"登录失败: {str(e)}"
         )
-
 
 @app.post("/auth/logout")
 async def logout(response: Response):
@@ -2103,6 +2101,7 @@ async def trakt_proxy(path: str, request: Request):
         raise HTTPException(status_code=500, detail=f"代理请求失败: {str(e)}")
 
 app.include_router(router)
+
 # ==========================================
 # 6.1 手工榜单录入与聚合（管理员）
 # ==========================================
@@ -3201,7 +3200,6 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
         logger.error(f"获取调度器状态失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取调度器状态失败: {str(e)}")
 
-
 @app.get("/api/health")
 async def health_check():
     """健康检查端点"""
@@ -3216,6 +3214,7 @@ async def health_check():
         "browser_pool": browser_pool_status,
         "browser_pool_stats": browser_pool_stats
     }
+
 
 # ==========================================
 # 7. 应用启动和关闭事件
