@@ -153,7 +153,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
                   </span>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)' }}>专业评分</span>
-                    {criticReviews && (
+                    {criticReviews && criticReviews !== '0' && (
                       <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
                         {criticReviews} 个专业评价
                       </span>
@@ -184,7 +184,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
                   </span>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)' }}>用户评分</span>
-                    {userReviews && (
+                    {userReviews && userReviews !== '0' && (
                       <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
                         {userReviews} 人评分
                       </span>
