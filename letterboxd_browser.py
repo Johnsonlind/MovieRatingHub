@@ -318,9 +318,9 @@ async def fetch_via_flaresolverr(url: str) -> Optional[FetchResult]:
                     "cmd": "request.get",
                     "session": sid,
                     "url": url,
-                    "maxTimeout": 10000,
+                    "maxTimeout": 30000,  # Cloudflare 挑战有时需 15-30 秒，10 秒易超时
                 },
-                timeout=aiohttp.ClientTimeout(total=15),
+                timeout=aiohttp.ClientTimeout(total=35),
             ) as resp:
                 data = await resp.json()
 
