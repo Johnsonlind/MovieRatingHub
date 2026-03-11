@@ -40,7 +40,6 @@ from sqlalchemy import func, or_, not_, and_, create_engine
 from sqlalchemy.pool import QueuePool
 from fastapi.middleware.gzip import GZipMiddleware
 from browser_pool import browser_pool
-from letterboxd_browser import init_letterboxd_browser, shutdown_letterboxd_browser
 import traceback
 
 # ==========================================
@@ -3249,21 +3248,6 @@ async def startup_event():
         logger.info(f"浏览器池初始化成功，共 {BROWSER_POOL_SIZE} 个浏览器实例")
     except Exception as e:
         logger.error(f"浏览器池初始化失败: {e}")
-
-    # Letterboxd 专用：单一常驻 Chromium + shared context
-    try:
-        await init_letterboxd_browser()
-        logger.info("Letterboxd 全局浏览器初始化成功")
-    except Exception as e:
-        logger.error(f"Letterboxd 全局浏览器初始化失败: {e}")
-
-    # Letterboxd FlareSolverr 全局 session（Playwright 失败时 fallback，复用 session 降低请求时间）
-    try:
-        from letterboxd_browser import init_flaresolverr_session
-        if await init_flaresolverr_session():
-            logger.info("Letterboxd FlareSolverr 全局 session 已就绪")
-    except Exception as e:
-        logger.error(f"Letterboxd FlareSolverr session 初始化失败: {e}")
     
     if os.getenv("ENV") != "development":
         try:
@@ -3281,19 +3265,6 @@ async def shutdown_event():
         print("浏览器池已清理")
     except Exception as e:
         print(f"浏览器池清理失败: {e}")
-
-    try:
-        from letterboxd_browser import destroy_flaresolverr_session
-        await destroy_flaresolverr_session()
-        print("Letterboxd FlareSolverr session 已销毁")
-    except Exception as e:
-        print(f"Letterboxd FlareSolverr session 销毁失败: {e}")
-
-    try:
-        await shutdown_letterboxd_browser()
-        print("Letterboxd 全局浏览器已清理")
-    except Exception as e:
-        print(f"Letterboxd 全局浏览器清理失败: {e}")
     
     global _tmdb_client
     if _tmdb_client and not _tmdb_client.is_closed:
