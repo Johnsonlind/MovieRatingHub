@@ -59,7 +59,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
     return (
       <div style={ratingCardStyle}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {criticScore && criticScore > 0 && (
+          {typeof criticScore === 'number' && criticScore > 0 && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
               <img 
                 src={getCriticLogo(criticScore)}
@@ -90,7 +90,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
               </div>
             </div>
           )}
-          {audienceScore && audienceScore > 0 && (
+          {typeof audienceScore === 'number' && audienceScore > 0 && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
               <img 
                 src={getAudienceLogo(audienceScore)}
@@ -132,7 +132,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
     return (
       <div style={ratingCardStyle}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {metascore && metascore > 0 && (
+          {typeof metascore === 'number' && metascore > 0 && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
               <img 
                 src="/logos/metacritic.png"
@@ -153,7 +153,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
                   </span>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)' }}>专业评分</span>
-                    {criticReviews && criticReviews !== '0' && (
+                    {criticReviews && (
                       <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
                         {criticReviews} 个专业评价
                       </span>
@@ -163,7 +163,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
               </div>
             </div>
           )}
-          {userScore && userScore > 0 && (
+          {typeof userScore === 'number' && userScore > 0 && (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
               <img 
                 src="/logos/metacritic_audience.png"
@@ -184,7 +184,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
                   </span>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)' }}>用户评分</span>
-                    {userReviews && userReviews !== '0' && (
+                    {userReviews && (
                       <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
                         {userReviews} 人评分
                       </span>
