@@ -113,14 +113,13 @@ def _is_letterboxd_rate_limit_html(html: str) -> bool:
     if not html or len(html) < 200:
         return False
     h = html.lower()
+    # 仅匹配明确为限制页的短语，避免误判（如 "blocked" 在 ad-blocked 中常见）
     phrases = (
         "rate limit exceeded",
         "too many requests",
         "you are being rate limited",
-        "access denied",
         "please wait and try again",
         "temporarily blocked",
-        "blocked",
     )
     return any(p in h for p in phrases)
 
@@ -334,11 +333,8 @@ async def fetch_via_flaresolverr(url: str) -> Optional[FetchResult]:
         final_url = sol.get("url") or url
         elapsed_ms = int((time.perf_counter() - start) * 1000)
 
-        # 校验：若返回的仍是 CF 挑战或 Letterboxd 限制页，视为失败
-        if await _is_cloudflare_challenge_html("", html) or _is_letterboxd_rate_limit_html(html):
-            logger.warning("Letterboxd FlareSolverr 返回了挑战/限制页，视为失败")
-            return None
-
+        # FlareSolverr 返回 ok 且 "Challenge solved!" 时信任其结果。
+        # 勿在此做 HTML 校验：Letterboxd 正常页也含 cf 脚本、"blocked" 等词，易误判。
         return FetchResult(url=url, final_url=final_url, html=html, elapsed_ms=elapsed_ms)
     except Exception as e:
         logger.warning(f"Letterboxd FlareSolverr 请求异常: {type(e).__name__}: {e}")
