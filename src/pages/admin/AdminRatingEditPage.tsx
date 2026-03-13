@@ -522,12 +522,16 @@ export default function AdminRatingEditPage() {
                               <>
                                 <Input label="番茄计" value={String(s.tomatometer ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, tomatometer: e.target.value } : x)); }} placeholder="95" />
                                 <Input label="爆米花" value={String(s.audience_score ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, audience_score: e.target.value } : x)); }} placeholder="88" />
+                                <Input label="影评人数" value={String(s.critics_count ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, critics_count: e.target.value } : x)); }} placeholder="200" />
+                                <Input label="观众人数" value={String(s.audience_count ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, audience_count: e.target.value } : x)); }} placeholder="5000" />
                               </>
                             )}
                             {activePlatform === 'Metacritic' && (
                               <>
                                 <Input label="Metascore" value={String(s.metascore ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, metascore: e.target.value } : x)); }} placeholder="85" />
                                 <Input label="User Score" value={String(s.userscore ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, userscore: e.target.value } : x)); }} placeholder="8.5" />
+                                <Input label="影评人数" value={String(s.critics_count ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, critics_count: e.target.value } : x)); }} placeholder="40" />
+                                <Input label="用户人数" value={String(s.users_count ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, users_count: e.target.value } : x)); }} placeholder="500" />
                               </>
                             )}
                             {activePlatform === 'TMDB' && (
