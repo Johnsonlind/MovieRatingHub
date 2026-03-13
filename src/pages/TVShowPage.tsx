@@ -32,8 +32,6 @@ import { SeasonRatings } from '../components/tv/SeasonRatings';
 import type { TVShow } from '../types/media';
 
 const PRELOAD_IMAGES = [
-  `/background.png`,
-  `/rating-template.png`,
   `/logos/douban.png`,
   `/logos/imdb.png`,
   `/logos/letterboxd.png`,
@@ -100,8 +98,6 @@ export default function TVShowPage() {
       preloadImages({
         poster: tvShow.poster,
         cdnImages: [
-          `/background.png`,
-          `/rating-template.png`,
           `/logos/douban.png`,
           `/logos/imdb.png`,
           `/logos/letterboxd.png`,
