@@ -33,7 +33,12 @@ const FavoriteListPage = lazy(() => import('./pages/FavoriteListPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const AuthConfirmPage = lazy(() => import('./pages/AuthConfirmPage'));
 const AuthErrorPage = lazy(() => import('./pages/AuthErrorPage'));
-const AdminChartsPage = lazy(() => import('./pages/AdminChartsPage'));
+const AdminLayout = lazy(() => import('./layouts/AdminLayout'));
+const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage'));
+const AdminChartsPage = lazy(() => import('./pages/admin/AdminChartsPage'));
+const AdminRatingInputPage = lazy(() => import('./pages/admin/AdminRatingInputPage'));
+const AdminRatingEditPage = lazy(() => import('./pages/admin/AdminRatingEditPage'));
+const AdminOtherPage = lazy(() => import('./pages/admin/AdminOtherPage'));
 const ChartsPage = lazy(() => import('./pages/ChartsPage'));
 const ChartDetailPage = lazy(() => import('./pages/ChartDetailPage'));
 
@@ -58,8 +63,14 @@ function App() {
                 <Route path="/profile/:id" element={<UserProfilePage />} />
                 <Route path="/charts" element={<ChartsPage />} />
                 <Route path="/charts/:platform/:chartName" element={<ChartDetailPage />} />
-                {/* 隐藏入口，仅路径访问 */}
-                <Route path="/admin/charts" element={<AdminChartsPage />} />
+                {/* 管理员后台 */}
+                <Route path="/admin" element={<AdminLayout />}>
+                  <Route index element={<AdminDashboardPage />} />
+                  <Route path="charts" element={<AdminChartsPage />} />
+                  <Route path="ratings/input" element={<AdminRatingInputPage />} />
+                  <Route path="ratings/edit" element={<AdminRatingEditPage />} />
+                  <Route path="other" element={<AdminOtherPage />} />
+                </Route>
               </Routes>
             </Suspense>
           </div>
