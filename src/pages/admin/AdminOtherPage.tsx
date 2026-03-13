@@ -1,9 +1,14 @@
 // ==========================================
 // 管理员 - 其他功能（占位页）
 // ==========================================
+import { useEffect } from 'react';
 import { Construction } from 'lucide-react';
 
 export default function AdminOtherPage() {
+  useEffect(() => {
+    document.title = '其他功能 - RateFuse';
+  }, []);
+  
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-1">
