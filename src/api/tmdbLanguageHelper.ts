@@ -101,52 +101,73 @@ export async function fetchTMDBWithLanguageFallback(
   baseParams: Record<string, any> = {},
   appendToResponse?: string
 ): Promise<any> {
-  const requests = LANGUAGE_PRIORITY.map(async (lang) => {
+  const REQUEST_TIMEOUT_MS = 12_000;
+
+  const fetchOne = async (lang: LanguageCode) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const params = new URLSearchParams({
         ...baseParams,
         language: lang,
       });
-      
+
       if (appendToResponse) {
         params.append('append_to_response', appendToResponse);
       }
-      
-      const response = await fetch(`${url}?${params.toString()}`);
-      
+
+      const response = await fetch(`${url}?${params.toString()}`, {
+        signal: controller.signal,
+      });
+
       if (!response.ok) {
-        return { lang, data: null, error: `HTTP ${response.status}` };
+        return { lang, data: null as any, error: `HTTP ${response.status}` };
       }
-      
+
       const data = await response.json();
-      
-      if (data.status_code && data.status_code !== 1) {
-        return { lang, data: null, error: data.status_message || 'Unknown error' };
+
+      if (data?.status_code && data.status_code !== 1) {
+        return { lang, data: null as any, error: data.status_message || 'Unknown error' };
       }
-      
-      return { lang, data, error: null };
+
+      return { lang, data, error: null as any };
     } catch (error) {
-      return { lang, data: null, error: error instanceof Error ? error.message : String(error) };
+      const message =
+        error instanceof Error ? (error.name === 'AbortError' ? 'Timeout' : error.message) : String(error);
+      return { lang, data: null as any, error: message };
+    } finally {
+      clearTimeout(timeoutId);
     }
-  });
-  
-  const results = await Promise.all(requests);
-  
+  };
+
   const dataList: Array<{ data: any; lang: LanguageCode }> = [];
   const errors: Array<{ lang: LanguageCode; error: any }> = [];
-  
-  for (const result of results) {
+
+  for (const lang of LANGUAGE_PRIORITY) {
+    const result = await fetchOne(lang);
     if (result.data) {
-      dataList.push({ data: result.data, lang: result.lang });
+      dataList.push({ data: result.data, lang });
+
+      const mergedSoFar = mergeMultiLanguageData(dataList);
+      const hasTitle =
+        !isStringEmpty(mergedSoFar?.title) ||
+        !isStringEmpty(mergedSoFar?.name) ||
+        !isStringEmpty(mergedSoFar?.original_title) ||
+        !isStringEmpty(mergedSoFar?.original_name);
+      const hasOverview = !isStringEmpty(mergedSoFar?.overview);
+
+      if (hasTitle && hasOverview) {
+        return mergedSoFar;
+      }
     } else {
-      errors.push({ lang: result.lang, error: result.error });
+      errors.push({ lang, error: result.error });
     }
   }
-  
+
   if (dataList.length === 0) {
     throw new Error(`所有语言版本获取失败: ${errors.map(e => `${e.lang}: ${e.error}`).join(', ')}`);
   }
-  
+
   return mergeMultiLanguageData(dataList);
 }
 
