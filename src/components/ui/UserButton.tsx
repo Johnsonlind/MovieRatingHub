@@ -176,6 +176,17 @@ export function UserButton() {
             >
               个人中心
             </button>
+            {user.is_admin && (
+              <button
+                onClick={() => {
+                  navigate('/admin');
+                  setShowDropdown(false);
+                }}
+                className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              >
+                管理后台
+              </button>
+            )}
             <button
               onClick={handleOpenCookieDialog}
               className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
