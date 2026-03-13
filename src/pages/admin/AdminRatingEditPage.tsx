@@ -24,13 +24,14 @@ interface SearchResult {
   tvShows: { results: MediaItem[] };
 }
 
-const PLATFORMS = ['豆瓣', 'IMDb', 'Letterboxd', '烂番茄', 'Metacritic', 'TMDB', 'Trakt'] as const;
-const SEASON_PLATFORMS = ['豆瓣', '烂番茄', 'Metacritic', 'TMDB', 'Trakt'];
+// 平台顺序：豆瓣、IMDb、Rotten Tomatoes、Metacritic、Letterboxd、TMDB、Trakt
+const PLATFORMS = ['豆瓣', 'IMDb', 'Rotten Tomatoes', 'Metacritic', 'Letterboxd', 'TMDB', 'Trakt'] as const;
+const SEASON_PLATFORMS = ['豆瓣', 'Rotten Tomatoes', 'Metacritic', 'TMDB', 'Trakt'];
 const PLATFORM_TO_KEY: Record<string, string> = {
   '豆瓣': 'douban',
   'IMDb': 'imdb',
   'Letterboxd': 'letterboxd',
-  '烂番茄': 'rottentomatoes',
+  'Rotten Tomatoes': 'rottentomatoes',
   'Metacritic': 'metacritic',
   'TMDB': 'tmdb',
   'Trakt': 'trakt',
@@ -46,14 +47,18 @@ async function searchTMDB(q: string): Promise<SearchResult> {
     id: r.id,
     type: 'movie' as const,
     title: r.title || '',
-    poster: r.poster_path ? `/tmdb-images/w342${r.poster_path}` : '',
+    poster: r.poster_path
+      ? `/api/image-proxy?url=${encodeURIComponent(`/tmdb-images/w342${r.poster_path}`)}`
+      : '',
     year: r.release_date ? new Date(r.release_date).getFullYear() : undefined,
   }));
   const tvs = (data.results || []).filter((r: any) => r.media_type === 'tv').map((r: any) => ({
     id: r.id,
     type: 'tv' as const,
     title: r.name || '',
-    poster: r.poster_path ? `/tmdb-images/w342${r.poster_path}` : '',
+    poster: r.poster_path
+      ? `/api/image-proxy?url=${encodeURIComponent(`/tmdb-images/w342${r.poster_path}`)}`
+      : '',
     year: r.first_air_date ? new Date(r.first_air_date).getFullYear() : undefined,
   }));
   return { movies: { results: movies }, tvShows: { results: tvs } };
@@ -125,6 +130,10 @@ export default function AdminRatingEditPage() {
     setSeasons([]);
   }, [activePlatform, selectedMedia?.id]);
 
+  useEffect(() => {
+    document.title = '评分数据修改（管理员） - RateFuse';
+  }, []);
+
   const debouncedQuery = useDebounce(searchQuery, 350);
   const { data: searchData } = useQuery({
     queryKey: ['admin-rating-edit-search', debouncedQuery],
@@ -194,7 +203,6 @@ export default function AdminRatingEditPage() {
         case 'letterboxd':
           payload.rating = formData.get('rating');
           payload.rating_count = formData.get('rating_count');
-          payload.status = formData.get('status');
           break;
         case 'rottentomatoes':
           payload.tomatometer = formData.get('tomatometer');
@@ -404,14 +412,9 @@ export default function AdminRatingEditPage() {
                         placeholder="如 50000"
                         defaultValue={extractValue(platformData, 'rating_count')}
                       />
-                      <Input
-                        label="状态"
-                        name="status"
-                        defaultValue={extractValue(platformData, 'status') || 'Released'}
-                      />
                     </div>
                   )}
-                  {activePlatform === '烂番茄' && (
+                  {activePlatform === 'Rotten Tomatoes' && (
                     <div className="grid gap-3 sm:grid-cols-2">
                       <Input
                         label="番茄计"
@@ -515,7 +518,7 @@ export default function AdminRatingEditPage() {
                                 <Input label="评分人数" value={String(s.rating_people ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, rating_people: e.target.value } : x)); }} placeholder="1000" />
                               </>
                             )}
-                            {activePlatform === '烂番茄' && (
+                            {activePlatform === 'Rotten Tomatoes' && (
                               <>
                                 <Input label="番茄计" value={String(s.tomatometer ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, tomatometer: e.target.value } : x)); }} placeholder="95" />
                                 <Input label="爆米花" value={String(s.audience_score ?? '')} onChange={(e) => { const src = seasons.length ? seasons : initialSeasons; setSeasons(src.map((x, i) => i === idx ? { ...x, audience_score: e.target.value } : x)); }} placeholder="88" />
