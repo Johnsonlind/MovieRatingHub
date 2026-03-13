@@ -76,7 +76,7 @@ interface SeasonEntry {
 
 function getSeasonsFromPlatformData(platformKey: string, data: Record<string, unknown> | null): SeasonEntry[] {
   if (!data) return [];
-  const arr = (data.seasons || data.series?.seasons) as Array<Record<string, unknown>> | undefined;
+  const arr = (data.seasons || (data as any).series?.seasons) as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(arr)) return [];
   return arr.map((s) => {
     const sn = Number(s.season_number) || 0;
