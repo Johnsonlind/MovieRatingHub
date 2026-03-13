@@ -25,7 +25,7 @@ from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, PublicChartEntry, SchedulerStatus
 from sqlalchemy.orm import Session, selectinload
-from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform, create_rating_data
+from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform, create_rating_data, get_tmdb_http_client, TMDB_API_BASE_URL
 from redis import asyncio as aioredis
 import json
 import base64
@@ -1766,6 +1766,93 @@ async def get_all_platform_ratings(
         
         logger.error(f"获取所有平台评分失败: {str(e)[:100]}")
         raise HTTPException(status_code=500, detail=f"获取评分失败: {str(e)}")
+
+@app.get("/api/ratings/tmdb/{type}/{id}")
+async def get_tmdb_rating(
+    type: str,
+    id: str,
+    request: Request,
+):
+    """获取 TMDB 评分数据（含剧集分季），并写入缓存"""
+    start_time = time.time()
+    if type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail="type 必须是 movie 或 tv")
+
+    cache_key = f"tmdb:rating:{type}:{id}"
+    cached = await get_cache(cache_key)
+    if cached:
+        return cached
+
+    if await request.is_disconnected():
+        return None
+
+    client = get_tmdb_http_client()
+    endpoint = f"{TMDB_API_BASE_URL}{type}/{id}"
+
+    try:
+        resp = await client.get(endpoint, params={"language": "zh-CN"})
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail="TMDB API 请求失败")
+        data = resp.json() or {}
+
+        result: dict = {
+            "rating": float(data.get("vote_average") or 0),
+            "voteCount": int(data.get("vote_count") or 0),
+        }
+
+        if type == "tv":
+            seasons = data.get("seasons") or []
+            season_numbers: list[int] = []
+            for s in seasons:
+                if not isinstance(s, dict):
+                    continue
+                sn = s.get("season_number")
+                try:
+                    sn_int = int(sn)
+                except (TypeError, ValueError):
+                    continue
+                # 过滤掉 Special（0）
+                if sn_int <= 0:
+                    continue
+                season_numbers.append(sn_int)
+
+            sem = asyncio.Semaphore(6)
+
+            async def fetch_season(sn_int: int):
+                async with sem:
+                    if await request.is_disconnected():
+                        return None
+                    season_endpoint = f"{TMDB_API_BASE_URL}{type}/{id}/season/{sn_int}"
+                    r = await client.get(season_endpoint, params={"language": "zh-CN"})
+                    if r.status_code != 200:
+                        return {"season_number": sn_int, "rating": 0.0, "voteCount": 0}
+                    sd = r.json() or {}
+                    return {
+                        "season_number": sn_int,
+                        "rating": float(sd.get("vote_average") or 0),
+                        "voteCount": int(sd.get("vote_count") or 0),
+                    }
+
+            season_results = await asyncio.gather(
+                *[fetch_season(sn) for sn in season_numbers],
+                return_exceptions=True,
+            )
+
+            cleaned = []
+            for item in season_results:
+                if isinstance(item, Exception) or not item:
+                    continue
+                cleaned.append(item)
+            result["seasons"] = cleaned
+
+        await set_cache(cache_key, result, expire=CACHE_EXPIRE_TIME)
+        result["_performance"] = {"total_time": round(time.time() - start_time, 2), "cached": False}
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取 TMDB 评分失败: {str(e)[:200]}")
+        raise HTTPException(status_code=500, detail=f"获取 TMDB 评分失败: {str(e)}")
 
 @app.get("/api/ratings/{platform}/{type}/{id}")
 async def get_platform_rating(
