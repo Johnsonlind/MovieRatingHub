@@ -16,7 +16,7 @@ import { MovieRatingData } from '../types/ratings';
 import { Movie as MediaMovie } from '../types/media';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { NavBar } from '../components/ui/NavBar';
-import { getBase64Image } from '../api/image';
+import { getBase64ImageWithOptions } from '../api/image';
 import { ExportButton, type ExportLayout } from '../components/ui/ExportButton';
 import { FavoriteButton } from '../components/ui/FavoriteButton';
 import { ErrorMessage } from '../components/ui/ErrorMessage';
@@ -101,7 +101,7 @@ export default function MoviePage() {
 
   useEffect(() => {
     if (movie?.poster) {
-      getBase64Image(movie.poster)
+      getBase64ImageWithOptions(movie.poster, { cacheBust: false })
         .then(base64 => setPosterBase64(base64))
         .catch(error => console.error('Failed to convert poster to base64:', error));
     }
@@ -183,7 +183,9 @@ export default function MoviePage() {
       if (!element) throw new Error('导出元素不存在');
 
       const fileName = `${movie.title} (${movie.year})`.replace(/[/\\?%*:|"<>]/g, '-');
-      await exportToPng(element, `${fileName}.png`);
+      await exportToPng(element, `${fileName}.png`, {
+        cacheKey: `movie:${id}:${layout}:${document.documentElement.getAttribute('data-theme') || 'light'}`,
+      });
     } catch (error) {
       console.error('导出失败:', error);
     } finally {
