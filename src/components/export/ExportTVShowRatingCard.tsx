@@ -39,6 +39,31 @@ interface CurrentRatings {
   } | null;
 }
 
+function aggregateDoubanSeasons(douban?: DoubanRating | null): DoubanRating | null {
+  if (!douban) return null;
+  const seasons = Array.isArray(douban.seasons) ? douban.seasons : [];
+  if (seasons.length === 0) return douban;
+
+  const ratings: number[] = [];
+  let peopleSum = 0;
+
+  for (const s of seasons) {
+    const r = Number(s.rating);
+    const p = Number(s.rating_people);
+    if (Number.isFinite(r) && r > 0) ratings.push(r);
+    if (Number.isFinite(p) && p > 0) peopleSum += p;
+  }
+
+  if (ratings.length === 0) return douban;
+
+  const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+  return {
+    ...douban,
+    rating: avg.toFixed(1),
+    rating_people: String(peopleSum),
+  };
+}
+
 export function ExportTVShowRatingCard({ 
   tvShow,
   ratingData,
@@ -84,7 +109,7 @@ export function ExportTVShowRatingCard({
         letterboxd: null
       }
     : {
-        douban: ratingData.douban ?? null,
+        douban: aggregateDoubanSeasons(ratingData.douban ?? null),
         imdb: ratingData.imdb ?? null,
         rt: ratingData.rottentomatoes?.series ?? null,
         metacritic: ratingData.metacritic?.overall ?? null,
@@ -101,16 +126,101 @@ export function ExportTVShowRatingCard({
   const ratingCards = [];
 
   if (ratings.douban && isValidRatingData(ratings.douban.rating)) {
-    ratingCards.push(
-      <div key="douban" style={{ width: '100%' }}>
-        {renderRatingCard(
-          `/logos/douban.png`,
-          Number(ratings.douban.rating),
-          `${formatRating.count(ratings.douban.rating_people)} 人评分`,
-          true
-        )}
-      </div>
-    );
+    const isAggregatedDouban =
+      !selectedSeason &&
+      !!ratingData.douban?.seasons &&
+      ratingData.douban.seasons.length > 0 &&
+      ratings.douban !== null;
+
+    if (isAggregatedDouban && ratings.douban) {
+      // 自定义豆瓣卡片：右下角显示“*各季均分与总人数”
+      ratingCards.push(
+        <div key="douban" style={{ width: '100%' }}>
+          <div style={{ ...styles.ratingCardStyle, position: 'relative' as const }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+              <img
+                src="/logos/douban.png"
+                alt=""
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  objectFit: 'contain',
+                  flexShrink: 0,
+                  imageRendering: 'auto',
+                }}
+                crossOrigin="anonymous"
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                  <span
+                    style={{
+                      fontSize: '36px',
+                      fontWeight: 'bold',
+                      lineHeight: 1,
+                      color: '#ffffff',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {Number(ratings.douban.rating).toFixed(1)}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: '14px',
+                    color: 'rgba(255, 255, 255, 0.85)',
+                    marginTop: '4px',
+                  }}
+                >
+                  {`${formatRating.count(ratings.douban.rating_people)} 人评分`}
+                </div>
+                <div style={{ marginTop: '8px', display: 'flex', gap: '2px' }}>
+                  {[...Array(5)].map((_, i) => {
+                    const baseRating = Number(ratings.douban?.rating ?? 0);
+                    const starValue = (baseRating / 10) * 5;
+                    const isFull = i < Math.floor(starValue);
+                    const isHalf = i === Math.floor(starValue) && starValue % 1 >= 0.3;
+                    return (
+                      <span
+                        key={i}
+                        style={{
+                          fontSize: '16px',
+                          color: isFull || isHalf ? '#fbbf24' : '#6b7280',
+                        }}
+                      >
+                        {isFull ? '★' : isHalf ? '☆' : '☆'}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <div
+              style={{
+                position: 'absolute',
+                right: '16px',
+                bottom: '10px',
+                fontSize: '12px',
+                color: 'rgba(255, 255, 255, 0.85)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              *各季均分与总人数
+            </div>
+          </div>
+        </div>
+      );
+    } else {
+      ratingCards.push(
+        <div key="douban" style={{ width: '100%' }}>
+          {renderRatingCard(
+            `/logos/douban.png`,
+            Number(ratings.douban.rating),
+            `${formatRating.count(ratings.douban.rating_people)} 人评分`,
+            true
+          )}
+        </div>
+      );
+    }
   }
 
   if (!selectedSeason && ratings.imdb && isValidRatingData(ratings.imdb.rating)) {
