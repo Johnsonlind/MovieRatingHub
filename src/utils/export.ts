@@ -32,7 +32,6 @@ export const preloadImages = async (images: { poster?: string; cdnImages: string
   promises.push(...cdnPromises);
 
   if (images.poster) {
-    // 仅预加载，不做 base64 转换（转换会触发跨域/解码/绘制，耗时且此处结果未被使用）
     const posterPromise = new Promise<void>((resolve) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
