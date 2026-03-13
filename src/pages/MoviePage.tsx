@@ -30,8 +30,6 @@ import { calculateOverallRating } from '../utils/ratings/calculateOverallRating'
 import { OverallRatingCard } from '../components/ratings/OverallRatingCard';
 
 const PRELOAD_IMAGES = [
-  '/background.png',
-  '/rating-template.png',
   '/logos/douban.png',
   '/logos/imdb.png',
   '/logos/letterboxd.png',
