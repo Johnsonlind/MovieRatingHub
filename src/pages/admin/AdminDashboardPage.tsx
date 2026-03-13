@@ -1,6 +1,7 @@
 // ==========================================
 // 管理员首页 / 仪表盘
 // ==========================================
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { BarChart3, PenLine, Edit3, MoreHorizontal, ArrowRight } from 'lucide-react';
 
@@ -12,6 +13,10 @@ const LINKS = [
 ];
 
 export default function AdminDashboardPage() {
+  useEffect(() => {
+    document.title = '管理员后台 - RateFuse';
+  }, []);
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2">
