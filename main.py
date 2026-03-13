@@ -46,7 +46,9 @@ import traceback
 # 1. 配置和初始化部分
 # ==========================================
 
-REDIS_URL = "redis://:l1994z0912x@localhost:6379/0"
+# 本地 redis-server 默认无密码，用 redis://localhost:6379/0
+# 线上有密码时在 .env 设置 REDIS_URL=redis://:密码@host:6379/0
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CACHE_EXPIRE_TIME = 24 * 60 * 60
 CHARTS_CACHE_EXPIRE = 2 * 60
 redis = None
@@ -2109,6 +2111,188 @@ app.include_router(router)
 def require_admin(user: User):
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
+
+def _build_seasons_list(body: dict, platform: str, media_type: str) -> list:
+    """从 body.seasons 构建分季评分列表，仅剧集需要"""
+    if media_type != "tv":
+        return []
+    seasons = body.get("seasons") or []
+    if not isinstance(seasons, list):
+        return []
+    result = []
+    for s in seasons:
+        if not isinstance(s, dict):
+            continue
+        sn = s.get("season_number")
+        if sn is None:
+            continue
+        try:
+            sn = int(sn)
+        except (TypeError, ValueError):
+            continue
+        item = {"season_number": sn}
+        if platform == "douban":
+            item["rating"] = str(s.get("rating") or "").strip() or "0"
+            item["rating_people"] = str(s.get("rating_people") or "").strip() or "0"
+        elif platform == "rottentomatoes":
+            item["tomatometer"] = str(s.get("tomatometer") or "").strip() or "0"
+            item["audience_score"] = str(s.get("audience_score") or "").strip() or "0"
+            item["critics_count"] = str(s.get("critics_count") or "").strip() or "0"
+            item["audience_count"] = str(s.get("audience_count") or "").strip() or "0"
+        elif platform == "metacritic":
+            item["metascore"] = str(s.get("metascore") or "").strip() or "0"
+            item["userscore"] = str(s.get("userscore") or "").strip() or "0"
+            item["critics_count"] = str(s.get("critics_count") or "").strip() or "0"
+            item["users_count"] = str(s.get("users_count") or "").strip() or "0"
+        elif platform == "tmdb":
+            item["rating"] = float(s.get("rating") or 0) if s.get("rating") is not None else 0.0
+            item["voteCount"] = int(s.get("vote_count") or 0) if s.get("vote_count") is not None else 0
+        elif platform == "trakt":
+            item["rating"] = float(s.get("rating") or 0) if s.get("rating") is not None else 0.0
+            item["votes"] = int(s.get("votes") or 0) if s.get("votes") is not None else 0
+        result.append(item)
+    return result
+
+def _build_manual_rating_payload(platform: str, body: dict, media_type: str):
+    """根据平台和请求体构建手动录入的评分数据结构"""
+    status = RATING_STATUS["SUCCESSFUL"]
+    seasons_list = _build_seasons_list(body, platform, media_type) if media_type == "tv" else []
+    if platform == "douban":
+        base = {"status": status, "rating": str(body.get("rating") or "").strip() or "0", "rating_people": str(body.get("rating_people") or "").strip() or "0"}
+        if media_type == "tv" and seasons_list:
+            base["seasons"] = seasons_list
+        return base
+    if platform == "imdb":
+        return {"status": status, "rating": str(body.get("rating") or "").strip() or "0", "rating_people": str(body.get("rating_people") or "").strip() or "0"}
+    if platform == "letterboxd":
+        return {"status": status, "rating": str(body.get("rating") or "").strip() or "0", "rating_count": str(body.get("rating_count") or "").strip() or "0", "status_widget": str(body.get("status") or "Released").strip()}
+    if platform == "rottentomatoes":
+        series = {"tomatometer": str(body.get("tomatometer") or "").strip() or "0", "audience_score": str(body.get("audience_score") or "").strip() or "0", "critics_avg": "0", "audience_avg": "0", "critics_count": str(body.get("critics_count") or "").strip() or "0", "audience_count": str(body.get("audience_count") or "").strip() or "0"}
+        ret = {"status": status, "series": series}
+        if media_type == "tv" and seasons_list:
+            ret["seasons"] = seasons_list
+        return ret
+    if platform == "metacritic":
+        overall = {"metascore": str(body.get("metascore") or "").strip() or "0", "critics_count": str(body.get("critics_count") or "").strip() or "0", "userscore": str(body.get("userscore") or "").strip() or "0", "users_count": str(body.get("users_count") or "").strip() or "0"}
+        ret = {"status": status, "overall": overall}
+        if media_type == "tv" and seasons_list:
+            ret["seasons"] = seasons_list
+        else:
+            ret["seasons"] = seasons_list or []
+        return ret
+    if platform == "tmdb":
+        try:
+            r = float(body.get("rating") or 0)
+        except (TypeError, ValueError):
+            r = 0.0
+        try:
+            vc = int(body.get("vote_count") or 0)
+        except (TypeError, ValueError):
+            vc = 0
+        ret = {"status": status, "rating": r, "voteCount": vc}
+        if media_type == "tv" and seasons_list:
+            ret["seasons"] = seasons_list
+        return ret
+    if platform == "trakt":
+        try:
+            r = float(body.get("rating") or 0)
+        except (TypeError, ValueError):
+            r = 0.0
+        try:
+            v = int(body.get("votes") or 0)
+        except (TypeError, ValueError):
+            v = 0
+        ret = {"status": status, "rating": r, "votes": v, "distribution": {}}
+        if media_type == "tv" and seasons_list:
+            ret["seasons"] = seasons_list
+        return ret
+    raise HTTPException(status_code=400, detail=f"不支持的平台: {platform}")
+
+@app.put("/api/admin/ratings/manual/{media_type}/{tmdb_id}")
+async def save_manual_rating(
+    media_type: str,
+    tmdb_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """管理员：保存/覆盖指定影视某平台的手动评分到缓存"""
+    require_admin(current_user)
+    if media_type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
+    try:
+        tid = int(tmdb_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="tmdb_id 必须是有效数字")
+    body = await request.json()
+    platform = (body.get("platform") or "").strip().lower()
+    if not platform:
+        raise HTTPException(status_code=400, detail="缺少 platform 参数")
+    if not redis:
+        raise HTTPException(status_code=503, detail="Redis 未连接，手动评分无法持久化。请启动 Redis 服务（localhost:6379）后重试。")
+    payload = _build_manual_rating_payload(platform, body, media_type)
+    cache_key = f"rating:{platform}:{media_type}:{tid}"
+    try:
+        await set_cache(cache_key, payload)
+    except Exception as e:
+        logger.error(f"保存手动评分到缓存失败: {e}")
+        raise HTTPException(status_code=503, detail=f"缓存写入失败，请检查 Redis 连接: {str(e)}")
+    all_key = f"ratings:all:{media_type}:{tid}"
+    try:
+        raw = await redis.get(all_key)
+        if raw:
+            all_data = json.loads(raw)
+            if isinstance(all_data, dict):
+                ratings = all_data.get("ratings")
+                if isinstance(ratings, dict):
+                    ratings[platform] = payload
+                    await redis.setex(all_key, CACHE_EXPIRE_TIME, json.dumps(all_data))
+    except Exception as e:
+        logger.warning(f"更新 all 缓存时出错: {e}")
+    return {"ok": True, "platform": platform, "message": "已保存"}
+
+@app.post("/api/admin/ratings/manual")
+async def create_manual_rating(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """管理员：新建手动评分（与 PUT 相同逻辑，body 需包含 tmdb_id, media_type, platform）"""
+    require_admin(current_user)
+    body = await request.json()
+    media_type = str(body.get("media_type") or "").strip().lower()
+    tmdb_id = body.get("tmdb_id")
+    if media_type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
+    if tmdb_id is None:
+        raise HTTPException(status_code=400, detail="缺少 tmdb_id")
+    try:
+        tid = int(tmdb_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="tmdb_id 必须是有效数字")
+    platform = (body.get("platform") or "").strip().lower()
+    if not platform:
+        raise HTTPException(status_code=400, detail="缺少 platform 参数")
+    if not redis:
+        raise HTTPException(status_code=503, detail="Redis 未连接，手动评分无法持久化。请启动 Redis 服务（localhost:6379）后重试。")
+    payload = _build_manual_rating_payload(platform, body, media_type)
+    cache_key = f"rating:{platform}:{media_type}:{tid}"
+    try:
+        await set_cache(cache_key, payload)
+    except Exception as e:
+        logger.error(f"保存手动评分到缓存失败: {e}")
+        raise HTTPException(status_code=503, detail=f"缓存写入失败: {str(e)}")
+    all_key = f"ratings:all:{media_type}:{tid}"
+    try:
+        raw = await redis.get(all_key)
+        if raw:
+            all_data = json.loads(raw)
+            if isinstance(all_data, dict):
+                ratings = all_data.get("ratings")
+                if isinstance(ratings, dict):
+                    ratings[platform] = payload
+                    await redis.setex(all_key, CACHE_EXPIRE_TIME, json.dumps(all_data))
+    except Exception as e:
+        logger.warning(f"更新 all 缓存时出错: {e}")
+    return {"ok": True, "platform": platform, "message": "已保存"}
 
 async def tmdb_enrich(tmdb_id: int, media_type: str):
     """使用多语言回退获取TMDB信息"""
