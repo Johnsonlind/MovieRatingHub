@@ -1,42 +1,15 @@
 // ==========================================
 // 评分 API
 // ==========================================
-import { TMDB } from './api';
-import { fetchTMDBWithLanguageFallback } from './tmdbLanguageHelper';
-
 export async function fetchTMDBRating(mediaType: 'movie' | 'tv', id: string) {
   try {
-    const data = await fetchTMDBWithLanguageFallback(
-      `${TMDB.baseUrl}/${mediaType}/${id}`
-    );
-    
-    if (mediaType === 'movie') {
-      return {
-        rating: data.vote_average,
-        voteCount: data.vote_count
-      };
+    const response = await fetch(`/api/ratings/tmdb/${mediaType}/${id}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      return null;
     }
-
-    const seasons = [];
-    if (data.seasons?.length > 0) {
-      for (const season of data.seasons) {
-        const seasonData = await fetchTMDBWithLanguageFallback(
-          `${TMDB.baseUrl}/${mediaType}/${id}/season/${season.season_number}`
-        );
-        
-        seasons.push({
-          season_number: season.season_number,
-          rating: seasonData.vote_average || 0,
-          voteCount: seasonData.vote_count || 0
-        });
-      }
-    }
-
-    return {
-      rating: data.vote_average,
-      voteCount: data.vote_count,
-      seasons
-    };
+    return await response.json();
   } catch (error) {
     console.error('获取 TMDB 评分失败:', error);
     return null;
