@@ -1781,6 +1781,7 @@ async def get_tmdb_rating(
     cache_key = f"tmdb:rating:{type}:{id}"
     cached = await get_cache(cache_key)
     if cached:
+        logger.info(f"从缓存获取 tmdb 评分: {cache_key}")
         return cached
 
     if await request.is_disconnected():
