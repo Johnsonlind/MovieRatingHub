@@ -71,6 +71,7 @@ interface SeasonEntry {
 
 export default function AdminRatingInputPage() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchType, setSearchType] = useState<'movie' | 'tv'>('movie');
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [activePlatform, setActivePlatform] = useState<string>(PLATFORMS[0]);
   const [submitting, setSubmitting] = useState(false);
@@ -94,6 +95,7 @@ export default function AdminRatingInputPage() {
 
   const movies = searchData?.movies?.results ?? [];
   const tvs = searchData?.tvShows?.results ?? [];
+  const filteredItems = (searchType === 'movie' ? movies : tvs).slice(0, 12);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -210,13 +212,26 @@ export default function AdminRatingInputPage() {
         {/* 搜索选择影视 */}
         <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 p-4">
           <h2 className="font-semibold text-gray-900 dark:text-white mb-3">1. 选择影视</h2>
+          <div className="mb-3">
+            <CardTabs
+              tabs={[
+                { id: 'movie', label: '电影' },
+                { id: 'tv', label: '剧集' },
+              ]}
+              activeId={searchType}
+              onChange={(id: string) => {
+                setSelectedMedia(null);
+                setSearchType(id as 'movie' | 'tv');
+              }}
+            />
+          </div>
           <div className="relative mb-3">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索电影或剧集..."
+              placeholder={searchType === 'movie' ? '搜索电影...' : '搜索剧集...'}
               className="w-full pl-9 pr-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             />
           </div>
@@ -239,7 +254,7 @@ export default function AdminRatingInputPage() {
               </div>
             )}
             {!selectedMedia &&
-              [...movies, ...tvs].slice(0, 12).map((item) => (
+              filteredItems.map((item) => (
                 <button
                   key={`${item.type}-${item.id}`}
                   type="button"
