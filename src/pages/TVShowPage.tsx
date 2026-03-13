@@ -15,7 +15,7 @@ import { preloadImages } from '../utils/export';
 import type { FetchStatus, BackendPlatformStatus } from '../types/status';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { NavBar } from '../components/ui/NavBar';
-import { getBase64Image } from '../api/image';
+import { getBase64ImageWithOptions } from '../api/image';
 import { TVShowRatingData } from '../types/ratings';
 import { ExportButton, type ExportLayout } from '../components/ui/ExportButton';
 import { FavoriteButton } from '../components/ui/FavoriteButton';
@@ -27,7 +27,7 @@ import { MediaPageSkeleton } from '../components/common/MediaPageSkeleton';
 import { PlatformStatusBar } from '../components/ratings/PlatformStatusBar';
 import { TVShowRatingGrid } from '../components/ratings/TVShowRatingGrid';
 import { OverallRatingCard } from '../components/ratings/OverallRatingCard';
-import { calculateTVShowOverallRating } from '../utils/ratings/calculateTVShowOverallRating';
+import { calculateOverallRating } from '../utils/ratings/calculateOverallRating';
 import { SeasonRatings } from '../components/tv/SeasonRatings';
 import type { TVShow } from '../types/media';
 
@@ -115,7 +115,7 @@ export default function TVShowPage() {
 
   useEffect(() => {
     if (tvShow?.poster) {
-      getBase64Image(tvShow.poster)
+      getBase64ImageWithOptions(tvShow.poster, { cacheBust: false })
         .then(base64 => setPosterBase64(base64))
         .catch(error => console.error('Failed to convert poster to base64:', error));
     }
@@ -190,7 +190,9 @@ export default function TVShowPage() {
       }
       fileName = fileName.replace(/[/\\?%*:|"<>]/g, '-');
 
-      await exportToPng(element, `${fileName}.png`);
+      await exportToPng(element, `${fileName}.png`, {
+        cacheKey: `tv:${id}:${layout}:${seasonToExport || 0}:${document.documentElement.getAttribute('data-theme') || 'light'}`,
+      });
     } catch (error) {
       console.error('导出失败:', error);
     } finally {
@@ -205,7 +207,7 @@ export default function TVShowPage() {
     season.seasonNumber > 0).length || 0;
 
   const overallRating = tvShow
-    ? calculateTVShowOverallRating(allRatings)
+    ? calculateOverallRating(allRatings, 'tvshow')
     : null;
 
   const getCurrentPlatform = (): string => {
