@@ -23,9 +23,7 @@ interface SearchResult {
   tvShows: { results: MediaItem[] };
 }
 
-// 平台顺序：豆瓣、IMDb、Rotten Tomatoes、Metacritic、Letterboxd、TMDB、Trakt
 const PLATFORMS = ['豆瓣', 'IMDb', 'Rotten Tomatoes', 'Metacritic', 'Letterboxd', 'TMDB', 'Trakt'] as const;
-// 支持分季的平台
 const SEASON_PLATFORMS = ['豆瓣', 'Rotten Tomatoes', 'Metacritic', 'TMDB', 'Trakt'];
 const PLATFORM_TO_KEY: Record<string, string> = {
   '豆瓣': 'douban',
