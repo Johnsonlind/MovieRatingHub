@@ -20,6 +20,13 @@ export function getImageUrl(path: string | null, size: ImageSize = '中', type: 
 }
 
 export async function getBase64Image(input: string | File): Promise<string> {
+  return getBase64ImageWithOptions(input);
+}
+
+export async function getBase64ImageWithOptions(
+  input: string | File,
+  options?: { cacheBust?: boolean }
+): Promise<string> {
   if (input instanceof File) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -66,6 +73,7 @@ export async function getBase64Image(input: string | File): Promise<string> {
       reject(new Error('Failed to load image'));
     };
 
-    img.src = `${imageUrl}?t=${Date.now()}`;
+    const cacheBust = options?.cacheBust ?? false;
+    img.src = cacheBust ? `${imageUrl}${imageUrl.includes('?') ? '&' : '?'}t=${Date.now()}` : imageUrl;
   });
 }
