@@ -2,7 +2,7 @@
 // 图片导出工具
 // ==========================================
 import { toPng } from 'html-to-image';
-import { getBase64Image } from '../api/image';
+import { getBase64ImageWithOptions } from '../api/image';
 
 const EXPORT_CACHE_TTL_MS = 5 * 60 * 1000;
 const exportCache = new Map<string, { dataUrl: string; ts: number }>();
@@ -32,9 +32,13 @@ export const preloadImages = async (images: { poster?: string; cdnImages: string
   promises.push(...cdnPromises);
 
   if (images.poster) {
-    const posterPromise = getBase64Image(images.poster).catch((error: Error) => {
-      console.warn('海报转换失败:', error);
-      return images.poster;
+    // 仅预加载，不做 base64 转换（转换会触发跨域/解码/绘制，耗时且此处结果未被使用）
+    const posterPromise = new Promise<void>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+      img.src = images.poster!;
     });
     promises.push(posterPromise);
   }
@@ -134,7 +138,7 @@ async function convertAllImagesToBase64ForSafari(element: HTMLElement): Promise<
       }
       
       try {
-        const base64 = await getBase64Image(imageUrl);
+        const base64 = await getBase64ImageWithOptions(imageUrl, { cacheBust: false });
         img.src = base64;
         
         await new Promise<void>((resolve) => {
