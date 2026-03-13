@@ -133,7 +133,6 @@ export function ExportTVShowRatingCard({
       ratings.douban !== null;
 
     if (isAggregatedDouban && ratings.douban) {
-      // 自定义豆瓣卡片：右下角显示“*各季均分与总人数”
       ratingCards.push(
         <div key="douban" style={{ width: '100%' }}>
           <div style={{ ...styles.ratingCardStyle, position: 'relative' as const }}>
