@@ -4,7 +4,7 @@
 import { RatingCard } from './RatingCard';
 import { RottenTomatoesCard } from './RottenTomatoesCard';
 import { MetacriticCard } from './MetacriticCard';
-import type { TVShowRatingData } from '../../types/ratings';
+import type { DoubanRating, TVShowRatingData } from '../../types/ratings';
 import { formatRating } from '../../utils/formatRating';
 import ErrorMessage from '../ui/ErrorMessage';
 import type { FetchStatus } from '../../types/status';
@@ -35,7 +35,32 @@ interface TVShowRatingGridProps {
   onRetry: () => void;
   tvShow?: TVShow;
   cardSize?: 'default' | 'compact';
-   columns?: 'two' | 'three';
+  columns?: 'two' | 'three';
+}
+
+function aggregateDoubanSeasons(douban?: DoubanRating): DoubanRating | undefined {
+  if (!douban) return undefined;
+  const seasons = Array.isArray(douban.seasons) ? douban.seasons : [];
+  if (seasons.length === 0) return douban;
+
+  const ratings: number[] = [];
+  let peopleSum = 0;
+
+  for (const s of seasons) {
+    const r = Number(s.rating);
+    const p = Number(s.rating_people);
+    if (Number.isFinite(r) && r > 0) ratings.push(r);
+    if (Number.isFinite(p) && p > 0) peopleSum += p;
+  }
+
+  if (ratings.length === 0) return douban;
+
+  const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+  return {
+    ...douban,
+    rating: avg.toFixed(1),
+    rating_people: String(peopleSum),
+  };
 }
 
 export function TVShowRatingGrid({ 
@@ -166,7 +191,7 @@ export function TVShowRatingGrid({
 
     return {
       type: 'tv' as const,
-      douban: ratingData?.douban,
+      douban: aggregateDoubanSeasons(ratingData?.douban),
       imdb: ratingData?.imdb,
       rt: ratingData?.rottentomatoes?.series,
       metacritic: ratingData?.metacritic?.overall,
@@ -263,17 +288,36 @@ export function TVShowRatingGrid({
       {/* 评分卡片 */}
       <div className={`grid ${gridCols} gap-4 ${className}`}>
         {/* 豆瓣评分 */}
-        {ratings.douban && ratings.douban.rating && ratings.douban.rating !== '暂无' && Number(ratings.douban.rating) > 0 &&
-          (selectedSeason != null || !tvShow || (tvShow.seasons?.length ?? 0) <= 1) && (
-          <RatingCard
-            logo={`/logos/douban.png`}
-            rating={Number(ratings.douban.rating)}
-            maxRating={10}
-            label={`${formatRating.count(ratings.douban.rating_people)} 人评分`}
-            showStars
-            url={urls.douban}
-            size={cardSize}
-          />
+        {ratings.douban &&
+         ratings.douban.rating &&
+         ratings.douban.rating !== '暂无' &&
+         Number(ratings.douban.rating) > 0 && (
+          !selectedSeason && ratingData.douban?.seasons && ratingData.douban.seasons.length > 1 ? (
+            <div className="relative">
+              <RatingCard
+                logo={`/logos/douban.png`}
+                rating={Number(ratings.douban.rating)}
+                maxRating={10}
+                label={`${formatRating.count(ratings.douban.rating_people)} 人评分`}
+                showStars
+                url={urls.douban}
+                size={cardSize}
+              />
+              <div className="pointer-events-none absolute right-3 bottom-2 text-[8px] text-gray-300">
+                *各季均分与总人数
+              </div>
+            </div>
+          ) : (
+            <RatingCard
+              logo={`/logos/douban.png`}
+              rating={Number(ratings.douban.rating)}
+              maxRating={10}
+              label={`${formatRating.count(ratings.douban.rating_people)} 人评分`}
+              showStars
+              url={urls.douban}
+              size={cardSize}
+            />
+          )
         )}
         {/* IMDb 评分 */}
         {ratings.imdb && ratings.imdb.rating && ratings.imdb.rating !== '暂无' && Number(ratings.imdb.rating) > 0 && (
