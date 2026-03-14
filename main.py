@@ -41,6 +41,7 @@ from sqlalchemy.pool import QueuePool
 from fastapi.middleware.gzip import GZipMiddleware
 from browser_pool import browser_pool
 import traceback
+import fcntl
 
 # ==========================================
 # 1. 配置和初始化部分
@@ -3350,6 +3351,22 @@ async def get_charts_status(db: Session = Depends(get_db)):
         logger.error(f"获取榜单状态失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取榜单状态失败: {str(e)}")
 
+scheduler_lock_file = None
+
+def acquire_scheduler_lock():
+    global scheduler_lock_file
+
+    lock_path = "/tmp/ratefuse_scheduler.lock"
+    scheduler_lock_file = open(lock_path, "w")
+
+    try:
+        fcntl.flock(scheduler_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        print(f"进程 {os.getpid()} 获得 scheduler 锁")
+        return True
+    except BlockingIOError:
+        print(f"进程 {os.getpid()} 未获得锁")
+        return False
+
 @app.post("/api/scheduler/start")
 async def start_scheduler_endpoint(
     current_user: User = Depends(get_current_user),
@@ -3524,8 +3541,11 @@ async def startup_event():
     if os.getenv("ENV") != "development":
         try:
             from chart_scrapers import start_auto_scheduler
-            await start_auto_scheduler()
-            logger.info("生产环境：定时调度器已自动启动")
+            if acquire_scheduler_lock():
+                await start_auto_scheduler()
+                logger.info("生产环境：定时调度器已自动启动")
+            else:
+               logger.info("scheduler 已在其他 worker 运行，跳过启动")
         except Exception as e:
             logger.error(f"生产环境：自动启动调度器失败: {e}")
 
