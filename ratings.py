@@ -10,15 +10,13 @@ import traceback
 from fuzzywuzzy import fuzz
 import copy
 import aiohttp
-from urllib.parse import quote, urljoin
+from urllib.parse import quote
 from dataclasses import dataclass
 from fastapi import Request
 import unicodedata
 from datetime import datetime
 from browser_pool import browser_pool
 from anthology_handler import anthology_handler
-import httpx
-_tmdb_http_client = None
 
 class LogFormatter:
     """结构化日志输出"""
@@ -74,6 +72,9 @@ log = LogFormatter()
 
 TMDB_API_BASE_URL = "https://api.themoviedb.org/3/"
 TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
+
+import httpx
+_tmdb_http_client = None
 
 def get_tmdb_http_client():
     """获取或创建 TMDB API 客户端"""
@@ -207,45 +208,15 @@ def construct_search_url(title, media_type, platform, tmdb_info):
     result = search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
     return result
 
-def _get_letterboxd_base() -> str:
-    """根据环境决定 Letterboxd 基础域名"""
-    env = os.environ.get("ENV", "development").lower()
-    proxy = os.environ.get("LETTERBOXD_PROXY", "").strip().rstrip("/")
-    if env == "production" and proxy:
-        return proxy
-    return "https://letterboxd.com"
-
-def build_letterboxd_url(path_or_url: str) -> str:
-    """构建 Letterboxd 访问 URL"""
-    if not path_or_url:
-        return path_or_url
-    base = _get_letterboxd_base()
-    lower = path_or_url.lower()
-    if lower.startswith("http://") or lower.startswith("https://"):
-        if "letterboxd.com" in lower:
-            from urllib.parse import urlparse
-            try:
-                parsed = urlparse(path_or_url)
-                rel = parsed.path or "/"
-                if parsed.query:
-                    rel = f"{rel}?{parsed.query}"
-                return urljoin(base + "/", rel.lstrip("/"))
-            except Exception:
-                return path_or_url
-        return path_or_url
-    if path_or_url.startswith("/"):
-        return urljoin(base + "/", path_or_url.lstrip("/"))
-    return urljoin(base.rstrip("/") + "/", path_or_url)
-
 def _get_letterboxd_search_urls(tmdb_id, year, imdb_id):
     """为Letterboxd生成多种搜索URL"""
     urls = []
     if tmdb_id and year:
-        urls.append(build_letterboxd_url(f"/search/tmdb:{tmdb_id} year:{year}/"))
+        urls.append(f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/")
     if imdb_id:
-        urls.append(build_letterboxd_url(f"/search/imdb:{imdb_id}/"))
+        urls.append(f"https://letterboxd.com/search/imdb:{imdb_id}/")
     if tmdb_id:
-        urls.append(build_letterboxd_url(f"/search/tmdb:{tmdb_id}/"))
+        urls.append(f"https://letterboxd.com/search/tmdb:{tmdb_id}/")
     return urls if urls else [""]
         
 def _is_empty(value):
@@ -1205,9 +1176,6 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
             }]
         
         media_type = tmdb_info["type"]
-
-        if platform == "letterboxd":
-            return await _search_letterboxd_platform(tmdb_info, request, search_variants, media_type)
         
         async def execute_single_search(search_title, variant_info, browser):
             """执行单个搜索变体的搜索"""
@@ -1992,248 +1960,165 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
 
-CURL_CFFI_AVAILABLE = False
-try:
-    from curl_cffi.requests import AsyncSession as CurlCffiSession
-    CURL_CFFI_AVAILABLE = True
-except ImportError:
-    pass
-
-
-def _is_cloudflare_challenge_html(html: str) -> bool:
-    if not html or len(html) < 100:
-        return True
-    hl = html.lower()
-    return (
-        "just a moment" in hl
-        or "enable javascript and cookies to continue" in hl
-        or "cf_chl_opt" in html
-        or "challenge-platform" in html
-    )
-
-
-async def fetch_letterboxd_html(url: str, cookie_str: str = None, impersonate: str = "chrome", timeout: float = 15.0):
-    """curl_cffi 抓取 Letterboxd 页面"""
-    if not CURL_CFFI_AVAILABLE:
-        return None, "curl_cffi_not_available"
-    headers = {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    }
-    cookies = None
-    if cookie_str and cookie_str.strip():
-        cookies = {}
-        for part in cookie_str.strip().split(";"):
-            part = part.strip()
-            if "=" in part:
-                k, _, v = part.partition("=")
-                cookies[k.strip()] = v.strip()
-    try:
-        async with CurlCffiSession() as session:
-            resp = await asyncio.wait_for(
-                session.get(url, headers=headers, cookies=cookies, impersonate=impersonate, timeout=timeout),
-                timeout=timeout + 5,
-            )
-            if resp.status_code != 200:
-                return None, f"http_{resp.status_code}"
-            html = resp.text
-            if not html or _is_cloudflare_challenge_html(html):
-                return None, "cloudflare" if html and _is_cloudflare_challenge_html(html) else "empty_response"
-            return html, None
-    except asyncio.TimeoutError:
-        return None, "timeout"
-    except Exception as e:
-        return None, str(e)
-
-def _extract_ld_json_blocks(html: str):
-    blocks = []
-    for m in re.finditer(
-        r'<script[^>]*type\s*=\s*["\']application/ld\+json["\'][^>]*>([\s\S]*?)</script>',
-        html, re.IGNORECASE,
-    ):
-        raw = re.sub(r'^\s*/\*\s*<!\[CDATA\[\s*\*/\s*', '', m.group(1).strip())
-        raw = re.sub(r'\s*/\*\s*\]\]>\s*\*/\s*$', '', raw).strip()
-        if not raw:
-            continue
-        try:
-            blocks.append(json.loads(raw))
-        except Exception:
-            continue
-    return blocks
-
-def parse_letterboxd_search_results(html: str):
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        return None
-    soup = BeautifulSoup(html, "html.parser")
-    items = soup.select("div[data-item-link]")
-    if not items:
-        return None
-    first = items[0]
-    detail_path = first.get("data-item-link")
-    if not detail_path:
-        return None
-    title = first.get("data-item-name") or "Unknown"
-    if detail_path.startswith("http"):
-        detail_url = build_letterboxd_url(detail_path)
-    else:
-        detail_url = build_letterboxd_url(detail_path if detail_path.startswith("/") else f"/{detail_path.lstrip('/')}")
-    return [{"title": title, "year": "", "url": detail_url, "match_score": 100}]
-
-async def _search_letterboxd_platform(tmdb_info, request, search_variants, media_type):
-    """Letterboxd Cloudflare 时用 headed 浏览器"""
-    variant = search_variants[0] if search_variants else {}
-    search_url_or_urls = construct_search_url(
-        variant.get("title", tmdb_info.get("title", "")),
-        media_type,
-        "letterboxd",
-        tmdb_info,
-    )
-    search_urls = search_url_or_urls if isinstance(search_url_or_urls, list) else [search_url_or_urls]
-    if not search_urls or not search_urls[0]:
-        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "无法构造搜索URL"}
-
-    letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
-    html, err = await fetch_letterboxd_html(search_urls[0], letterboxd_cookie)
-    if html:
-        results = parse_letterboxd_search_results(html)
-        if results:
-            for r in results:
-                r["year"] = tmdb_info.get("year", "")
-                r["search_variant_used"] = variant
-            print("Letterboxd: curl_cffi 获取搜索成功")
-            return results
-        return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
-    if err == "cloudflare":
-        print("Letterboxd: curl_cffi 遇 Cloudflare，使用 headed 浏览器 + 主页预热")
-
-    async def _do_letterboxd_search(browser):
-        context = None
-        try:
-            ctx_opts = {
-                "viewport": {"width": 1280, "height": 800},
-                "user_agent": LETTERBOXD_UA,
-                "locale": "en-US",
-                "timezone_id": "America/Los_Angeles",
-                "extra_http_headers": {
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
-            }
-            context = await browser.new_context(**ctx_opts)
-            page = await context.new_page()
-            page.set_default_timeout(20000)
-            try:
-                from playwright_stealth import stealth_async  # type: ignore
-                await stealth_async(page)
-            except Exception:
-                pass
-            if letterboxd_cookie:
-                cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
-                if cookies:
-                    await context.add_cookies(cookies)
-                    print("Letterboxd: 已注入 Cookie")
-
-            print("Letterboxd: 先访问主页，等待 Cloudflare cookie...")
-            await page.goto(build_letterboxd_url("/"), wait_until="domcontentloaded", timeout=15000)
-            await asyncio.sleep(random.uniform(2.5, 4))
-
-            results = None
-            for idx, search_url in enumerate(search_urls):
-                if not search_url:
-                    continue
-                if request and await request.is_disconnected():
-                    return {"status": "cancelled"}
-                if idx > 0:
-                    delay = random.uniform(1.5, 2.5)
-                    print(f"Letterboxd: 搜索间隔 {delay:.1f} 秒")
-                    await asyncio.sleep(delay)
-                print(f"Letterboxd 搜索URL [{idx+1}/{len(search_urls)}]: {search_url}")
-                results = await handle_letterboxd_search(page, search_url, tmdb_info, skip_curl_cffi=True)
-                if results and not (isinstance(results, dict) and results.get("status") == RATING_STATUS["NO_FOUND"]):
-                    break
-            if results and isinstance(results, dict) and results.get("status") == RATING_STATUS["NO_FOUND"]:
-                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
-            if results and isinstance(results, list):
-                for r in results:
-                    r["search_variant_used"] = variant
-            return results
-        finally:
-            if context:
-                try:
-                    await context.close()
-                except Exception:
-                    pass
-
-    try:
-        return await browser_pool.execute_letterboxd(_do_letterboxd_search)
-    except Exception as e:
-        print(f"Letterboxd 搜索失败: {e}")
-        return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": str(e)}
-
-LETTERBOXD_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
-
-async def handle_letterboxd_search(page, search_url, tmdb_info, skip_curl_cffi=False):
+async def handle_letterboxd_search(page, search_url, tmdb_info):
     """处理Letterboxd搜索"""
+    new_ctx = None
+    letterboxd_fs = None
     try:
-        letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
-        if not skip_curl_cffi:
-            html, err = await fetch_letterboxd_html(search_url, letterboxd_cookie)
-            if html:
-                results = parse_letterboxd_search_results(html)
-                if results:
-                    for r in results:
-                        r["year"] = tmdb_info.get("year", "")
-                    print("Letterboxd: curl_cffi 获取搜索成功")
-                    return results
-                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
-            if err == "cloudflare":
-                print("Letterboxd: curl_cffi 遇 Cloudflare，回退 Playwright（headed + 主页预热）")
-
         async def block_resources(route):
-            rt = route.request.resource_type
-            await route.abort() if rt in ["image", "stylesheet", "font", "media"] else await route.continue_()
+            resource_type = route.request.resource_type
+            if resource_type in ["image", "stylesheet", "font", "media"]:
+                await route.abort()
+            else:
+                await route.continue_()
+        
         await page.route("**/*", block_resources)
+        
+        await random_delay()
+        letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
         if letterboxd_cookie:
             cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
             if cookies:
                 await page.context.add_cookies(cookies)
                 print("Letterboxd: 已注入 .env 中的 LETTERBOXD_COOKIE")
         print(f"访问 Letterboxd 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=15000)
-        await asyncio.sleep(1)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await asyncio.sleep(0.5)
+    
         if await _is_cloudflare_challenge(page):
-            print("Letterboxd: Playwright 遇 Cloudflare，返回 RateLimit")
-            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+            print("Letterboxd: 检测到 Cloudflare 安全验证页，短暂等待后尝试自动通过…")
+            await asyncio.sleep(2)
+            if await _is_cloudflare_challenge(page):
+                fs_url = os.environ.get("FLARESOLVERR_URL", "").strip()
+                if fs_url:
+                    if not fs_url.endswith("/v1"):
+                        fs_url = fs_url.rstrip("/") + "/v1"
+                    try:
+                        print("Letterboxd: 使用 FlareSolverr 尝试绕过 Cloudflare…")
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                fs_url,
+                                json={"cmd": "request.get", "url": search_url, "maxTimeout": 120000},
+                                timeout=aiohttp.ClientTimeout(total=135),
+                            ) as resp:
+                                data = await resp.json()
+                        if data.get("status") == "ok" and data.get("solution"):
+                            sol = data["solution"]
+                            cookies = sol.get("cookies") or []
+                            if cookies:
+                                pw = [{"name": c.get("name"), "value": c.get("value"), "domain": c.get("domain", ".letterboxd.com"), "path": c.get("path", "/")} for c in cookies if c.get("name") and c.get("value")]
+                                if pw:
+                                    ua = sol.get("userAgent") or ""
+                                    if ua:
+                                        browser = page.context.browser
+                                        new_ctx = await browser.new_context(
+                                            viewport={"width": 1280, "height": 720},
+                                            user_agent=ua,
+                                        )
+                                        await new_ctx.add_cookies(pw)
+                                        new_page = await new_ctx.new_page()
+                                        await new_page.route("**/*", block_resources)
+                                        await new_page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
+                                        await asyncio.sleep(0.5)
+                                        if await _is_cloudflare_challenge(new_page):
+                                            await new_ctx.close()
+                                            new_ctx = None
+                                            print("Letterboxd: FlareSolverr 注入 cookie 后仍为验证页，返回 RateLimit")
+                                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                                        print("Letterboxd: FlareSolverr 成功绕过 Cloudflare，继续解析")
+                                        page = new_page
+                                        letterboxd_fs = {"cookies": pw, "userAgent": ua}
+                                    else:
+                                        await page.context.add_cookies(pw)
+                                        await page.goto(search_url, wait_until="domcontentloaded", timeout=10000)
+                                        await asyncio.sleep(0.5)
+                                        if not await _is_cloudflare_challenge(page):
+                                            print("Letterboxd: FlareSolverr 成功绕过 Cloudflare，继续解析")
+                                        else:
+                                            print("Letterboxd: FlareSolverr 注入 cookie 后仍为验证页，返回 RateLimit")
+                                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                                else:
+                                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                            else:
+                                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                        else:
+                            msg = data.get("message") or data.get("error") or "unknown"
+                            print(f"Letterboxd: FlareSolverr 返回异常: status={data.get('status')}, message={msg}")
+                            return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                    except Exception as e:
+                        print(f"Letterboxd: FlareSolverr 请求失败: {type(e).__name__}: {e}")
+                        return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                else:
+                    print("Letterboxd: 遭遇 Cloudflare 安全验证，返回 RateLimit（未配置 FLARESOLVERR_URL）")
+                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+    
         rate_limit = await check_rate_limit(page, "letterboxd")
         if rate_limit:
+            print("检测到Letterboxd访问限制")
             return rate_limit
-        items = await page.query_selector_all('div[data-item-link]')
-        if not items:
-            if await _is_cloudflare_challenge(page):
-                return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
-            return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
-        first_item = items[0]
-        detail_path = await first_item.get_attribute('data-item-link')
-        if not detail_path:
-            return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
-        title = await first_item.get_attribute('data-item-name') or "Unknown"
-        if detail_path.startswith("http"):
-            detail_url = build_letterboxd_url(detail_path)
-        else:
-            detail_url = build_letterboxd_url(detail_path if detail_path.startswith("/") else f"/{detail_path.lstrip('/')}")
-        print(f"Letterboxd找到匹配结果: {title}")
-        return [{"title": title, "year": tmdb_info.get("year", ""), "url": detail_url, "match_score": 100}]
+        
+        try:
+            try:
+                await page.wait_for_selector('.results li', timeout=5000)
+            except Exception as e:
+                print(f"Letterboxd等待搜索结果超时: {e}")
+            
+            items = await page.query_selector_all('div[data-item-link]')
+            
+            if not items:
+                if await _is_cloudflare_challenge(page):
+                    print("Letterboxd: 等待超时且为 Cloudflare 验证页，返回 RateLimit（非平台未收录）")
+                    return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "Cloudflare 安全验证拦截，请稍后重试"}
+                print("Letterboxd未找到搜索结果")
+                return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
+            
+            first_item = items[0]
+            try:
+                detail_path = None
+                title = "Unknown"
+                
+                detail_path = await first_item.get_attribute('data-item-link')
+                if detail_path:
+                    title = await first_item.get_attribute('data-item-name') or title
+                
+                if not detail_path:
+                    print("Letterboxd 无法提取详情页链接")
+                    html_snippet = await first_item.inner_html()
+                    print(f"HTML片段: {html_snippet[:500]}")
+                    return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
+                
+                detail_url = f"https://letterboxd.com{detail_path}" if not detail_path.startswith('http') else detail_path
+                
+                print(f"Letterboxd找到匹配结果: {title}")
+                
+                r = {"title": title, "year": tmdb_info.get("year", ""), "url": detail_url, "match_score": 100}
+                if letterboxd_fs:
+                    r["_flaresolverr"] = letterboxd_fs
+                return [r]
+                
+            except Exception as e:
+                print(f"处理Letterboxd搜索结果项时出错: {e}")
+                import traceback
+                print(traceback.format_exc())
+                return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "解析失败"}
+            
+        except Exception as e:
+            print(f"处理Letterboxd搜索结果时出错: {e}")
+            if "Timeout" in str(e):
+                return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
+            return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
+            
     except Exception as e:
         print(f"访问Letterboxd搜索页面失败: {e}")
         if "Timeout" in str(e):
             return {"status": RATING_STATUS["TIMEOUT"], "status_reason": "请求超时"}
         return {"status": RATING_STATUS["FETCH_FAILED"], "status_reason": "获取失败"}
+    finally:
+        if new_ctx:
+            try:
+                await new_ctx.close()
+            except Exception:
+                pass
     
 async def extract_rating_info(media_type, platform, tmdb_info, search_results, request=None, douban_cookie=None):
     """从各平台详情页中提取对应评分数据"""
@@ -2342,27 +2227,11 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
             print(f"{platform} 找到最佳匹配结果: {best_match['title']} ({best_match.get('year', '')})")
             print(f"{platform} 访问详情页: {detail_url}")
 
-            if platform == "letterboxd":
-                cookie_str = os.environ.get("LETTERBOXD_COOKIE", "").strip()
-                html, err = await fetch_letterboxd_html(detail_url, cookie_str)
-                if html:
-                    parsed = parse_letterboxd_rating_html(html)
-                    if parsed and parsed.get("status") == "Successful":
-                        parsed["url"] = detail_url
-                        parsed["status"] = RATING_STATUS["SUCCESSFUL"]
-                        print("Letterboxd: curl_cffi 获取详情页成功")
-                        return parsed
-                print("Letterboxd: curl_cffi 详情页失败，使用 headed 浏览器访问详情页")
-                headed_result = await _extract_letterboxd_detail_with_headed_browser(
-                    detail_url, media_type, request
-                )
-                if headed_result is not None:
-                    return headed_result
-
             async def extract_with_browser(browser):
                 context = None
                 try:
-                    selected_user_agent = random.choice(USER_AGENTS)
+                    fs_data = best_match.get("_flaresolverr") if platform == "letterboxd" else None
+                    selected_user_agent = (fs_data.get("userAgent") or random.choice(USER_AGENTS)) if (platform == "letterboxd" and fs_data) else random.choice(USER_AGENTS)
 
                     context_options = {
                         'viewport': {'width': 1280, 'height': 720},
@@ -2429,13 +2298,67 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                             cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
                             if cookies:
                                 await context.add_cookies(cookies)
+                        if fs_data and fs_data.get("cookies"):
+                            await context.add_cookies(fs_data["cookies"])
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
                         await asyncio.sleep(0.3)
                         if await _is_cloudflare_challenge(page):
-                            print("Letterboxd: Playwright 详情页遇 Cloudflare，返回 RateLimit")
-                            ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
-                            ret["status_reason"] = "Cloudflare 安全验证拦截，请稍后重试"
-                            return ret
+                            print("Letterboxd: 详情页触发 Cloudflare 安全验证，尝试用 FlareSolverr 拉取详情页…")
+                            fs_url = os.environ.get("FLARESOLVERR_URL", "").strip()
+                            if fs_url:
+                                if not fs_url.endswith("/v1"):
+                                    fs_url = fs_url.rstrip("/") + "/v1"
+                                try:
+                                    async with aiohttp.ClientSession() as session:
+                                        async with session.post(
+                                            fs_url,
+                                            json={"cmd": "request.get", "url": detail_url, "maxTimeout": 120000},
+                                            timeout=aiohttp.ClientTimeout(total=135),
+                                        ) as resp:
+                                            data = await resp.json()
+                                    if data.get("status") == "ok" and data.get("solution"):
+                                        sol = data["solution"]
+                                        cookies = sol.get("cookies") or []
+                                        ua = sol.get("userAgent") or ""
+                                        if cookies and ua:
+                                            pw = [{"name": c.get("name"), "value": c.get("value"), "domain": c.get("domain", ".letterboxd.com"), "path": c.get("path", "/")} for c in cookies if c.get("name") and c.get("value")]
+                                            if pw:
+                                                if context:
+                                                    await context.close()
+                                                opts = {**context_options, "user_agent": ua}
+                                                context = await browser.new_context(**opts)
+                                                page = await context.new_page()
+                                                page.set_default_timeout(30000)
+                                                await context.add_cookies(pw)
+                                                await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+                                                await asyncio.sleep(0.3)
+                                                if await _is_cloudflare_challenge(page):
+                                                    ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                                    ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                                    return ret
+                                            else:
+                                                ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                                ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                                return ret
+                                        else:
+                                            ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                            ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                            return ret
+                                    else:
+                                        msg = data.get("message") or data.get("error") or "unknown"
+                                        print(f"Letterboxd 详情页 FlareSolverr 返回异常: status={data.get('status')}, message={msg}")
+                                        ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                        ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                        return ret
+                                except Exception as e:
+                                    print(f"Letterboxd 详情页 FlareSolverr 请求失败: {type(e).__name__}: {e}")
+                                    ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                    ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                    return ret
+                            else:
+                                ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
+                                ret["status_reason"] = "详情页触发 Cloudflare 安全验证，请稍后重试"
+                                return ret
                     elif platform == "rottentomatoes":
                         await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
                         await asyncio.sleep(0.3)
@@ -2465,7 +2388,6 @@ async def extract_rating_info(media_type, platform, tmdb_info, search_results, r
                                 if imdb_id:
                                     print("GraphQL API失败，fallback到网页抓取")
                                 rating_data = await extract_imdb_rating(page)
-
                         elif platform == "letterboxd":
                             rating_data = await extract_letterboxd_rating(page)
                         elif platform == "rottentomatoes":
@@ -3632,127 +3554,57 @@ async def extract_metacritic_rating(page, media_type, tmdb_info):
         print(f"提取Metacritic评分数据时出错: {e}")
         return create_empty_rating_data("metacritic", media_type, RATING_STATUS["FETCH_FAILED"])
 
-def parse_letterboxd_rating_html(html: str):
-    """从 Letterboxd 详情页 HTML 解析评分"""
-    for data in _extract_ld_json_blocks(html):
-        if not isinstance(data, dict):
-            continue
-        agg = data.get("aggregateRating")
-        if not isinstance(agg, dict):
-            continue
-        rv, rc = agg.get("ratingValue"), agg.get("ratingCount")
-        if rv is not None and rc is not None:
-            return {"rating": str(rv), "rating_count": str(rc), "status": "Successful"}
-    json_match = re.search(
-        r'"aggregateRating":\s*{\s*"bestRating":\s*\d+,\s*"reviewCount":\s*(\d+),\s*"@type":\s*"aggregateRating",\s*"ratingValue":\s*([\d.]+),\s*"description":\s*"[^"]*",\s*"ratingCount":\s*(\d+)',
-        html,
-    )
-    if json_match:
-        return {"rating": json_match.group(2), "rating_count": json_match.group(3), "status": "Successful"}
-    try:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "html.parser")
-        rating_elem = soup.select_one("span.average-rating a.tooltip")
-        if not rating_elem:
-            return None
-        rating = rating_elem.get_text(strip=True)
-        tooltip = rating_elem.get("data-original-title", "")
-        match = re.search(r"based on ([\d,]+)", tooltip)
-        rating_count = match.group(1).replace(",", "") if match else "暂无"
-        return {"rating": rating, "rating_count": rating_count, "status": "Successful"}
-    except Exception:
-        return None
-
-async def _extract_letterboxd_detail_with_headed_browser(detail_url, media_type, request=None):
-    """Letterboxd 详情页 headed 浏览器"""
-    cookie_str = os.environ.get("LETTERBOXD_COOKIE", "").strip()
-
-    async def _do(browser):
-        context = None
-        try:
-            ctx_opts = {
-                "viewport": {"width": 1280, "height": 800},
-                "user_agent": LETTERBOXD_UA,
-                "locale": "en-US",
-                "timezone_id": "America/Los_Angeles",
-                "extra_http_headers": {
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
-            }
-            context = await browser.new_context(**ctx_opts)
-            page = await context.new_page()
-            page.set_default_timeout(20000)
-            try:
-                from playwright_stealth import stealth_async  # type: ignore
-                await stealth_async(page)
-            except Exception:
-                pass
-            if cookie_str:
-                cookies = _parse_letterboxd_cookie_string(cookie_str)
-                if cookies:
-                    await context.add_cookies(cookies)
-            if request and await request.is_disconnected():
-                return create_empty_rating_data("letterboxd", media_type, RATING_STATUS["FETCH_FAILED"])
-            print("Letterboxd 详情页: 先访问主页，等待 Cloudflare cookie...")
-            await page.goto(build_letterboxd_url("/"), wait_until="domcontentloaded", timeout=15000)
-            await asyncio.sleep(random.uniform(2.5, 4))
-            if request and await request.is_disconnected():
-                return create_empty_rating_data("letterboxd", media_type, RATING_STATUS["FETCH_FAILED"])
-            target_detail_url = build_letterboxd_url(detail_url)
-            print("Letterboxd 详情页: 访问详情页", target_detail_url)
-            await page.goto(target_detail_url, wait_until="domcontentloaded", timeout=15000)
-            await asyncio.sleep(1)
-            if await _is_cloudflare_challenge(page):
-                print("Letterboxd: headed 详情页仍遇 Cloudflare，返回 RateLimit")
-                ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["RATE_LIMIT"])
-                ret["status_reason"] = "Cloudflare 安全验证拦截，请稍后重试"
-                return ret
-            rating_data = await extract_letterboxd_rating(page)
-            if rating_data:
-                rating_data["url"] = detail_url
-                status = check_movie_status(rating_data, "letterboxd")
-                rating_data["status"] = status
-            return rating_data or create_empty_rating_data("letterboxd", media_type, RATING_STATUS["NO_RATING"])
-        finally:
-            if context:
-                try:
-                    await context.close()
-                except Exception:
-                    pass
-
-    try:
-        return await browser_pool.execute_letterboxd(_do)
-    except Exception as e:
-        print(f"Letterboxd 详情页 headed 浏览器失败: {e}")
-        ret = create_empty_rating_data("letterboxd", media_type, RATING_STATUS["FETCH_FAILED"])
-        ret["status_reason"] = str(e)
-        return ret
-
 async def extract_letterboxd_rating(page):
     """从Letterboxd详情页提取评分数据"""
     try:
         content = await page.content()
-        parsed = parse_letterboxd_rating_html(content)
-        if parsed and parsed.get("status") == "Successful":
-            print("Letterboxd评分获取成功")
+        
+        json_match = re.search(r'"aggregateRating":\s*{\s*"bestRating":\s*(\d+),\s*"reviewCount":\s*(\d+),\s*"@type":\s*"aggregateRating",\s*"ratingValue":\s*([\d.]+),\s*"description":\s*"[^"]*",\s*"ratingCount":\s*(\d+),\s*"worstRating":\s*(\d+)\s*}', content)
+        
+        if json_match:
+            rating = json_match.group(3)
+            rating_count = json_match.group(4)
+            print(f"Letterboxd评分获取成功")
+            
             return {
-                "rating": parsed["rating"],
-                "rating_count": parsed["rating_count"],
-                "status": RATING_STATUS["SUCCESSFUL"],
+                "rating": rating,
+                "rating_count": rating_count,
+                "status": RATING_STATUS["SUCCESSFUL"]
             }
-        print("Letterboxd 未找到评分")
-        return {
-            "rating": "暂无",
-            "rating_count": "暂无",
-            "status": RATING_STATUS["NO_RATING"],
-        }
+        else:            
+            rating_elem = await page.query_selector('span.average-rating a.tooltip')
+            
+            if not rating_elem:
+                print("Letterboxd 未找到评分元素")
+                return {
+                    "rating": "暂无",
+                    "rating_count": "暂无",
+                    "status": RATING_STATUS["NO_RATING"]
+                }
+                
+            rating = await rating_elem.inner_text()
+            
+            tooltip = await rating_elem.get_attribute('data-original-title')
+            if tooltip:
+                match = re.search(r'based on ([\d,]+)', tooltip)
+                rating_count = match.group(1).replace(',', '') if match else "暂无"
+            else:
+                rating_count = "暂无"
+            
+            print(f"Letterboxd评分获取成功")
+            
+            return {
+                "rating": rating,
+                "rating_count": rating_count,
+                "status": RATING_STATUS["SUCCESSFUL"]
+            }
+            
     except Exception as e:
         print(f"提取Letterboxd评分数据时出错: {e}")
         return {
             "rating": "暂无",
             "rating_count": "暂无",
-            "status": "Fail",
+            "status": "Fail"
         }
         
 def check_movie_status(platform_data, platform):
