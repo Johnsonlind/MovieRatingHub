@@ -381,7 +381,7 @@ class ChartScraper:
             }
             variables_json = json.dumps(variables_dict, separators=(",", ":"))
             variables_encoded = quote(variables_json)
-            extensions_json = '{"persistedQuery":{"sha256Hash":"d0df3573b286f318c5119c9d0ea3ef15de0463a6fda1dbb41927b8d738307032","version":1}}'
+            extensions_json = '{"persistedQuery":{"sha256Hash":"51f4fbaaf115fd73779d9f31b267e432d40e9eb96a0b49293507a4da4c6b30ce","version":1}}'
             extensions_encoded = quote(extensions_json)
             api_url = f"https://api.graphql.imdb.com/?operationName=BatchPage_HomeMain&variables={variables_encoded}&extensions={extensions_encoded}"
 
@@ -391,7 +391,7 @@ class ChartScraper:
                 'accept-language': 'zh-CN,zh;q=0.9',
                 'content-type': 'application/json',
                 # ⚠️ 重要: 替换为你在浏览器中实际的、未过期的Cookie字符串
-                'cookie': 'session-id=135-3235808-0631200; ubid-main=132-7674773-2555718; lc-main=zh_CN; x-main=n8Pd20@dVGak@aq3OxyVNOIMf8W8ZCeqZx3rX8DtvwZhUZ7MhLRK@FdSRu3t9ovM; at-main=Atza|gQCpjeFRAwEBADR-To6Df5sLoUNRACCDA1X7HZIhBsg4SN3nJHYrxpiPSGQlo8sWedkon5JcBYEck1EjGn1esvyZNaKVDDhpMvntwA3XWfdHnaZJY4aeCGQ9LXgBXEd8cSWeKhHB10KElq6WujJXp1_vT8HkUDxX9FlGNYNiDb0WIi3EJGeRPR2MoVZR_iSC7nwBfSR7VQP9-ZEq1YE_wP74h_w0HjPS5xSA4zU8qZzcdNq9FGh3SsN3mKv5BHR3TNynHUqE7oKclKkh0CX864dpt8uVQBZfVbgaMcWHHNDbIqb-CoGrFr7WGRr_N3DOJ7f0yPekacDqjK3n-AHNV5J7QwSbsjztM1oIq4vgNbvD6Hi5IO8; sess-at-main=APwFuERhd6+vu/5Y8sImJ5sFDHZ/5478187PSY0vvns=; session-id-time=2082787201l; ad-oo=16; ci=eyJhZ2VTaWduYWwiOiJBRFVMVCIsImlzR2RwciI6ZmFsc2V9; session-token=yhlyXONy0Wd6B/VJIPoPmTvTnGVm5Dfc/MEPOREeO1Hj1LBYTYcW5aXYJTOBYObKy1XdBuMOH/5qM3/PDHcz1WeU4yBut4qBMaGROTjqnRwSTVd9QUYZ0+eZQ+IniOeWI2VMJKHYMXS65VD4+Y45Vd7TsfwVqHT59Is0xkYidnt9aWqlkSILNbTQmy5dT/efhANSaEvQurm0xrTNSGOkar5Q353Rt0v6DOqKQO+9izMN1yy6TRCf7GI4aglBVCb2',
+                'cookie': 'session-id=135-3235808-0631200; ubid-main=132-7674773-2555718; lc-main=zh_CN; x-main=n8Pd20@dVGak@aq3OxyVNOIMf8W8ZCeqZx3rX8DtvwZhUZ7MhLRK@FdSRu3t9ovM; at-main=Atza|gQCpjeFRAwEBADR-To6Df5sLoUNRACCDA1X7HZIhBsg4SN3nJHYrxpiPSGQlo8sWedkon5JcBYEck1EjGn1esvyZNaKVDDhpMvntwA3XWfdHnaZJY4aeCGQ9LXgBXEd8cSWeKhHB10KElq6WujJXp1_vT8HkUDxX9FlGNYNiDb0WIi3EJGeRPR2MoVZR_iSC7nwBfSR7VQP9-ZEq1YE_wP74h_w0HjPS5xSA4zU8qZzcdNq9FGh3SsN3mKv5BHR3TNynHUqE7oKclKkh0CX864dpt8uVQBZfVbgaMcWHHNDbIqb-CoGrFr7WGRr_N3DOJ7f0yPekacDqjK3n-AHNV5J7QwSbsjztM1oIq4vgNbvD6Hi5IO8; sess-at-main=APwFuERhd6+vu/5Y8sImJ5sFDHZ/5478187PSY0vvns=; session-id-time=2082787201l; ad-oo=16; ci=eyJhZ2VTaWduYWwiOiJBRFVMVCIsImRpc2FibGVJQkEiOmZhbHNlLCJkaXNhYmxlQ0NCQSI6ZmFsc2UsImRpc2FibGVQMTNuIjpmYWxzZSwiaXNHZHByIjpmYWxzZX0; session-token=W72qJiPVDe6Vitydb8X/0NNuWJPMNMW2Opsi8+dMmB6//KiT0a8fuvQGXqgBxC+bI+fEXVGqSaHxt/R4U7G1ZU9AZjA7sfrmau1mWeRia6H5HTteMVtDjdA6PMbBJxy4bBmMJVJAvr7c1abAoHBqSvIDdu3dLlz6p/b1/GwmlW0poHPUAzDF1ZnLNrjOjQD6iXQtOzyWztMSIZkHvsxx7tbh2Vsk5m9Zd4RX7ijVlolMqsE6l3yxrHQlLtZmfcg8',
                 'origin': 'https://www.imdb.com',
                 'priority': 'u=1, i',
                 'referer': 'https://www.imdb.com/',
@@ -404,7 +404,7 @@ class ChartScraper:
                 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
                 'x-amzn-sessionid': '135-3235808-0631200',
                 'x-imdb-client-name': 'imdb-web-next',
-                'x-imdb-client-rid': 'G32MZ5WQSTGMHRNCDB2M', # 这个ID可能需要更新，建议从浏览器复制最新值
+                'x-imdb-client-rid': 'GXPFBRATCFCYFQCB7GCZ', # 这个ID可能需要更新，建议从浏览器复制最新值
                 'x-imdb-consent-info': 'eyJhZ2VTaWduYWwiOiJBRFVMVCIsImlzR2RwciI6ZmFsc2V9',
                 'x-imdb-user-country': 'CN',
                 'x-imdb-user-language': 'zh-CN',
