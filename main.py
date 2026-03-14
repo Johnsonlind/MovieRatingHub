@@ -2209,6 +2209,9 @@ def _build_seasons_list(body: dict, platform: str, media_type: str) -> list:
         except (TypeError, ValueError):
             continue
         item = {"season_number": sn}
+        url = str(s.get("url") or "").strip()
+        if url:
+            item["url"] = url
         if platform == "douban":
             item["rating"] = str(s.get("rating") or "").strip() or "0"
             item["rating_people"] = str(s.get("rating_people") or "").strip() or "0"
@@ -2235,24 +2238,62 @@ def _build_manual_rating_payload(platform: str, body: dict, media_type: str):
     """根据平台和请求体构建手动录入的评分数据结构"""
     status = RATING_STATUS["SUCCESSFUL"]
     seasons_list = _build_seasons_list(body, platform, media_type) if media_type == "tv" else []
+    url = str(body.get("url") or "").strip()
     if platform == "douban":
-        base = {"status": status, "rating": str(body.get("rating") or "").strip() or "0", "rating_people": str(body.get("rating_people") or "").strip() or "0"}
+        base = {
+            "status": status,
+            "rating": str(body.get("rating") or "").strip() or "0",
+            "rating_people": str(body.get("rating_people") or "").strip() or "0",
+        }
+        if url:
+            base["url"] = url
         if media_type == "tv" and seasons_list:
             base["seasons"] = seasons_list
         return base
     if platform == "imdb":
-        return {"status": status, "rating": str(body.get("rating") or "").strip() or "0", "rating_people": str(body.get("rating_people") or "").strip() or "0"}
+        base = {
+            "status": status,
+            "rating": str(body.get("rating") or "").strip() or "0",
+            "rating_people": str(body.get("rating_people") or "").strip() or "0",
+        }
+        if url:
+            base["url"] = url
+        return base
     if platform == "letterboxd":
-        return {"status": status, "rating": str(body.get("rating") or "").strip() or "0", "rating_count": str(body.get("rating_count") or "").strip() or "0", "status_widget": str(body.get("status") or "Released").strip()}
+        base = {
+            "status": status,
+            "rating": str(body.get("rating") or "").strip() or "0",
+            "rating_count": str(body.get("rating_count") or "").strip() or "0",
+            "status_widget": str(body.get("status") or "Released").strip(),
+        }
+        if url:
+            base["url"] = url
+        return base
     if platform == "rottentomatoes":
-        series = {"tomatometer": str(body.get("tomatometer") or "").strip() or "0", "audience_score": str(body.get("audience_score") or "").strip() or "0", "critics_avg": "0", "audience_avg": "0", "critics_count": str(body.get("critics_count") or "").strip() or "0", "audience_count": str(body.get("audience_count") or "").strip() or "0"}
+        series = {
+            "tomatometer": str(body.get("tomatometer") or "").strip() or "0",
+            "audience_score": str(body.get("audience_score") or "").strip() or "0",
+            "critics_avg": "0",
+            "audience_avg": "0",
+            "critics_count": str(body.get("critics_count") or "").strip() or "0",
+            "audience_count": str(body.get("audience_count") or "").strip() or "0",
+        }
         ret = {"status": status, "series": series}
+        if url:
+            ret["url"] = url
         if media_type == "tv" and seasons_list:
             ret["seasons"] = seasons_list
         return ret
     if platform == "metacritic":
-        overall = {"metascore": str(body.get("metascore") or "").strip() or "0", "critics_count": str(body.get("critics_count") or "").strip() or "0", "userscore": str(body.get("userscore") or "").strip() or "0", "users_count": str(body.get("users_count") or "").strip() or "0"}
+        overall = {
+            "metascore": str(body.get("metascore") or "").strip() or "0",
+            "critics_count": str(body.get("critics_count") or "").strip() or "0",
+            "userscore": str(body.get("userscore") or "").strip() or "0",
+            "users_count": str(body.get("users_count") or "").strip() or "0",
+        }
         ret = {"status": status, "overall": overall}
+        if url:
+            ret["url"] = url
         if media_type == "tv" and seasons_list:
             ret["seasons"] = seasons_list
         else:
@@ -2268,6 +2309,8 @@ def _build_manual_rating_payload(platform: str, body: dict, media_type: str):
         except (TypeError, ValueError):
             vc = 0
         ret = {"status": status, "rating": r, "voteCount": vc}
+        if url:
+            ret["url"] = url
         if media_type == "tv" and seasons_list:
             ret["seasons"] = seasons_list
         return ret
@@ -2281,6 +2324,8 @@ def _build_manual_rating_payload(platform: str, body: dict, media_type: str):
         except (TypeError, ValueError):
             v = 0
         ret = {"status": status, "rating": r, "votes": v, "distribution": {}}
+        if url:
+            ret["url"] = url
         if media_type == "tv" and seasons_list:
             ret["seasons"] = seasons_list
         return ret
