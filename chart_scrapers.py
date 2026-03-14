@@ -38,58 +38,6 @@ except ImportError:
     REQUESTS_AVAILABLE = False
     logger.warning("requests库未安装，TMDB API调用功能将不可用")
 
-
-async def _is_cloudflare_challenge(page) -> bool:
-    """检测当前页面是否为 Cloudflare 安全验证"""
-    try:
-        title = await page.title()
-        if title and "Just a moment" in title:
-            return True
-        content = await page.content()
-        if "Enable JavaScript and cookies to continue" in content or "cf_chl_opt" in content or "challenge-platform" in content:
-            return True
-        return False
-    except Exception:
-        return False
-
-
-async def _letterboxd_flaresolverr(url: str) -> Optional[Dict]:
-    """调用 FlareSolverr"""
-    fs_url = os.environ.get("FLARESOLVERR_URL", "").strip()
-    if not fs_url:
-        return None
-    if not fs_url.endswith("/v1"):
-        fs_url = fs_url.rstrip("/") + "/v1"
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                fs_url,
-                json={"cmd": "request.get", "url": url, "maxTimeout": 120000},
-                timeout=aiohttp.ClientTimeout(total=135),
-            ) as resp:
-                data = await resp.json()
-        if data.get("status") != "ok" or not data.get("solution"):
-            msg = data.get("message") or data.get("error") or "unknown"
-            logger.warning(f"Letterboxd FlareSolverr 返回异常: status={data.get('status')}, message={msg}")
-            return None
-        sol = data["solution"]
-        cookies = sol.get("cookies") or []
-        ua = sol.get("userAgent") or ""
-        if not cookies or not ua:
-            return None
-        pw = [
-            {"name": c.get("name"), "value": c.get("value"), "domain": c.get("domain", ".letterboxd.com"), "path": c.get("path", "/")}
-            for c in cookies
-            if c.get("name") and c.get("value")
-        ]
-        if not pw:
-            return None
-        return {"cookies": pw, "userAgent": ua}
-    except Exception as e:
-        logger.warning(f"Letterboxd FlareSolverr 请求失败: {type(e).__name__}: {e}")
-        return None
-
-
 def _parse_letterboxd_cookie_string(s: str) -> list:
     """解析 .env 中的 LETTERBOXD_COOKIE"""
     if not s or not s.strip():
@@ -105,6 +53,139 @@ def _parse_letterboxd_cookie_string(s: str) -> list:
             out.append({"name": name, "value": value, "domain": ".letterboxd.com", "path": "/"})
     return out
 
+CURL_CFFI_AVAILABLE = False
+try:
+    from curl_cffi.requests import AsyncSession as CurlCffiSession
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    pass
+
+def _is_cloudflare_challenge_html(html: str) -> bool:
+    """检测 HTML 是否为 Cloudflare 验证页"""
+    if not html or len(html) < 100:
+        return True
+    hl = html.lower()
+    return (
+        "just a moment" in hl
+        or "enable javascript and cookies to continue" in hl
+        or "cf_chl_opt" in html
+        or "challenge-platform" in html
+    )
+
+async def _fetch_letterboxd_html(url: str, cookie_str: str = None, impersonate: str = "chrome", timeout: float = 15.0):
+    """curl_cffi 抓取 Letterboxd 页面"""
+    if not CURL_CFFI_AVAILABLE:
+        return None, "curl_cffi_not_available"
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    }
+    cookies = None
+    if cookie_str and cookie_str.strip():
+        cookies = {}
+        for part in cookie_str.strip().split(";"):
+            part = part.strip()
+            if "=" in part:
+                k, _, v = part.partition("=")
+                cookies[k.strip()] = v.strip()
+    try:
+        async with CurlCffiSession() as session:
+            resp = await asyncio.wait_for(
+                session.get(url, headers=headers, cookies=cookies, impersonate=impersonate, timeout=timeout),
+                timeout=timeout + 5,
+            )
+            if resp.status_code != 200:
+                return None, f"http_{resp.status_code}"
+            html = resp.text
+            if not html or _is_cloudflare_challenge_html(html):
+                return None, "cloudflare" if html and _is_cloudflare_challenge_html(html) else "empty_response"
+            return html, None
+    except asyncio.TimeoutError:
+        return None, "timeout"
+    except Exception as e:
+        return None, str(e)
+
+def _parse_tmdb_id_from_letterboxd_html(html: str) -> Optional[int]:
+    """从 Letterboxd 详情页 HTML 解析 TMDB ID"""
+    if not html or len(html) < 100:
+        return None
+    m = re.search(r'data-tmdb-id=["\']?(\d+)', html)
+    if m:
+        return int(m.group(1))
+    m = re.search(r'themoviedb\.org/(?:movie|tv)/(\d+)', html)
+    if m:
+        return int(m.group(1))
+    return None
+
+def _parse_letterboxd_popular_html(html: str, limit: int = 10) -> List[Dict]:
+    """从 Letterboxd Popular 页面 HTML 解析榜单项 """
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    results = []
+    list_items = soup.select(".productions-browser-list .poster-list li, li.posteritem")
+    for li in list_items:
+        if len(results) >= limit:
+            break
+        node = li.select_one("[data-item-link][data-item-name]") or li.select_one("[data-item-link]") or li
+        link_attr = node.get("data-item-link") or (li.select_one("[data-item-link]") and li.select_one("[data-item-link]").get("data-item-link"))
+        name_attr = node.get("data-item-name") or (li.select_one("[data-item-name]") and li.select_one("[data-item-name]").get("data-item-name"))
+        film_id_attr = (node.get("data-film-id") or (li.select_one("[data-film-id]") and li.select_one("[data-film-id]").get("data-film-id")) or "")
+        if not link_attr:
+            a = li.select_one("a[href*='/film/']")
+            if a and a.get("href"):
+                link_attr = a.get("href", "").lstrip("/")
+        if not name_attr:
+            name_attr = (li.select_one("[data-item-name]") and li.select_one("[data-item-name]").get("data-item-name")) or ""
+        if link_attr and name_attr:
+            url = link_attr if link_attr.startswith("http") else f"https://letterboxd.com/{link_attr}" if link_attr.startswith("/") else f"https://letterboxd.com/{link_attr}"
+            results.append({
+                "rank": len(results) + 1,
+                "title": name_attr.strip(),
+                "letterboxd_id": film_id_attr,
+                "url": url,
+            })
+    return results[:limit]
+
+def _parse_letterboxd_list_page_html(html: str) -> List[Dict]:
+    """从榜单列表页 HTML 解析带排名的电影项"""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    results = []
+    items = soup.select("li.posteritem.numbered-list-item, li.poster-list-item, ul.js-list-entries li.posteritem")
+    for item in items:
+        rank = None
+        rank_elem = item.select_one("p.list-number, .list-number, span.list-number")
+        if rank_elem and rank_elem.get_text(strip=True).isdigit():
+            rank = int(rank_elem.get_text(strip=True))
+        node = item.select_one("[data-item-link]")
+        link_elem = item.select_one("a[data-item-link], a[href*='/film/']")
+        href = None
+        if node and node.get("data-item-link"):
+            href = (node.get("data-item-link") or "").strip()
+        if not href and link_elem:
+            href = link_elem.get("data-item-link") or link_elem.get("href") or ""
+        if not href:
+            continue
+        href = href.strip()
+        if href.startswith("/"):
+            full_url = f"https://letterboxd.com{href}"
+        elif href.startswith("http"):
+            full_url = href
+        else:
+            full_url = f"https://letterboxd.com/{href}"
+        title_elem = item.select_one("[data-item-name]")
+        title = (title_elem.get("data-item-name") if title_elem else None) or (link_elem.get("data-original-title") if link_elem else None) or (link_elem.get_text(strip=True) if link_elem else "") or ""
+        if not rank:
+            rank = len(results) + 1
+        results.append({"rank": rank, "title": title.strip(), "url": full_url})
+    return results
 
 class ChartScraper:
     def __init__(self, db: Session):
@@ -471,64 +552,83 @@ class ChartScraper:
 
     async def scrape_letterboxd_popular(self) -> List[Dict]:
         """Letterboxd Popular films this week"""
-        films_url = "https://letterboxd.com/films/"
+        popular_url = "https://letterboxd.com/films/popular/this/week/"
+        letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+
+        if CURL_CFFI_AVAILABLE:
+            html, err = await _fetch_letterboxd_html(popular_url, letterboxd_cookie, timeout=15.0)
+            if html:
+                results = _parse_letterboxd_popular_html(html, limit=10)
+                if results:
+                    logger.info(f"Letterboxd Popular: curl_cffi 获取成功，共 {len(results)} 条")
+                    return results
+            if err == "cloudflare":
+                logger.warning("Letterboxd Popular: curl_cffi 遇 Cloudflare，使用 headed 浏览器+主页预热")
+
         async def scrape_with_browser(browser):
-            ctx_to_close = None
-            page = await browser.new_page()
+            context = None
             try:
-                letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    locale="en-US",
+                    timezone_id="America/Los_Angeles",
+                )
+                page = await context.new_page()
+                page.set_default_timeout(20000)
                 if letterboxd_cookie:
                     cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
                     if cookies:
-                        await page.context.add_cookies(cookies)
+                        await context.add_cookies(cookies)
                         logger.info("Letterboxd Popular: 已注入 LETTERBOXD_COOKIE")
-                await page.goto(films_url, wait_until="domcontentloaded")
-                await asyncio.sleep(2)
-                if await _is_cloudflare_challenge(page):
-                    logger.warning("Letterboxd Popular: 检测到 Cloudflare 验证，尝试 FlareSolverr…")
-                    fs = await _letterboxd_flaresolverr(films_url)
-                    if not fs:
-                        logger.warning("Letterboxd Popular: 未配置或 FlareSolverr 失败，返回空")
-                        return []
-                    await page.close()
-                    ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
-                    await ctx_to_close.add_cookies(fs["cookies"])
-                    page = await ctx_to_close.new_page()
-                    await page.goto(films_url, wait_until="domcontentloaded", timeout=15000)
-                    await asyncio.sleep(2)
-                    if await _is_cloudflare_challenge(page):
-                        logger.warning("Letterboxd Popular: FlareSolverr 后仍为 CF，返回空")
-                        return []
-                popular_items = await page.query_selector_all('#popular-films .poster-list li')
+                logger.info("Letterboxd Popular: 先访问主页等待 Cloudflare cookie...")
+                await page.goto("https://letterboxd.com/", wait_until="domcontentloaded", timeout=15000)
+                await asyncio.sleep(max(2.5, __import__("random").uniform(2.5, 4)))
+                await page.goto(popular_url, wait_until="domcontentloaded", timeout=15000)
+                await asyncio.sleep(1)
+                if _is_cloudflare_challenge_html(await page.content()):
+                    logger.warning("Letterboxd Popular: 仍为 Cloudflare，返回空")
+                    return []
+                try:
+                    await page.wait_for_selector("li.posteritem, .productions-browser-list .poster-list li", timeout=10000)
+                except Exception:
+                    pass
+                popular_items = await page.query_selector_all(".productions-browser-list .poster-list li, li.posteritem")
                 results = []
-                
                 for i, item in enumerate(popular_items[:10], 1):
                     try:
-                        title_elem = await item.query_selector('[data-item-name]')
-                        if title_elem:
-                            title = await title_elem.get_attribute('data-item-name')
-                            link = await title_elem.get_attribute('data-item-link')
-                            film_id = await title_elem.get_attribute('data-film-id')
-                            
-                            if title and link and film_id:
+                        node = await item.query_selector("[data-item-name][data-item-link]")
+                        if not node:
+                            title_elem = await item.query_selector("[data-item-name]")
+                            link_elem = await item.query_selector("[data-item-link]")
+                            node = title_elem or link_elem
+                        if node:
+                            title = await node.get_attribute("data-item-name")
+                            link = await node.get_attribute("data-item-link")
+                            film_id = await node.get_attribute("data-film-id") or ""
+                            if title and link:
                                 results.append({
-                                    'rank': i,
-                                    'title': title,
-                                    'letterboxd_id': film_id,
-                                    'url': f"https://letterboxd.com{link}"
+                                    "rank": i,
+                                    "title": title,
+                                    "letterboxd_id": film_id or "",
+                                    "url": f"https://letterboxd.com{link}" if link.startswith("/") else link,
                                 })
                     except Exception as e:
-                        logger.error(f"处理Letterboxd榜单项时出错: {e}")
+                        logger.debug(f"Letterboxd Popular 项解析: {e}")
                         continue
-                        
-                return results
+                return results[:10]
             finally:
-                if ctx_to_close:
-                    await ctx_to_close.close()
-                else:
-                    await page.close()
-                
-        return await browser_pool.execute_in_browser(scrape_with_browser)
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+
+        try:
+            return await browser_pool.execute_letterboxd(scrape_with_browser)
+        except Exception as e:
+            logger.error(f"Letterboxd Popular 抓取失败: {e}")
+            return []
 
     async def _rt_extract_itemlist(self, url: str, item_type: str) -> List[Dict]:
         """使用浏览器读取 JSON-LD ItemList"""
@@ -2061,177 +2161,158 @@ class ChartScraper:
 
     async def scrape_letterboxd_top250(self) -> List[Dict]:
         """Letterboxd Top 250 榜单"""
+        base_url = "https://letterboxd.com/dave/list/letterboxd-top-500-films-history-collected"
+        letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+        all_movies: List[Dict] = []
+
+        if CURL_CFFI_AVAILABLE:
+            use_curl = True
+            for page_num in range(1, 4):
+                url = f"{base_url}/page/{page_num}/"
+                html, err = await _fetch_letterboxd_html(url, letterboxd_cookie, timeout=20.0)
+                if not html or err == "cloudflare":
+                    use_curl = False
+                    if err == "cloudflare":
+                        logger.warning("Letterboxd Top 250: curl_cffi 遇 Cloudflare，改用 headed 浏览器")
+                    break
+                page_movies = _parse_letterboxd_list_page_html(html)
+                all_movies.extend(page_movies)
+                if page_num < 3:
+                    await asyncio.sleep(0.5)
+            if use_curl and all_movies:
+                seen_ranks = set()
+                deduped = []
+                for m in sorted(all_movies, key=lambda x: x.get("rank") or 9999):
+                    r = m.get("rank")
+                    if r not in seen_ranks:
+                        seen_ranks.add(r)
+                        deduped.append(m)
+                all_movies = sorted(deduped, key=lambda x: x.get("rank") or 9999)[:250]
+                logger.info(f"Letterboxd Top 250: curl_cffi 获取成功，共 {len(all_movies)} 条")
+                return all_movies
+
         async def scrape_with_browser(browser):
-            ctx_to_close = None
-            page = await browser.new_page()
+            context = None
             try:
-                letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    locale="en-US",
+                    timezone_id="America/Los_Angeles",
+                )
+                page = await context.new_page()
+                page.set_default_timeout(60000)
                 if letterboxd_cookie:
                     cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
                     if cookies:
-                        await page.context.add_cookies(cookies)
+                        await context.add_cookies(cookies)
                         logger.info("Letterboxd Top 250: 已注入 LETTERBOXD_COOKIE")
-                all_movies = []
-                base_url = "https://letterboxd.com/dave/list/official-top-250-narrative-feature-films"
-                
+                logger.info("Letterboxd Top 250: 先访问主页等待 Cloudflare cookie...")
+                await page.goto("https://letterboxd.com/", wait_until="domcontentloaded", timeout=15000)
+                await asyncio.sleep(max(2.5, __import__("random").uniform(2.5, 4)))
+                all_movies_local: List[Dict] = []
                 for page_num in range(1, 4):
-                    if page_num == 1:
-                        url = f"{base_url}/"
-                    else:
-                        url = f"{base_url}/page/{page_num}/"
-                    
+                    url = f"{base_url}/page/{page_num}/"
                     logger.info(f"访问 Letterboxd Top 250 第 {page_num} 页: {url}")
-                    
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                     await asyncio.sleep(1)
-                    if await _is_cloudflare_challenge(page):
-                        logger.warning(f"Letterboxd Top 250 第 {page_num} 页: 检测到 Cloudflare，尝试 FlareSolverr…")
-                        fs = await _letterboxd_flaresolverr(url)
-                        if not fs:
-                            logger.warning("Letterboxd Top 250: FlareSolverr 未配置或失败，返回空")
-                            return []
-                        await page.close()
-                        if ctx_to_close:
-                            await ctx_to_close.close()
-                        ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
-                        await ctx_to_close.add_cookies(fs["cookies"])
-                        page = await ctx_to_close.new_page()
-                        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                        await asyncio.sleep(1)
-                        if await _is_cloudflare_challenge(page):
-                            logger.warning("Letterboxd Top 250: FlareSolverr 后仍为 CF，返回空")
-                            return []
-                    
+                    if _is_cloudflare_challenge_html(await page.content()):
+                        logger.warning("Letterboxd Top 250: 检测到 Cloudflare，返回已抓取数据")
+                        break
                     try:
-                        await page.wait_for_selector('li.posteritem.numbered-list-item', timeout=3000)
+                        await page.wait_for_selector("li.posteritem, li.posteritem.numbered-list-item, .js-list-entries li.posteritem", timeout=5000)
                     except Exception:
                         pass
-                    
-                    items = await page.query_selector_all('li.posteritem.numbered-list-item')
-                    
+                    items = await page.query_selector_all("li.posteritem.numbered-list-item, li.poster-list-item, ul.js-list-entries li.posteritem, li.posteritem")
                     for item in items:
                         try:
-                            rank_elem = await item.query_selector('p.list-number')
+                            rank_elem = await item.query_selector("p.list-number, .list-number")
                             rank_text = await rank_elem.inner_text() if rank_elem else ""
-                            rank = int(rank_text.strip()) if rank_text.strip().isdigit() else None
-                            
+                            rank = int(rank_text.strip()) if rank_text and rank_text.strip().isdigit() else None
+                            node = await item.query_selector("[data-item-link]")
+                            link_elem = await item.query_selector("a[data-item-link], a[href*='/film/']")
+                            href = await node.get_attribute("data-item-link") if node else None
+                            if not href and link_elem:
+                                href = await link_elem.get_attribute("href") or await link_elem.get_attribute("data-item-link")
+                            if not href:
+                                continue
+                            href = href.strip()
+                            full_url = f"https://letterboxd.com{href}" if href.startswith("/") else (href if href.startswith("http") else f"https://letterboxd.com/{href}")
+                            title_elem = await item.query_selector("[data-item-name]")
+                            title = (await title_elem.get_attribute("data-item-name") if title_elem else "") or (await node.get_attribute("data-item-name") if node else "") or (await link_elem.get_attribute("data-original-title") if link_elem else "") or ""
+                            title = (title or "").strip()
                             if not rank:
-                                continue
-                            
-                            link_elem = await item.query_selector('a[data-item-link]')
-                            if not link_elem:
-                                link_elem = await item.query_selector('a[href*="/film/"]')
-                            
-                            if not link_elem:
-                                continue
-                            
-                            href = await link_elem.get_attribute('href')
-                            if not href:
-                                href = await link_elem.get_attribute('data-item-link')
-                            
-                            if not href:
-                                continue
-                            
-                            if href.startswith('/'):
-                                full_url = f"https://letterboxd.com{href}"
-                            elif href.startswith('http'):
-                                full_url = href
-                            else:
-                                full_url = f"https://letterboxd.com/{href}"
-                            
-                            title_elem = await item.query_selector('[data-item-name]')
-                            title = await title_elem.get_attribute('data-item-name') if title_elem else ""
-                            if not title:
-                                title = await link_elem.get_attribute('data-original-title') or ""
-                            
-                            title = title.strip() if title else ""
-                            
-                            all_movies.append({
-                                'rank': rank,
-                                'title': title,
-                                'url': full_url
-                            })
+                                rank = len(all_movies_local) + 1
+                            all_movies_local.append({"rank": rank, "title": title, "url": full_url})
                         except Exception as e:
-                            logger.warning(f"解析电影项失败: {e}")
+                            logger.debug(f"解析电影项: {e}")
                             continue
-                    
-                    await asyncio.sleep(1)
-                
-                all_movies.sort(key=lambda x: x['rank'])
-                
-                logger.info(f"Letterboxd Top 250 获取到 {len(all_movies)} 条电影链接")
-                return all_movies
-                
-            except Exception as e:
-                logger.error(f"抓取 Letterboxd Top 250 失败: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                return []
+                    if page_num < 3:
+                        await asyncio.sleep(1)
+                all_movies_local.sort(key=lambda x: x.get("rank") or 9999)
+                return all_movies_local[:250]
             finally:
-                if ctx_to_close:
-                    await ctx_to_close.close()
-                else:
-                    await page.close()
-        
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
+
         try:
-            return await browser_pool.execute_in_browser(scrape_with_browser)
+            result = await browser_pool.execute_letterboxd(scrape_with_browser)
+            if result:
+                logger.info(f"Letterboxd Top 250 获取到 {len(result)} 条电影链接")
+            return result or []
         except Exception as e:
             logger.error(f"Letterboxd Top 250 抓取失败: {e}")
             return []
 
     async def get_letterboxd_tmdb_id(self, letterboxd_url: str) -> Optional[int]:
         """从 Letterboxd 详情页获取 TMDB ID"""
+        letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+        if CURL_CFFI_AVAILABLE:
+            html, err = await _fetch_letterboxd_html(letterboxd_url, letterboxd_cookie, timeout=15.0)
+            if html:
+                tid = _parse_tmdb_id_from_letterboxd_html(html)
+                if tid is not None:
+                    return tid
+            if err == "cloudflare":
+                logger.debug(f"Letterboxd 详情页 curl_cffi 遇 CF: {letterboxd_url}，改用 headed 浏览器+主页预热")
+
         async def get_with_browser(browser):
-            ctx_to_close = None
-            page = await browser.new_page()
+            context = None
             try:
-                letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+                context = await browser.new_context(
+                    viewport={"width": 1280, "height": 800},
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    locale="en-US",
+                    timezone_id="America/Los_Angeles",
+                )
+                page = await context.new_page()
+                page.set_default_timeout(20000)
                 if letterboxd_cookie:
                     cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
                     if cookies:
-                        await page.context.add_cookies(cookies)
-                        logger.debug("Letterboxd 详情: 已注入 LETTERBOXD_COOKIE")
+                        await context.add_cookies(cookies)
+                await page.goto("https://letterboxd.com/", wait_until="domcontentloaded", timeout=15000)
+                await asyncio.sleep(max(2.5, __import__("random").uniform(2.5, 4)))
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
                 await asyncio.sleep(1)
-                if await _is_cloudflare_challenge(page):
-                    logger.warning(f"Letterboxd 详情页 CF: {letterboxd_url}，尝试 FlareSolverr…")
-                    fs = await _letterboxd_flaresolverr(letterboxd_url)
-                    if not fs:
-                        return None
-                    await page.close()
-                    ctx_to_close = await browser.new_context(viewport={"width": 1280, "height": 720}, user_agent=fs["userAgent"])
-                    await ctx_to_close.add_cookies(fs["cookies"])
-                    page = await ctx_to_close.new_page()
-                    await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
-                    await asyncio.sleep(1)
-                    if await _is_cloudflare_challenge(page):
-                        return None
+                if _is_cloudflare_challenge_html(await page.content()):
+                    return None
                 content = await page.content()
-                m = re.search(r'data-tmdb-id=["\']?(\d+)', content)
-                if m:
-                    return int(m.group(1))
-                try:
-                    await page.wait_for_selector('a[href*="themoviedb.org/movie/"], a[href*="themoviedb.org/tv/"]', timeout=3000)
-                except Exception:
-                    pass
-                for selector in ('a[href*="themoviedb.org/movie/"]', 'a[href*="themoviedb.org/tv/"]'):
-                    link = await page.query_selector(selector)
-                    if link:
-                        href = await link.get_attribute('href') or ''
-                        mm = re.search(r'/(?:movie|tv)/(\d+)/', href)
-                        if mm:
-                            return int(mm.group(1))
-                return None
+                return _parse_tmdb_id_from_letterboxd_html(content)
             except Exception as e:
                 logger.debug(f"获取 Letterboxd TMDB ID 失败 (url: {letterboxd_url}): {e}")
                 return None
             finally:
-                if ctx_to_close:
-                    await ctx_to_close.close()
-                else:
-                    await page.close()
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
         try:
-            return await browser_pool.execute_in_browser(get_with_browser)
+            return await browser_pool.execute_letterboxd(get_with_browser)
         except Exception as e:
             logger.debug(f"获取 Letterboxd TMDB ID 失败: {e}")
             return None
