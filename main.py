@@ -3397,7 +3397,7 @@ async def stop_scheduler_endpoint(
     
     try:
         from chart_scrapers import stop_auto_scheduler
-        stop_auto_scheduler()
+        await stop_auto_scheduler()
         
         db_status = SchedulerStatus(
             running=False,
