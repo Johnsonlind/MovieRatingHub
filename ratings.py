@@ -10,7 +10,7 @@ import traceback
 from fuzzywuzzy import fuzz
 import copy
 import aiohttp
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 from dataclasses import dataclass
 from fastapi import Request
 import unicodedata
@@ -207,15 +207,45 @@ def construct_search_url(title, media_type, platform, tmdb_info):
     result = search_urls[platform][media_type] if platform in search_urls and media_type in search_urls[platform] else ""
     return result
 
+def _get_letterboxd_base() -> str:
+    """根据环境决定 Letterboxd 基础域名"""
+    env = os.environ.get("ENV", "development").lower()
+    proxy = os.environ.get("LETTERBOXD_PROXY", "").strip().rstrip("/")
+    if env == "production" and proxy:
+        return proxy
+    return "https://letterboxd.com"
+
+def build_letterboxd_url(path_or_url: str) -> str:
+    """构建 Letterboxd 访问 URL"""
+    if not path_or_url:
+        return path_or_url
+    base = _get_letterboxd_base()
+    lower = path_or_url.lower()
+    if lower.startswith("http://") or lower.startswith("https://"):
+        if "letterboxd.com" in lower:
+            from urllib.parse import urlparse
+            try:
+                parsed = urlparse(path_or_url)
+                rel = parsed.path or "/"
+                if parsed.query:
+                    rel = f"{rel}?{parsed.query}"
+                return urljoin(base + "/", rel.lstrip("/"))
+            except Exception:
+                return path_or_url
+        return path_or_url
+    if path_or_url.startswith("/"):
+        return urljoin(base + "/", path_or_url.lstrip("/"))
+    return urljoin(base.rstrip("/") + "/", path_or_url)
+
 def _get_letterboxd_search_urls(tmdb_id, year, imdb_id):
     """为Letterboxd生成多种搜索URL"""
     urls = []
     if tmdb_id and year:
-        urls.append(f"https://letterboxd.com/search/tmdb:{tmdb_id} year:{year}/")
+        urls.append(build_letterboxd_url(f"/search/tmdb:{tmdb_id} year:{year}/"))
     if imdb_id:
-        urls.append(f"https://letterboxd.com/search/imdb:{imdb_id}/")
+        urls.append(build_letterboxd_url(f"/search/imdb:{imdb_id}/"))
     if tmdb_id:
-        urls.append(f"https://letterboxd.com/search/tmdb:{tmdb_id}/")
+        urls.append(build_letterboxd_url(f"/search/tmdb:{tmdb_id}/"))
     return urls if urls else [""]
         
 def _is_empty(value):
@@ -2046,7 +2076,10 @@ def parse_letterboxd_search_results(html: str):
     if not detail_path:
         return None
     title = first.get("data-item-name") or "Unknown"
-    detail_url = f"https://letterboxd.com{detail_path}" if not detail_path.startswith("http") else detail_path
+    if detail_path.startswith("http"):
+        detail_url = build_letterboxd_url(detail_path)
+    else:
+        detail_url = build_letterboxd_url(detail_path if detail_path.startswith("/") else f"/{detail_path.lstrip('/')}")
     return [{"title": title, "year": "", "url": detail_url, "match_score": 100}]
 
 async def _search_letterboxd_platform(tmdb_info, request, search_variants, media_type):
@@ -2104,7 +2137,7 @@ async def _search_letterboxd_platform(tmdb_info, request, search_variants, media
                     print("Letterboxd: 已注入 Cookie")
 
             print("Letterboxd: 先访问主页，等待 Cloudflare cookie...")
-            await page.goto("https://letterboxd.com/", wait_until="domcontentloaded", timeout=15000)
+            await page.goto(build_letterboxd_url("/"), wait_until="domcontentloaded", timeout=15000)
             await asyncio.sleep(random.uniform(2.5, 4))
 
             results = None
@@ -2190,7 +2223,10 @@ async def handle_letterboxd_search(page, search_url, tmdb_info, skip_curl_cffi=F
         if not detail_path:
             return {"status": RATING_STATUS["NO_FOUND"], "status_reason": "平台未收录"}
         title = await first_item.get_attribute('data-item-name') or "Unknown"
-        detail_url = f"https://letterboxd.com{detail_path}" if not detail_path.startswith('http') else detail_path
+        if detail_path.startswith("http"):
+            detail_url = build_letterboxd_url(detail_path)
+        else:
+            detail_url = build_letterboxd_url(detail_path if detail_path.startswith("/") else f"/{detail_path.lstrip('/')}")
         print(f"Letterboxd找到匹配结果: {title}")
         return [{"title": title, "year": tmdb_info.get("year", ""), "url": detail_url, "match_score": 100}]
     except Exception as e:
@@ -3659,12 +3695,13 @@ async def _extract_letterboxd_detail_with_headed_browser(detail_url, media_type,
             if request and await request.is_disconnected():
                 return create_empty_rating_data("letterboxd", media_type, RATING_STATUS["FETCH_FAILED"])
             print("Letterboxd 详情页: 先访问主页，等待 Cloudflare cookie...")
-            await page.goto("https://letterboxd.com/", wait_until="domcontentloaded", timeout=15000)
+            await page.goto(build_letterboxd_url("/"), wait_until="domcontentloaded", timeout=15000)
             await asyncio.sleep(random.uniform(2.5, 4))
             if request and await request.is_disconnected():
                 return create_empty_rating_data("letterboxd", media_type, RATING_STATUS["FETCH_FAILED"])
-            print("Letterboxd 详情页: 访问详情页", detail_url)
-            await page.goto(detail_url, wait_until="domcontentloaded", timeout=15000)
+            target_detail_url = build_letterboxd_url(detail_url)
+            print("Letterboxd 详情页: 访问详情页", target_detail_url)
+            await page.goto(target_detail_url, wait_until="domcontentloaded", timeout=15000)
             await asyncio.sleep(1)
             if await _is_cloudflare_challenge(page):
                 print("Letterboxd: headed 详情页仍遇 Cloudflare，返回 RateLimit")
