@@ -2082,25 +2082,10 @@ async def image_proxy(url: str, response: Response):
     try:
         if url.startswith('/tmdb-images/'):
             url = f"https://image.tmdb.org/t/p{url[12:]}"
-        
-        cache_key = f"img:{url}"
-        
-        if redis:
-            try:
-                cached_url = await redis.get(cache_key)
-                if cached_url:
-                    response.headers["Location"] = cached_url.decode('utf-8')
-                    response.status_code = 302
-                    return
-            except Exception as redis_error:
-                print(f"Redis缓存错误: {str(redis_error)}")
-        
+        elif url.startswith('/tmdb/'):
+            url = f"https://image.tmdb.org/t/p{url[5:]}"
+
         etag = 'W/"' + hashlib.md5(url.encode('utf-8')).hexdigest() + '"'
-        inm = None
-        try:
-            inm = response.headers.get('If-None-Match')
-        except Exception:
-            pass
 
         cached_item = None
         if redis:
@@ -2115,7 +2100,7 @@ async def image_proxy(url: str, response: Response):
             img_bytes = base64.b64decode(cached_item.get('data', ''))
             content_type = cached_item.get('content_type', 'image/jpeg')
             headers = {
-                "Cache-Control": "public, max-age=604800, immutable",
+                "Cache-Control": "public, max-age=31536000, immutable",
                 "ETag": etag,
                 "Content-Type": content_type,
             }
@@ -2133,19 +2118,23 @@ async def image_proxy(url: str, response: Response):
                     
                     if redis:
                         try:
-                            await redis.setex(
-                                f"imgbin:{url}",
-                                7 * 24 * 60 * 60,
-                                json.dumps({
-                                    'content_type': content_type,
-                                    'data': base64.b64encode(image_data).decode('utf-8')
-                                })
-                            )
-                        except Exception:
-                            pass
+                            if len(image_data) <= 5 * 1024 * 1024:
+                                key = f"imgbin:{hashlib.md5(url.encode('utf-8')).hexdigest()}"
+                                await redis.setex(
+                                    key,
+                                    31536000,
+                                    json.dumps({
+                                        'content_type': content_type,
+                                        'data': base64.b64encode(image_data).decode('utf-8')
+                                    })
+                                )
+                            else:
+                                print(f"[Redis] 图片太大，不缓存到 Redis: {url} ({len(image_data)/1024/1024:.2f} MB)")
+                        except Exception as e:
+                            print(f"[Redis] 写入失败: {url}, 错误: {e}")
 
                     headers = {
-                        "Cache-Control": "public, max-age=604800, immutable",
+                        "Cache-Control": "public, max-age=31536000, immutable",
                         "ETag": etag,
                         "Content-Type": content_type,
                     }
