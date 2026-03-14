@@ -2,7 +2,6 @@
 httpx[http2]
 requests
 aiohttp
-curl_cffi
 
 # 数据库
 sqlalchemy
