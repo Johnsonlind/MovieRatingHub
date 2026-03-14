@@ -81,7 +81,7 @@ class BrowserPool:
         browser = None
         try:
             browser = await self.playwright.chromium.launch(
-                headless=True,
+                headless=False,
                 args=[
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
