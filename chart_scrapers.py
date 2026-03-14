@@ -10,7 +10,7 @@ import aiohttp
 import httpx
 import requests
 import json
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 from typing import List, Dict, Optional, TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
@@ -52,6 +52,40 @@ def _parse_letterboxd_cookie_string(s: str) -> list:
         if name:
             out.append({"name": name, "value": value, "domain": ".letterboxd.com", "path": "/"})
     return out
+
+
+def _get_letterboxd_base() -> str:
+    """根据环境决定 Letterboxd 基础域名"""
+    env = os.environ.get("ENV", "development").lower()
+    proxy = os.environ.get("LETTERBOXD_PROXY", "").strip().rstrip("/")
+    if env == "production" and proxy:
+        return proxy
+    return "https://letterboxd.com"
+
+def build_letterboxd_url(path_or_url: str) -> str:
+    """构建 Letterboxd 访问 URL"""
+    if not path_or_url:
+        return path_or_url
+    base = _get_letterboxd_base()
+
+    lower = path_or_url.lower()
+    if lower.startswith("http://") or lower.startswith("https://"):
+        if "letterboxd.com" in lower:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(path_or_url)
+                rel = parsed.path or "/"
+                if parsed.query:
+                    rel = f"{rel}?{parsed.query}"
+                return urljoin(base + "/", rel.lstrip("/"))
+            except Exception:
+                return path_or_url
+        return path_or_url
+
+    if path_or_url.startswith("/"):
+        return urljoin(base + "/", path_or_url.lstrip("/"))
+
+    return urljoin(base.rstrip("/") + "/", path_or_url)
 
 CURL_CFFI_AVAILABLE = False
 try:
@@ -552,7 +586,7 @@ class ChartScraper:
 
     async def scrape_letterboxd_popular(self) -> List[Dict]:
         """Letterboxd Popular films this week"""
-        popular_url = "https://letterboxd.com/films/popular/this/week/"
+        popular_url = build_letterboxd_url("/films/popular/this/week/")
         letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
 
         if CURL_CFFI_AVAILABLE:
@@ -582,7 +616,7 @@ class ChartScraper:
                         await context.add_cookies(cookies)
                         logger.info("Letterboxd Popular: 已注入 LETTERBOXD_COOKIE")
                 logger.info("Letterboxd Popular: 先访问主页等待 Cloudflare cookie...")
-                await page.goto("https://letterboxd.com/", wait_until="domcontentloaded", timeout=15000)
+                await page.goto(build_letterboxd_url("/"), wait_until="domcontentloaded", timeout=15000)
                 await asyncio.sleep(max(2.5, __import__("random").uniform(2.5, 4)))
                 await page.goto(popular_url, wait_until="domcontentloaded", timeout=15000)
                 await asyncio.sleep(1)
@@ -611,7 +645,7 @@ class ChartScraper:
                                     "rank": i,
                                     "title": title,
                                     "letterboxd_id": film_id or "",
-                                    "url": f"https://letterboxd.com{link}" if link.startswith("/") else link,
+                                    "url": build_letterboxd_url(link if link.startswith("/") else f"/{link.lstrip('/')}"),
                                 })
                     except Exception as e:
                         logger.debug(f"Letterboxd Popular 项解析: {e}")
@@ -2161,14 +2195,14 @@ class ChartScraper:
 
     async def scrape_letterboxd_top250(self) -> List[Dict]:
         """Letterboxd Top 250 榜单"""
-        base_url = "https://letterboxd.com/dave/list/letterboxd-top-500-films-history-collected"
+        base_url = "/dave/list/letterboxd-top-500-films-history-collected"
         letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
         all_movies: List[Dict] = []
 
         if CURL_CFFI_AVAILABLE:
             use_curl = True
             for page_num in range(1, 4):
-                url = f"{base_url}/page/{page_num}/"
+                url = build_letterboxd_url(f"{base_url}/page/{page_num}/")
                 html, err = await _fetch_letterboxd_html(url, letterboxd_cookie, timeout=20.0)
                 if not html or err == "cloudflare":
                     use_curl = False
@@ -2208,11 +2242,11 @@ class ChartScraper:
                         await context.add_cookies(cookies)
                         logger.info("Letterboxd Top 250: 已注入 LETTERBOXD_COOKIE")
                 logger.info("Letterboxd Top 250: 先访问主页等待 Cloudflare cookie...")
-                await page.goto("https://letterboxd.com/", wait_until="domcontentloaded", timeout=15000)
+                await page.goto(build_letterboxd_url("/"), wait_until="domcontentloaded", timeout=15000)
                 await asyncio.sleep(max(2.5, __import__("random").uniform(2.5, 4)))
                 all_movies_local: List[Dict] = []
                 for page_num in range(1, 4):
-                    url = f"{base_url}/page/{page_num}/"
+                    url = build_letterboxd_url(f"{base_url}/page/{page_num}/")
                     logger.info(f"访问 Letterboxd Top 250 第 {page_num} 页: {url}")
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
                     await asyncio.sleep(1)
@@ -2237,7 +2271,7 @@ class ChartScraper:
                             if not href:
                                 continue
                             href = href.strip()
-                            full_url = f"https://letterboxd.com{href}" if href.startswith("/") else (href if href.startswith("http") else f"https://letterboxd.com/{href}")
+                            full_url = build_letterboxd_url(href if href.startswith("/") else f"/{href.lstrip('/')}")
                             title_elem = await item.query_selector("[data-item-name]")
                             title = (await title_elem.get_attribute("data-item-name") if title_elem else "") or (await node.get_attribute("data-item-name") if node else "") or (await link_elem.get_attribute("data-original-title") if link_elem else "") or ""
                             title = (title or "").strip()
@@ -2270,6 +2304,7 @@ class ChartScraper:
     async def get_letterboxd_tmdb_id(self, letterboxd_url: str) -> Optional[int]:
         """从 Letterboxd 详情页获取 TMDB ID"""
         letterboxd_cookie = os.environ.get("LETTERBOXD_COOKIE", "").strip()
+        letterboxd_url = build_letterboxd_url(letterboxd_url)
         if CURL_CFFI_AVAILABLE:
             html, err = await _fetch_letterboxd_html(letterboxd_url, letterboxd_cookie, timeout=15.0)
             if html:
@@ -2294,7 +2329,7 @@ class ChartScraper:
                     cookies = _parse_letterboxd_cookie_string(letterboxd_cookie)
                     if cookies:
                         await context.add_cookies(cookies)
-                await page.goto("https://letterboxd.com/", wait_until="domcontentloaded", timeout=15000)
+                await page.goto(build_letterboxd_url("/"), wait_until="domcontentloaded", timeout=15000)
                 await asyncio.sleep(max(2.5, __import__("random").uniform(2.5, 4)))
                 await page.goto(letterboxd_url, wait_until="domcontentloaded", timeout=20000)
                 await asyncio.sleep(1)
