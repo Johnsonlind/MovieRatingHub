@@ -283,18 +283,21 @@ export default function AdminRatingInputPage() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Input label="评分" name="rating" placeholder="如 8.5" />
                     <Input label="评分人数" name="rating_people" placeholder="如 100000" />
+                    <Input label="评分链接" name="url" placeholder="如 https://movie.douban.com/subject/xxx" />
                   </div>
                 )}
                 {activePlatform === 'IMDb' && (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Input label="评分" name="rating" placeholder="如 8.5" required />
                     <Input label="评分人数" name="rating_people" placeholder="如 1000000" />
+                    <Input label="评分链接" name="url" placeholder="如 https://www.imdb.com/title/ttxxxxxxx/" />
                   </div>
                 )}
                 {activePlatform === 'Letterboxd' && (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Input label="评分" name="rating" placeholder="如 3.8" required />
                     <Input label="评分人数" name="rating_count" placeholder="如 50000" />
+                    <Input label="评分链接" name="url" placeholder="如 https://letterboxd.com/film/xxxxxx/" />
                   </div>
                 )}
                 {activePlatform === 'Rotten Tomatoes' && (
@@ -303,6 +306,7 @@ export default function AdminRatingInputPage() {
                     <Input label="爆米花" name="audience_score" placeholder="如 88" />
                     <Input label="影评人数" name="critics_count" placeholder="如 200" />
                     <Input label="观众人数" name="audience_count" placeholder="如 5000" />
+                    <Input label="评分链接" name="url" placeholder="如 https://www.rottentomatoes.com/m/xxxxxx" />
                   </div>
                 )}
                 {activePlatform === 'Metacritic' && (
@@ -311,18 +315,21 @@ export default function AdminRatingInputPage() {
                     <Input label="User Score" name="userscore" placeholder="如 8.5" />
                     <Input label="影评人数" name="critics_count" placeholder="如 40" />
                     <Input label="用户人数" name="users_count" placeholder="如 500" />
+                    <Input label="评分链接" name="url" placeholder="如 https://www.metacritic.com/movie/xxxxxx" />
                   </div>
                 )}
                 {activePlatform === 'TMDB' && (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Input label="评分" name="rating" placeholder="如 7.8" type="number" step="0.1" required />
                     <Input label="投票数" name="vote_count" placeholder="如 5000" type="number" />
+                    <Input label="评分链接" name="url" placeholder="如 https://www.themoviedb.org/movie/xxxxxx" />
                   </div>
                 )}
                 {activePlatform === 'Trakt' && (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Input label="评分" name="rating" placeholder="如 8.2" type="number" step="0.1" required />
                     <Input label="投票数" name="votes" placeholder="如 10000" type="number" />
+                    <Input label="评分链接" name="url" placeholder="如 https://trakt.tv/movies/xxxxxx" />
                   </div>
                 )}
                 {selectedMedia.type === 'tv' && SEASON_PLATFORMS.includes(activePlatform) && (
@@ -343,36 +350,218 @@ export default function AdminRatingInputPage() {
                         <div className="grid gap-2 sm:grid-cols-2">
                           {activePlatform === '豆瓣' && (
                             <>
-                              <Input label="评分" value={String(s.rating ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, rating: e.target.value } : x))} placeholder="8.5" />
-                              <Input label="评分人数" value={String(s.rating_people ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, rating_people: e.target.value } : x))} placeholder="1000" />
+                              <Input
+                                label="评分"
+                                value={String(s.rating ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, rating: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="8.5"
+                              />
+                              <Input
+                                label="评分人数"
+                                value={String(s.rating_people ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, rating_people: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="1000"
+                              />
+                              <Input
+                                label="评分链接"
+                                value={String(s.url ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, url: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="https://movie.douban.com/subject/xxx"
+                              />
                             </>
                           )}
                           {activePlatform === 'Rotten Tomatoes' && (
                             <>
-                              <Input label="番茄计" value={String(s.tomatometer ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, tomatometer: e.target.value } : x))} placeholder="95" />
-                              <Input label="爆米花" value={String(s.audience_score ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, audience_score: e.target.value } : x))} placeholder="88" />
-                              <Input label="影评人数" value={String(s.critics_count ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, critics_count: e.target.value } : x))} placeholder="200" />
-                              <Input label="观众人数" value={String(s.audience_count ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, audience_count: e.target.value } : x))} placeholder="5000" />
+                              <Input
+                                label="番茄计"
+                                value={String(s.tomatometer ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, tomatometer: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="95"
+                              />
+                              <Input
+                                label="爆米花"
+                                value={String(s.audience_score ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, audience_score: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="88"
+                              />
+                              <Input
+                                label="影评人数"
+                                value={String(s.critics_count ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, critics_count: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="200"
+                              />
+                              <Input
+                                label="观众人数"
+                                value={String(s.audience_count ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, audience_count: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="5000"
+                              />
+                              <Input
+                                label="评分链接"
+                                value={String(s.url ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, url: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="https://www.rottentomatoes.com/tv/xxxxxx/s01"
+                              />
                             </>
                           )}
                           {activePlatform === 'Metacritic' && (
                             <>
-                              <Input label="Metascore" value={String(s.metascore ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, metascore: e.target.value } : x))} placeholder="85" />
-                              <Input label="User Score" value={String(s.userscore ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, userscore: e.target.value } : x))} placeholder="8.5" />
-                              <Input label="影评人数" value={String(s.critics_count ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, critics_count: e.target.value } : x))} placeholder="40" />
-                              <Input label="用户人数" value={String(s.users_count ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, users_count: e.target.value } : x))} placeholder="500" />
+                              <Input
+                                label="Metascore"
+                                value={String(s.metascore ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, metascore: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="85"
+                              />
+                              <Input
+                                label="User Score"
+                                value={String(s.userscore ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, userscore: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="8.5"
+                              />
+                              <Input
+                                label="影评人数"
+                                value={String(s.critics_count ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, critics_count: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="40"
+                              />
+                              <Input
+                                label="用户人数"
+                                value={String(s.users_count ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, users_count: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="500"
+                              />
+                              <Input
+                                label="评分链接"
+                                value={String(s.url ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, url: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="https://www.metacritic.com/tv/xxxxxx/season-1"
+                              />
                             </>
                           )}
                           {activePlatform === 'TMDB' && (
                             <>
-                              <Input label="评分" type="number" step="0.1" value={String(s.rating ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, rating: e.target.value } : x))} placeholder="7.5" />
-                              <Input label="投票数" type="number" value={String(s.vote_count ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, vote_count: e.target.value } : x))} placeholder="500" />
+                              <Input
+                                label="评分"
+                                type="number"
+                                step="0.1"
+                                value={String(s.rating ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, rating: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="7.5"
+                              />
+                              <Input
+                                label="投票数"
+                                type="number"
+                                value={String(s.vote_count ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, vote_count: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="500"
+                              />
+                              <Input
+                                label="评分链接"
+                                value={String(s.url ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, url: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="https://www.themoviedb.org/tv/xxxxxx/season/1"
+                              />
                             </>
                           )}
                           {activePlatform === 'Trakt' && (
                             <>
-                              <Input label="评分" type="number" step="0.1" value={String(s.rating ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, rating: e.target.value } : x))} placeholder="8.2" />
-                              <Input label="投票数" type="number" value={String(s.votes ?? '')} onChange={(e) => setSeasons((p) => p.map((x, i) => i === idx ? { ...x, votes: e.target.value } : x))} placeholder="1000" />
+                              <Input
+                                label="评分"
+                                type="number"
+                                step="0.1"
+                                value={String(s.rating ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, rating: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="8.2"
+                              />
+                              <Input
+                                label="投票数"
+                                type="number"
+                                value={String(s.votes ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, votes: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="1000"
+                              />
+                              <Input
+                                label="评分链接"
+                                value={String(s.url ?? '')}
+                                onChange={(e) =>
+                                  setSeasons((p) =>
+                                    p.map((x, i) => (i === idx ? { ...x, url: e.target.value } : x))
+                                  )
+                                }
+                                placeholder="https://trakt.tv/shows/xxxxxx/seasons/1"
+                              />
                             </>
                           )}
                         </div>
