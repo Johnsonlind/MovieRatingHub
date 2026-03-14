@@ -74,37 +74,6 @@ class BrowserPool:
         """将浏览器实例归还到池中"""
         await self.available_browsers.put(browser)
         
-    async def execute_letterboxd(self, callback, *args, **kwargs):
-        """Letterboxd 使用 headed 浏览器绕过 Cloudflare"""
-        if not self.playwright:
-            await self.initialize()
-        browser = None
-        try:
-            browser = await self.playwright.chromium.launch(
-                headless=False,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-infobars',
-                    '--window-size=1280,800',
-                    '--start-maximized',
-                ]
-            )
-            result = await callback(browser, *args, **kwargs)
-            return result
-        except Exception as e:
-            self.failed_requests += 1
-            logger.error(f"Letterboxd 浏览器操作失败: {e}")
-            raise
-        finally:
-            if browser:
-                try:
-                    await browser.close()
-                except Exception:
-                    pass
-
     async def execute_in_browser(self, callback, *args, **kwargs):
         """在浏览器中执行操作并自动处理浏览器的获取和释放"""
         self.total_requests += 1
