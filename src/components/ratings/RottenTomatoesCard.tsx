@@ -27,21 +27,21 @@ export function RottenTomatoesCard({
   size = 'default'
 }: RottenTomatoesCardProps) {
   const formatCriticAvg = (avg: string | undefined) => {
-    if (!avg || avg === '暂无') return '暂无数据';
+    if (!avg || avg === '暂无' || avg === '0') return null;
     const match = avg.match(/(\d+\.\d+)/);
     if (match) {
       return `${Number(match[1]).toFixed(2)}/10`;
     }
-    return '暂无数据';
+    return null;
   };
 
   const formatAudienceAvg = (avg: string | undefined) => {
-    if (!avg || avg === '暂无') return '暂无数据';
+    if (!avg || avg === '暂无' || avg === '0') return null;
     const match = avg.match(/(\d+(?:\.\d+)?)/);
     if (match) {
       return `${Number(match[1]).toFixed(1)}/5`;
     }
-    return '暂无数据';
+    return null;
   };
 
   const formatReviewCount = (count: string | undefined, isCritic: boolean) => {
@@ -91,9 +91,9 @@ export function RottenTomatoesCard({
                       {formatReviewCount(criticReviews, true)}
                     </span>
                   )}
-                  {criticAvg && (
+                  {formatCriticAvg(criticAvg) && (
                     <span className={`${isCompact ? 'text-xs' : 'text-sm'} text-gray-400 mt-1`}>
-                      平均新鲜度 {formatCriticAvg(criticAvg)}
+                      平均新鲜度 {formatCriticAvg(criticAvg)!}
                     </span>
                   )}
                 </div>
@@ -122,9 +122,9 @@ export function RottenTomatoesCard({
                       {formatReviewCount(audienceReviews, false)}
                     </span>
                   )}
-                  {audienceAvg && (
+                  {formatAudienceAvg(audienceAvg) && (
                     <span className={`${isCompact ? 'text-xs' : 'text-sm'} text-gray-400 mt-1`}>
-                      平均评分 {formatAudienceAvg(audienceAvg)}
+                      平均评分 {formatAudienceAvg(audienceAvg)!}
                     </span>
                   )}
                 </div>
