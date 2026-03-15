@@ -94,7 +94,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
                     )}
                     {criticAvg && criticAvg !== '暂无' && criticAvg !== '0' && (
                       <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
-                        平均新鲜度 {criticAvg}
+                        平均新鲜度 {criticAvg.includes('/') ? criticAvg : `${criticAvg}/10`}
                       </span>
                     )}
                   </div>
@@ -130,7 +130,7 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
                     )}
                     {audienceAvg && audienceAvg !== '暂无' && audienceAvg !== '0' && (
                       <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
-                        平均评分 {audienceAvg}
+                        平均评分 {audienceAvg.includes('/') ? audienceAvg : `${audienceAvg}/5`}
                       </span>
                     )}
                   </div>
