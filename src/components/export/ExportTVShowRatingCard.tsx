@@ -242,7 +242,9 @@ export function ExportTVShowRatingCard({
           formatRating.percentage(ratings.rt.tomatometer),
           formatRating.percentage(ratings.rt.audience_score),
           formatRating.count(ratings.rt.critics_count),
-          formatRating.count(ratings.rt.audience_count)
+          formatRating.count(ratings.rt.audience_count),
+          ratings.rt.critics_avg !== '暂无' ? ratings.rt.critics_avg : undefined,
+          ratings.rt.audience_avg !== '暂无' ? ratings.rt.audience_avg : undefined
         )}
       </div>
     );
