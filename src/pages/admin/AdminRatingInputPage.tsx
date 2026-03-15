@@ -304,6 +304,8 @@ export default function AdminRatingInputPage() {
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Input label="番茄计" name="tomatometer" placeholder="如 95" />
                     <Input label="爆米花" name="audience_score" placeholder="如 88" />
+                    <Input label="平均新鲜度（专业均分）" name="critics_avg" placeholder="如 7.8/10 或 3.9/5" />
+                    <Input label="平均评分（观众均分）" name="audience_avg" placeholder="如 4.2/5" />
                     <Input label="影评人数" name="critics_count" placeholder="如 200" />
                     <Input label="观众人数" name="audience_count" placeholder="如 5000" />
                     <Input label="评分链接" name="url" placeholder="如 https://www.rottentomatoes.com/m/xxxxxx" />
