@@ -2273,8 +2273,8 @@ def _build_manual_rating_payload(platform: str, body: dict, media_type: str):
         series = {
             "tomatometer": str(body.get("tomatometer") or "").strip() or "0",
             "audience_score": str(body.get("audience_score") or "").strip() or "0",
-            "critics_avg": "0",
-            "audience_avg": "0",
+            "critics_avg": str(body.get("critics_avg") or "").strip() or "0",
+            "audience_avg": str(body.get("audience_avg") or "").strip() or "0",
             "critics_count": str(body.get("critics_count") or "").strip() or "0",
             "audience_count": str(body.get("audience_count") or "").strip() or "0",
         }
