@@ -468,6 +468,18 @@ export default function AdminRatingEditPage() {
                         defaultValue={extractValue(platformData, 'series', 'audience_score')}
                       />
                       <Input
+                        label="平均新鲜度（专业均分）"
+                        name="critics_avg"
+                        placeholder="如 7.8/10 或 3.9/5"
+                        defaultValue={extractValue(platformData, 'series', 'critics_avg')}
+                      />
+                      <Input
+                        label="平均评分（观众均分）"
+                        name="audience_avg"
+                        placeholder="如 4.2/5"
+                        defaultValue={extractValue(platformData, 'series', 'audience_avg')}
+                      />
+                      <Input
                         label="影评人数"
                         name="critics_count"
                         defaultValue={extractValue(platformData, 'series', 'critics_count')}
