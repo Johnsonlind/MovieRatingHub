@@ -213,6 +213,8 @@ export default function AdminRatingEditPage() {
         case 'rottentomatoes':
           payload.tomatometer = formData.get('tomatometer');
           payload.audience_score = formData.get('audience_score');
+          payload.critics_avg = formData.get('critics_avg');
+          payload.audience_avg = formData.get('audience_avg');
           payload.critics_count = formData.get('critics_count');
           payload.audience_count = formData.get('audience_count');
           payload.url = formData.get('url');
@@ -645,6 +647,28 @@ export default function AdminRatingEditPage() {
                                     );
                                   }}
                                   placeholder="88"
+                                />
+                                <Input
+                                  label="平均新鲜度（专业均分）"
+                                  value={String(s.critics_avg ?? '')}
+                                  onChange={(e) => {
+                                    const src = seasons.length ? seasons : initialSeasons;
+                                    setSeasons(
+                                      src.map((x, i) => (i === idx ? { ...x, critics_avg: e.target.value } : x))
+                                    );
+                                  }}
+                                  placeholder="7.8/10 或 3.9/5"
+                                />
+                                <Input
+                                  label="平均评分（观众均分）"
+                                  value={String(s.audience_avg ?? '')}
+                                  onChange={(e) => {
+                                    const src = seasons.length ? seasons : initialSeasons;
+                                    setSeasons(
+                                      src.map((x, i) => (i === idx ? { ...x, audience_avg: e.target.value } : x))
+                                    );
+                                  }}
+                                  placeholder="4.2/5"
                                 />
                                 <Input
                                   label="影评人数"
