@@ -2218,6 +2218,8 @@ def _build_seasons_list(body: dict, platform: str, media_type: str) -> list:
         elif platform == "rottentomatoes":
             item["tomatometer"] = str(s.get("tomatometer") or "").strip() or "0"
             item["audience_score"] = str(s.get("audience_score") or "").strip() or "0"
+            item["critics_avg"] = str(s.get("critics_avg") or "").strip() or "0"
+            item["audience_avg"] = str(s.get("audience_avg") or "").strip() or "0"
             item["critics_count"] = str(s.get("critics_count") or "").strip() or "0"
             item["audience_count"] = str(s.get("audience_count") or "").strip() or "0"
         elif platform == "metacritic":
