@@ -53,7 +53,14 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
     </div>
   );
 
-  const renderRottenTomatoesCard = (criticScore?: number, audienceScore?: number, criticReviews?: string, audienceReviews?: string) => {
+  const renderRottenTomatoesCard = (
+    criticScore?: number,
+    audienceScore?: number,
+    criticReviews?: string,
+    audienceReviews?: string,
+    criticAvg?: string,
+    audienceAvg?: string
+  ) => {
     if (!criticScore && !audienceScore) return null;
     
     return (
@@ -85,6 +92,11 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
                         {criticReviews.replace(/ Reviews| Ratings/g, '')} 个专业评价
                       </span>
                     )}
+                    {criticAvg && criticAvg !== '暂无' && criticAvg !== '0' && (
+                      <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
+                        平均新鲜度 {criticAvg}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -114,6 +126,11 @@ export function createExportRenderers({ ratingCardStyle }: ExportRenderersProps)
                     {audienceReviews && (
                       <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
                         {audienceReviews.replace(/ Reviews| Ratings/g, '')}人评分
+                      </span>
+                    )}
+                    {audienceAvg && audienceAvg !== '暂无' && audienceAvg !== '0' && (
+                      <span style={{ fontSize: '14px', color: 'rgba(255, 255, 255, 0.85)', marginTop: '4px' }}>
+                        平均评分 {audienceAvg}
                       </span>
                     )}
                   </div>
