@@ -69,7 +69,9 @@ export function ExportRatingCard({ media, ratingData, selectedSeason, layout = '
           formatRating.percentage(rtData.tomatometer),
           formatRating.percentage(rtData.audience_score),
           formatRating.count(rtData.critics_count),
-          formatRating.count(rtData.audience_count)
+          formatRating.count(rtData.audience_count),
+          rtData.critics_avg !== '暂无' ? rtData.critics_avg : undefined,
+          rtData.audience_avg !== '暂无' ? rtData.audience_avg : undefined
         )}
       </div>
     );
