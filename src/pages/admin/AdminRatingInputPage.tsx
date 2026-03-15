@@ -129,6 +129,8 @@ export default function AdminRatingInputPage() {
         case 'rottentomatoes':
           payload.tomatometer = formData.get('tomatometer');
           payload.audience_score = formData.get('audience_score');
+          payload.critics_avg = formData.get('critics_avg');
+          payload.audience_avg = formData.get('audience_avg');
           payload.critics_count = formData.get('critics_count');
           payload.audience_count = formData.get('audience_count');
           break;
@@ -156,6 +158,8 @@ export default function AdminRatingInputPage() {
           } else if (activePlatform === 'Rotten Tomatoes') {
             base.tomatometer = s.tomatometer ?? '';
             base.audience_score = s.audience_score ?? '';
+            base.critics_avg = s.critics_avg ?? '';
+            base.audience_avg = s.audience_avg ?? '';
             base.critics_count = s.critics_count ?? '';
             base.audience_count = s.audience_count ?? '';
           } else if (activePlatform === 'Metacritic') {
@@ -406,6 +410,26 @@ export default function AdminRatingInputPage() {
                                 }
                                 placeholder="88"
                               />
+                          <Input
+                            label="平均新鲜度（专业均分）"
+                            value={String(s.critics_avg ?? '')}
+                            onChange={(e) =>
+                              setSeasons((p) =>
+                                p.map((x, i) => (i === idx ? { ...x, critics_avg: e.target.value } : x))
+                              )
+                            }
+                            placeholder="7.8/10 或 3.9/5"
+                          />
+                          <Input
+                            label="平均评分（观众均分）"
+                            value={String(s.audience_avg ?? '')}
+                            onChange={(e) =>
+                              setSeasons((p) =>
+                                p.map((x, i) => (i === idx ? { ...x, audience_avg: e.target.value } : x))
+                              )
+                            }
+                            placeholder="4.2/5"
+                          />
                               <Input
                                 label="影评人数"
                                 value={String(s.critics_count ?? '')}
