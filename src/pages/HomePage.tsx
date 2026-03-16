@@ -14,6 +14,19 @@ import { ChartsButton } from '../components/ui/ChartsButton';
 import { MiniFavoriteButton } from '../components/ui/MiniFavoriteButton';
 import { Footer } from '../components/common/Footer';
 
+const DOWNSCALE_SIZE = 'w185';
+
+const downscaleTmdb = (url: string) => {
+  const tmdbPattern = /https?:\/\/image\.tmdb\.org\/t\/p\/(original|w\d+)(\/.+)/;
+  const match = url.match(tmdbPattern);
+  if (match) return `https://image.tmdb.org/t/p/${DOWNSCALE_SIZE}${match[2]}`;
+  if (url.startsWith('/tmdb-images/')) {
+    const path = url.replace(/^\/tmdb-images\/(?:original|w\d+)/, '');
+    return `https://image.tmdb.org/t/p/${DOWNSCALE_SIZE}${path}`;
+  }
+  return url;
+};
+
 // Top板块组件
 function TopSectionsFromBackend() {
   const { data, isLoading } = useQuery({
@@ -26,10 +39,11 @@ function TopSectionsFromBackend() {
 
   const resolvePosterUrl = (poster: string) => {
     if (!poster) return '';
-    if (poster.startsWith('/api/') || poster.startsWith('/tmdb-images/')) {
-      return poster;
+    const safePoster = downscaleTmdb(poster);
+    if (safePoster.startsWith('/api/') || safePoster.startsWith('/tmdb-images/')) {
+      return safePoster;
     }
-    return `/api/image-proxy?url=${encodeURIComponent(poster)}`;
+    return `/api/image-proxy?url=${encodeURIComponent(safePoster)}`;
   };
 
   const Section = ({ title, items }:{ title: string; items?: Array<{ id: number; type: 'movie' | 'tv'; title: string; poster: string }> }) => (
@@ -41,7 +55,7 @@ function TopSectionsFromBackend() {
         <>
           {/* 第一行：前5个 */}
           <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4 mb-2 sm:mb-3">
-            {items.slice(0, 5).map((item, idx) => {
+          {items.slice(0, 5).map((item, idx) => {
               const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
               return (
                 <div key={`${item.type}-${item.id}`} className="group relative">
@@ -52,8 +66,8 @@ function TopSectionsFromBackend() {
                           src={resolvePosterUrl(item.poster)}
                           alt={item.title}
                           className="w-full h-full object-cover transition-opacity duration-200"
-                          loading={idx < 5 ? 'eager' : 'lazy'}
-                          fetchPriority={idx < 5 ? 'high' : 'auto'}
+                          loading={idx === 0 ? 'eager' : 'lazy'}
+                          fetchPriority={idx === 0 ? 'high' : 'auto'}
                           decoding="async"
                           sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
                           style={{ 
@@ -101,7 +115,7 @@ function TopSectionsFromBackend() {
           </div>
           {/* 第二行：后5个 */}
           <div className="grid grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
-            {items.slice(5, 10).map((item, idx) => {
+            {items.slice(5, 10).map((item) => {
               const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
               return (
                 <div key={`${item.type}-${item.id}`} className="group relative">
@@ -112,8 +126,8 @@ function TopSectionsFromBackend() {
                           src={resolvePosterUrl(item.poster)}
                           alt={item.title}
                           className="w-full h-full object-cover transition-opacity duration-200"
-                          loading={idx < 5 ? 'eager' : 'lazy'}
-                          fetchPriority={idx < 5 ? 'high' : 'auto'}
+                          loading="lazy"
+                          fetchPriority="low"
                           decoding="async"
                           sizes="(min-width:1280px) 20vw, (min-width:1024px) 20vw, (min-width:640px) 20vw, 20vw"
                           style={{ 
