@@ -321,6 +321,7 @@ export default function ChartsPage() {
     layout: 'portrait' | 'landscape';
   } | null>(null);
   const exportRef = useRef<HTMLDivElement | null>(null);
+  const posterBase64CacheRef = useRef<Map<string, string>>(new Map());
 
   const handleExportChart = useCallback(async (platform: string, chartName: string, chartKey: string, layout: 'portrait' | 'landscape' = 'portrait') => {
     const exportKey = `${chartKey}-${layout}`;
@@ -349,7 +350,7 @@ export default function ChartsPage() {
         c.platform === platform && c.chart_name === chartName
       );
       
-      if (chart && element) {
+        if (chart && element) {
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
                         (navigator.maxTouchPoints && navigator.maxTouchPoints > 2 && /MacIntel/.test(navigator.platform));
 
@@ -371,7 +372,11 @@ export default function ChartsPage() {
 
           const batchPromises = batch.map(async (entry) => {
             try {
-              const base64 = await getBase64Image(entry.poster!);
+              const cachedBase64 = posterBase64CacheRef.current.get(entry.poster!);
+              const base64 = cachedBase64 || await getBase64Image(entry.poster!);
+              if (!cachedBase64) {
+                posterBase64CacheRef.current.set(entry.poster!, base64);
+              }
               if (Date.now() >= prepDeadline) return;
               const images = element.getElementsByTagName('img');
               for (let j = 0; j < images.length; j++) {
