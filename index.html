@@ -9,12 +9,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   
     <!-- ====== GA4 跟踪代码开始 ====== -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-J2305JG26B"></script>
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-J2305JG26B');  
+      (function() {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        window.gtag = gtag;
+
+        function loadGA() {
+          if (window.__gaLoaded) return;
+          window.__gaLoaded = true;
+
+          var script = document.createElement('script');
+          script.async = true;
+          script.src = 'https://www.googletagmanager.com/gtag/js?id=G-J2305JG26B';
+          script.onload = function() {
+            gtag('js', new Date());
+            gtag('config', 'G-J2305JG26B');
+          };
+          document.head.appendChild(script);
+        }
+
+        if (document.readyState === 'complete') {
+          loadGA();
+        } else {
+          window.addEventListener('load', loadGA);
+          setTimeout(loadGA, 5000);
+        }
+      })();
     </script>
     <!-- ====== GA4 跟踪代码结束 ====== -->
     
