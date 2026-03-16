@@ -432,7 +432,8 @@ export default function ChartsPage() {
       await new Promise(resolve => setTimeout(resolve, isMobile ? 100 : 200));
 
       const fileName = `${platform}-${chartName}`.replace(/[/\\?%*:|"<>]/g, '-');
-      await exportToPng(element, `${fileName}.png`, { isChart: true, cacheKey: `chart-${platform}-${chartName}` });
+      const cacheKey = `chart-${platform}-${chartName}-${layout}`;
+      await exportToPng(element, `${fileName}.png`, { isChart: true, cacheKey });
     } catch (error) {
       console.error('导出失败:', error);
     } finally {
