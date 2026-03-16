@@ -126,7 +126,11 @@ async function convertAllImagesToBase64ForSafari(element: HTMLElement): Promise<
   
   const images = element.getElementsByTagName('img');
   const maxConcurrent = isMobile ? 3 : 10;
-  const imageArray = Array.from(images).filter(img => !img.src.startsWith('data:'));
+  const imageArray = Array.from(images).filter(img => {
+    if (img.src.startsWith('data:')) return false;
+    if (img.dataset && img.dataset.exportSafariProcessed === '1') return false;
+    return true;
+  });
   
   for (let i = 0; i < imageArray.length; i += maxConcurrent) {
     const batch = imageArray.slice(i, i + maxConcurrent);
@@ -139,6 +143,9 @@ async function convertAllImagesToBase64ForSafari(element: HTMLElement): Promise<
       try {
         const base64 = await getBase64ImageWithOptions(imageUrl, { cacheBust: false });
         img.src = base64;
+        if (img.dataset) {
+          img.dataset.exportSafariProcessed = '1';
+        }
         
         await new Promise<void>((resolve) => {
           if (img.complete && img.naturalWidth > 0) {
@@ -715,4 +722,16 @@ export async function exportToPng(
   };
   exportQueue = exportQueue.then(run, run);
   await exportQueue;
+}
+
+export async function exportBatchToPng(
+  jobs: Array<{
+    element: HTMLElement;
+    filename: string;
+    options?: { isChart?: boolean; borderRadius?: number; cacheKey?: string };
+  }>
+) {
+  for (const job of jobs) {
+    await exportToPng(job.element, job.filename, job.options);
+  }
 }
