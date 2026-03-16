@@ -16,7 +16,30 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
-          { urlPattern: /^https:\/\/image\.tmdb\.org\/.*/i, handler: 'CacheFirst', options: { cacheName: 'tmdb-images', expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 } } },
+          {
+            urlPattern: /^https:\/\/image\.tmdb\.org\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'tmdb-images',
+              expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 }
+            }
+          },
+          {
+            urlPattern: /\/api\/image-proxy/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'image-proxy-cache',
+              expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 60 * 60 }
+            }
+          },
+          {
+            urlPattern: /\/logos\/.*\.(png|svg|ico)$/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'static-logos',
+              expiration: { maxEntries: 50, maxAgeSeconds: 365 * 24 * 60 * 60 }
+            }
+          },
         ],
       },
     }),
