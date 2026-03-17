@@ -13,6 +13,7 @@ import { UserButton } from '../components/ui/UserButton';
 import { ChartsButton } from '../components/ui/ChartsButton';
 import { MiniFavoriteButton } from '../components/ui/MiniFavoriteButton';
 import { Footer } from '../components/common/Footer';
+import { usePageMeta } from '../hooks/usePageMeta';
 
 const DOWNSCALE_SIZE = 'w185';
 
@@ -190,6 +191,12 @@ function TopSectionsFromBackend() {
 const MemoizedTopSectionsFromBackend = memo(TopSectionsFromBackend);
 
 export default function HomePage() {
+  usePageMeta({
+    title: 'RateFuse - 搜索并对比多平台影视评分',
+    description: '搜索电影与剧集，一键对比豆瓣、IMDb、烂番茄、Metacritic、TMDB 等多平台评分，并查看热门榜单。',
+    canonicalPath: '/',
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [page, setPage] = useState(1);
@@ -205,10 +212,6 @@ export default function HomePage() {
     queryFn: () => searchMedia(searchQuery, { page }),
     enabled: !!searchQuery,
   });
-
-  useEffect(() => {
-    document.title = 'RateFuse - 搜索并对比多平台影视评分';
-  }, []);
 
   useEffect(() => {
     if (searchFromState) {
