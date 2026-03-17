@@ -3,7 +3,7 @@
 // ==========================================
 import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { MiniFavoriteButton } from '../components/ui/MiniFavoriteButton';
 import { exportToPng } from '../utils/export';
 import { Download } from 'lucide-react';
@@ -192,6 +192,7 @@ export default function ChartsPage() {
     canonicalPath: '/charts',
   });
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const contentRef = useRef<HTMLDivElement>(null);
 
   const isSafariMobile = useMemo(() => {
@@ -308,10 +309,19 @@ export default function ChartsPage() {
 
   useEffect(() => {
     if (!platformsWithCharts.length) return;
-    setActivePlatform((prev) =>
-      prev && platformsWithCharts.includes(prev) ? prev : platformsWithCharts[0],
-    );
-  }, [platformsWithCharts]);
+    const platformFromQuery = searchParams.get('platform');
+    setActivePlatform((prev) => {
+      if (platformFromQuery && platformsWithCharts.includes(platformFromQuery)) {
+        return platformFromQuery;
+      }
+      return prev && platformsWithCharts.includes(prev) ? prev : platformsWithCharts[0];
+    });
+  }, [platformsWithCharts, searchParams]);
+
+  const handlePlatformChange = useCallback((platform: string) => {
+    setActivePlatform(platform);
+    setSearchParams({ platform }, { replace: true });
+  }, [setSearchParams]);
 
   const [exportingChart, setExportingChart] = useState<string | null>(null);
   const [activeExportChart, setActiveExportChart] = useState<{
@@ -482,7 +492,7 @@ export default function ChartsPage() {
                     ),
                   }))}
                   activeId={activePlatform}
-                  onChange={setActivePlatform}
+                  onChange={handlePlatformChange}
                 />
               </div>
               <div className="px-6 pb-6 pt-4 space-y-6">
@@ -505,6 +515,8 @@ export default function ChartsPage() {
                             {isNonExportable ? (
                               <Link
                                 to={`/charts/${encodeURIComponent(chart.platform)}/${encodeURIComponent(chart.chart_name)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="glass-button px-3 py-1.5 text-sm flex items-center gap-2 text-gray-800 dark:text-white hover:scale-105 transition-all"
                               >
                                 更多
