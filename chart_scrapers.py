@@ -165,6 +165,36 @@ class ChartScraper:
             )
         )
 
+    def _replace_chart_snapshot(self, platform: str, chart_name: str, entries: list[dict]) -> int:
+        """两阶段方案的“提交阶段”"""
+        try:
+            self.db.query(ChartEntry).filter(
+                ChartEntry.platform == platform,
+                ChartEntry.chart_name == chart_name,
+            ).delete(synchronize_session=False)
+
+            for e in entries:
+                self.db.add(
+                    ChartEntry(
+                        platform=platform,
+                        chart_name=chart_name,
+                        media_type=e["media_type"],
+                        rank=int(e["rank"]),
+                        tmdb_id=int(e["tmdb_id"]),
+                        title=e.get("title") or "",
+                        poster=e.get("poster") or "",
+                    )
+                )
+
+            self.db.commit()
+            return len(entries)
+        except Exception:
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+            raise
+
     async def scrape_douban_weekly_movie_chart(self) -> List[Dict]:
         """豆瓣一周口碑榜"""
         async def scrape_with_browser(browser):
@@ -653,9 +683,6 @@ class ChartScraper:
         """烂番茄 Popular Streaming Movies"""
         platform = '烂番茄'
         chart_name = 'Popular Streaming Movies'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
         
         matcher = TMDBMatcher(self.db)
         url = 'https://www.rottentomatoes.com/browse/movies_at_home/sort:popular'
@@ -674,12 +701,9 @@ class ChartScraper:
                     return 0
                 await asyncio.sleep(5 * (attempt + 1))
         
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         rank = 1
         for it in items[:10]:
-            if rank in existing_ranks:
-                rank += 1
-                continue
             title = it.get('name') or ''
             year = it.get('year')
             match = None
@@ -707,19 +731,18 @@ class ChartScraper:
                 continue
             
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'movie'),
-                rank=rank,
-                tmdb_id=match['tmdb_id'],
-                title=final_title,
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "movie"),
+                    "rank": rank,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": final_title,
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
             rank += 1
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -727,18 +750,12 @@ class ChartScraper:
         """Letterboxd Popular films this week"""
         platform = 'Letterboxd'
         chart_name = 'Popular films this week'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
         
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_letterboxd_popular()
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         rank = 1
         for it in items[:10]:
-            if rank in existing_ranks:
-                rank += 1
-                continue
             title = it.get('title') or ''
             url = it.get('url') or ''
             if not url:
@@ -810,19 +827,18 @@ class ChartScraper:
                 rank += 1
                 continue
             
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', actual_media_type),
-                rank=rank,
-                tmdb_id=match['tmdb_id'],
-                title=match.get('title') or title,
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", actual_media_type),
+                    "rank": rank,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": match.get("title") or title,
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
             rank += 1
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -848,18 +864,12 @@ class ChartScraper:
         """Metacritic Trending Movies This Week"""
         platform = 'MTC'
         chart_name = 'Trending Movies This Week'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
         
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_metacritic_trending_movies()
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         rank = 1
         for it in items[:10]:
-            if rank in existing_ranks:
-                rank += 1
-                continue
             title = it.get('title') or ''
             url = it.get('url') or ''
             if not url:
@@ -880,19 +890,18 @@ class ChartScraper:
                 rank += 1
                 continue
             
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'movie'),
-                rank=rank,
-                tmdb_id=match['tmdb_id'],
-                title=match.get('title', title),
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "movie"),
+                    "rank": rank,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": match.get("title", title),
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
             rank += 1
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -900,18 +909,12 @@ class ChartScraper:
         """Metacritic Trending Shows This Week"""
         platform = 'MTC'
         chart_name = 'Trending Shows This Week'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
         
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_metacritic_trending_shows()
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         rank = 1
         for it in items[:10]:
-            if rank in existing_ranks:
-                rank += 1
-                continue
             title = it.get('title') or ''
             url = it.get('url') or ''
             if not url:
@@ -932,19 +935,18 @@ class ChartScraper:
                 rank += 1
                 continue
             
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'tv'),
-                rank=rank,
-                tmdb_id=match['tmdb_id'],
-                title=match.get('title', title),
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "tv"),
+                    "rank": rank,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": match.get("title", title),
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
             rank += 1
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -1020,15 +1022,9 @@ class ChartScraper:
 
         platform = 'TMDB'
         chart_name = '趋势本周'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         matcher = TMDBMatcher(self.db)
         for idx, item in enumerate(items[:10], 1):
-            if idx in existing_ranks:
-                continue
             tmdb_id = int(item.get('tmdb_id'))
             media_type = item.get('media_type') or 'movie'
             title = item.get('title') or ''
@@ -1040,19 +1036,18 @@ class ChartScraper:
                     poster = info.get('poster_url', '')
             except Exception:
                 pass
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=media_type,
-                rank=idx,
-                tmdb_id=tmdb_id,
-                title=title,
-                poster=poster,
+            entries.append(
+                {
+                    "media_type": media_type,
+                    "rank": idx,
+                    "tmdb_id": tmdb_id,
+                    "title": title,
+                    "poster": poster,
+                }
             )
-            existing_ranks.add(idx)
-            saved = len(existing_ranks)
 
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"TMDB 趋势本周 入库 {saved} 条（来源：{'remote panel' if items else 'api'}）")
         return saved
 
@@ -1063,9 +1058,6 @@ class ChartScraper:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         platform = 'TMDB'
         chart_name = 'TMDB Top 250 Movies'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
         tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
         headers = {
             'Authorization': f'Bearer {tmdb_token}',
@@ -1109,11 +1101,8 @@ class ChartScraper:
                 continue
         
         all_items = all_items[:250]
-        
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         for rank, item in enumerate(all_items, 1):
-            if rank in existing_ranks:
-                continue
             tmdb_id = item['tmdb_id']
             title = item.get('title', '')
             poster_path = item.get('poster_path', '')
@@ -1128,19 +1117,18 @@ class ChartScraper:
                 logger.warning(f"TMDB Top 250 Movies 获取详细信息失败 (rank {rank}, tmdb_id {tmdb_id}): {e}")
                 poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
             
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type='movie',
-                rank=rank,
-                tmdb_id=tmdb_id,
-                title=title,
-                poster=poster,
+            entries.append(
+                {
+                    "media_type": "movie",
+                    "rank": rank,
+                    "tmdb_id": tmdb_id,
+                    "title": title,
+                    "poster": poster,
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
-        
-        self.db.commit()
+
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -1151,9 +1139,6 @@ class ChartScraper:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         platform = 'TMDB'
         chart_name = 'TMDB Top 250 TV Shows'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
         tmdb_token = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI0ZjY4MWZhN2I1YWI3MzQ2YTRlMTg0YmJmMmQ0MTcxNSIsIm5iZiI6MTUyNjE3NDY5MC4wMjksInN1YiI6IjVhZjc5M2UyOTI1MTQxMmM4MDAwNGE5ZCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.maKS7ZH7y6l_H0_dYcXn5QOZHuiYdK_SsiQ5AAk32cI"
         headers = {
             'Authorization': f'Bearer {tmdb_token}',
@@ -1197,11 +1182,8 @@ class ChartScraper:
                 continue
         
         all_items = all_items[:250]
-        
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         for rank, item in enumerate(all_items, 1):
-            if rank in existing_ranks:
-                continue
             tmdb_id = item['tmdb_id']
             title = item.get('title', '')
             poster_path = item.get('poster_path', '')
@@ -1216,19 +1198,18 @@ class ChartScraper:
                 logger.warning(f"TMDB Top 250 TV Shows 获取详细信息失败 (rank {rank}, tmdb_id {tmdb_id}): {e}")
                 poster = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
             
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type='tv',
-                rank=rank,
-                tmdb_id=tmdb_id,
-                title=title,
-                poster=poster,
+            entries.append(
+                {
+                    "media_type": "tv",
+                    "rank": rank,
+                    "tmdb_id": tmdb_id,
+                    "title": title,
+                    "poster": poster,
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
-        
-        self.db.commit()
+
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -1544,10 +1525,6 @@ class ChartScraper:
         """IMDb Top 250 Movies → 'IMDb / IMDb Top 250 Movies'"""
         platform = 'IMDb'
         chart_name = 'IMDb Top 250 Movies'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_imdb_top250("https://www.imdb.com/chart/top/", "movie")
         
@@ -1555,7 +1532,7 @@ class ChartScraper:
             logger.error("未能获取到 IMDb Top 250 Movies 数据")
             return 0
         
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         total = len(items[:250])
         
         semaphore = asyncio.Semaphore(10)
@@ -1567,9 +1544,6 @@ class ChartScraper:
                 title = item.get('title') or ''
                 imdb_id = item.get('imdb_id') or ''
 
-                if isinstance(rank, int) and rank in existing_ranks:
-                    return None
-                
                 if not imdb_id:
                     logger.warning(f"IMDb Top 250 Movies rank {rank}: 缺少 IMDb ID")
                     return None
@@ -1605,24 +1579,23 @@ class ChartScraper:
                 title = result['title']
                 
                 media_type = match.get('media_type') or 'movie'
-                self._upsert_chart_entry_by_rank(
-                    platform=platform,
-                    chart_name=chart_name,
-                    media_type=media_type,
-                    rank=rank,
-                    tmdb_id=match['tmdb_id'],
-                    title=match.get('title', title),
-                    poster=match.get('poster', ''),
+                entries.append(
+                    {
+                        "media_type": media_type,
+                        "rank": rank,
+                        "tmdb_id": match["tmdb_id"],
+                        "title": match.get("title", title),
+                        "poster": match.get("poster", ""),
+                    }
                 )
-                existing_ranks.add(rank)
-                saved = len(existing_ranks)
             
-            self.db.commit()
-            logger.info(f"IMDb Top 250 Movies 处理进度: {saved}/{total} 条已入库")
+            logger.info(f"IMDb Top 250 Movies 收集进度: {min(batch_start + batch_size, total)}/{total} 条已处理")
             
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.3)
-        
+
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"IMDb Top 250 Movies 入库完成，共 {saved}/{total} 条")
         return saved
 
@@ -1630,10 +1603,6 @@ class ChartScraper:
         """IMDb Top 250 TV Shows → 'IMDb / IMDb Top 250 TV Shows'"""
         platform = 'IMDb'
         chart_name = 'IMDb Top 250 TV Shows'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_imdb_top250("https://www.imdb.com/chart/toptv/", "tv")
         
@@ -1641,7 +1610,7 @@ class ChartScraper:
             logger.error("未能获取到 IMDb Top 250 TV Shows 数据")
             return 0
         
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         total = len(items[:250])
         
         semaphore = asyncio.Semaphore(10)
@@ -1653,9 +1622,6 @@ class ChartScraper:
                 title = item.get('title') or ''
                 imdb_id = item.get('imdb_id') or ''
 
-                if isinstance(rank, int) and rank in existing_ranks:
-                    return None
-                
                 if not imdb_id:
                     logger.warning(f"IMDb Top 250 TV Shows rank {rank}: 缺少 IMDb ID")
                     return None
@@ -1691,24 +1657,23 @@ class ChartScraper:
                 title = result['title']
                 
                 media_type = match.get('media_type') or 'tv'
-                self._upsert_chart_entry_by_rank(
-                    platform=platform,
-                    chart_name=chart_name,
-                    media_type=media_type,
-                    rank=rank,
-                    tmdb_id=match['tmdb_id'],
-                    title=match.get('title', title),
-                    poster=match.get('poster', ''),
+                entries.append(
+                    {
+                        "media_type": media_type,
+                        "rank": rank,
+                        "tmdb_id": match["tmdb_id"],
+                        "title": match.get("title", title),
+                        "poster": match.get("poster", ""),
+                    }
                 )
-                existing_ranks.add(rank)
-                saved = len(existing_ranks)
             
-            self.db.commit()
-            logger.info(f"IMDb Top 250 TV Shows 处理进度: {saved}/{total} 条已入库")
+            logger.info(f"IMDb Top 250 TV Shows 收集进度: {min(batch_start + batch_size, total)}/{total} 条已处理")
             
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.3)
-        
+
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"IMDb Top 250 TV Shows 入库完成，共 {saved}/{total} 条")
         return saved
 
@@ -2039,18 +2004,8 @@ class ChartScraper:
 
     async def update_douban_top250(self, douban_cookie: Optional[str] = None, request: Optional['Request'] = None) -> int:
         """豆瓣 Top 250 → '豆瓣 / 豆瓣 Top 250'"""
-        existing_ranks = {
-            r[0]
-            for r in self.db.query(ChartEntry.rank)
-            .filter(
-                ChartEntry.platform == '豆瓣',
-                ChartEntry.chart_name == '豆瓣 Top 250',
-            )
-            .all()
-        }
-        if existing_ranks:
-            logger.info(f"豆瓣 Top 250: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-
+        platform = '豆瓣'
+        chart_name = '豆瓣 Top 250'
         movies = await self.scrape_douban_top250(douban_cookie)
         
         if not movies:
@@ -2058,7 +2013,7 @@ class ChartScraper:
             return 0
         
         matcher = TMDBMatcher(self.db)
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         total = len(movies[:250])
         
         semaphore = asyncio.Semaphore(3)
@@ -2071,9 +2026,6 @@ class ChartScraper:
                 title = movie.get('title') or ''
                 douban_id = movie.get('douban_id') or ''
 
-                if isinstance(rank, int) and rank in existing_ranks:
-                    return None
-                
                 if not douban_id:
                     logger.warning(f"豆瓣 Top 250 rank {rank}: 缺少豆瓣 ID")
                     return None
@@ -2120,33 +2072,23 @@ class ChartScraper:
                 title = result['title']
                 
                 media_type = match.get('media_type') or 'movie'
-                try:
-                    self.db.query(ChartEntry).filter(
-                        ChartEntry.platform == '豆瓣',
-                        ChartEntry.chart_name == '豆瓣 Top 250',
-                        ChartEntry.rank == rank,
-                    ).delete()
-                except Exception:
-                    pass
-                self.db.add(ChartEntry(
-                    platform='豆瓣',
-                    chart_name='豆瓣 Top 250',
-                    media_type=media_type,
-                    rank=rank,
-                    tmdb_id=match['tmdb_id'],
-                    title=match.get('title', title),
-                    poster=match.get('poster', '')
-                ))
-                existing_ranks.add(rank)
-                saved = len(existing_ranks)
+                entries.append(
+                    {
+                        "media_type": media_type,
+                        "rank": rank,
+                        "tmdb_id": match["tmdb_id"],
+                        "title": match.get("title", title),
+                        "poster": match.get("poster", ""),
+                    }
+                )
             
-            self.db.commit()
-            logger.info(f"豆瓣 Top 250 处理进度: {saved}/{total} 条已入库")
+            logger.info(f"豆瓣 Top 250 收集进度: {min(batch_start + batch_size, total)}/{total} 条已处理")
             
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.5)
         
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"豆瓣 Top 250 入库完成，共 {saved}/{total} 条")
         return saved
 
@@ -2331,10 +2273,6 @@ class ChartScraper:
         """Letterboxd Top 250 → 'Letterboxd / Letterboxd Official Top 250'"""
         platform = 'Letterboxd'
         chart_name = 'Letterboxd Official Top 250'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         movies = await self.scrape_letterboxd_top250()
         
         if not movies:
@@ -2342,7 +2280,7 @@ class ChartScraper:
             return 0
         
         matcher = TMDBMatcher(self.db)
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         total = len(movies[:250])
         
         semaphore = asyncio.Semaphore(3)
@@ -2354,9 +2292,6 @@ class ChartScraper:
                 title = movie.get('title') or ''
                 letterboxd_url = movie.get('url') or ''
 
-                if isinstance(rank, int) and rank in existing_ranks:
-                    return None
-                
                 if not letterboxd_url:
                     logger.warning(f"Letterboxd Top 250 rank {rank}: 缺少链接")
                     return None
@@ -2397,24 +2332,23 @@ class ChartScraper:
                 if not result:
                     continue
                 
-                self._upsert_chart_entry_by_rank(
-                    platform=platform,
-                    chart_name=chart_name,
-                    media_type='movie',
-                    rank=result['rank'],
-                    tmdb_id=result['tmdb_id'],
-                    title=result['title'],
-                    poster=result['poster'],
+                entries.append(
+                    {
+                        "media_type": "movie",
+                        "rank": result["rank"],
+                        "tmdb_id": result["tmdb_id"],
+                        "title": result["title"],
+                        "poster": result["poster"],
+                    }
                 )
-                existing_ranks.add(result['rank'])
-                saved = len(existing_ranks)
             
-            self.db.commit()
-            logger.info(f"Letterboxd Top 250 处理进度: {saved}/{total} 条已入库")
+            logger.info(f"Letterboxd Top 250 收集进度: {min(batch_start + batch_size, total)}/{total} 条已处理")
             
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.5)
         
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库完成，共 {saved}/{total} 条")
         return saved
 
@@ -2605,10 +2539,6 @@ class ChartScraper:
         """Metacritic Best Movies of All Time → 'MTC / Metacritic Best Movies of All Time'"""
         platform = 'MTC'
         chart_name = 'Metacritic Best Movies of All Time'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-
         items = await self.scrape_metacritic_top250('movie')
         
         if not items:
@@ -2616,7 +2546,7 @@ class ChartScraper:
             return 0
         
         matcher = TMDBMatcher(self.db)
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         total = len(items[:250])
         
         semaphore = asyncio.Semaphore(10)
@@ -2628,9 +2558,6 @@ class ChartScraper:
                 title = item.get('title') or ''
                 year = item.get('year')
 
-                if isinstance(rank, int) and rank in existing_ranks:
-                    return None
-                
                 if not title:
                     logger.warning(f"Metacritic Best Movies rank {rank}: 缺少标题")
                     return None
@@ -2667,24 +2594,23 @@ class ChartScraper:
                 if not result:
                     continue
                 
-                self._upsert_chart_entry_by_rank(
-                    platform=platform,
-                    chart_name=chart_name,
-                    media_type='movie',
-                    rank=result['rank'],
-                    tmdb_id=result['tmdb_id'],
-                    title=result['title'],
-                    poster=result['poster'],
+                entries.append(
+                    {
+                        "media_type": "movie",
+                        "rank": result["rank"],
+                        "tmdb_id": result["tmdb_id"],
+                        "title": result["title"],
+                        "poster": result["poster"],
+                    }
                 )
-                existing_ranks.add(result['rank'])
-                saved = len(existing_ranks)
             
-            self.db.commit()
-            logger.info(f"Metacritic Best Movies of All Time 处理进度: {saved}/{total} 条已入库")
+            logger.info(f"Metacritic Best Movies 收集进度: {min(batch_start + batch_size, total)}/{total} 条已处理")
             
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.3)
         
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库完成，共 {saved}/{total} 条")
         return saved
 
@@ -2692,10 +2618,6 @@ class ChartScraper:
         """Metacritic Best TV Shows of All Time → 'MTC / Metacritic Best TV Shows of All Time'"""
         platform = 'MTC'
         chart_name = 'Metacritic Best TV Shows of All Time'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         items = await self.scrape_metacritic_top250('tv')
         
         if not items:
@@ -2703,7 +2625,7 @@ class ChartScraper:
             return 0
         
         matcher = TMDBMatcher(self.db)
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         total = len(items[:250])
         
         semaphore = asyncio.Semaphore(10)
@@ -2715,9 +2637,6 @@ class ChartScraper:
                 title = item.get('title') or ''
                 year = item.get('year')
 
-                if isinstance(rank, int) and rank in existing_ranks:
-                    return None
-                
                 if not title:
                     logger.warning(f"Metacritic Best TV Shows rank {rank}: 缺少标题")
                     return None
@@ -2754,24 +2673,23 @@ class ChartScraper:
                 if not result:
                     continue
                 
-                self._upsert_chart_entry_by_rank(
-                    platform=platform,
-                    chart_name=chart_name,
-                    media_type='tv',
-                    rank=result['rank'],
-                    tmdb_id=result['tmdb_id'],
-                    title=result['title'],
-                    poster=result['poster'],
+                entries.append(
+                    {
+                        "media_type": "tv",
+                        "rank": result["rank"],
+                        "tmdb_id": result["tmdb_id"],
+                        "title": result["title"],
+                        "poster": result["poster"],
+                    }
                 )
-                existing_ranks.add(result['rank'])
-                saved = len(existing_ranks)
             
-            self.db.commit()
-            logger.info(f"Metacritic Best TV Shows of All Time 处理进度: {saved}/{total} 条已入库")
+            logger.info(f"Metacritic Best TV 收集进度: {min(batch_start + batch_size, total)}/{total} 条已处理")
             
             if batch_start + batch_size < total:
                 await asyncio.sleep(0.3)
         
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库完成，共 {saved}/{total} 条")
         return saved
 
@@ -2779,10 +2697,6 @@ class ChartScraper:
         """Trakt Movies most watched weekly → 'Trakt / Top Movies Last Week'"""
         platform = 'Trakt'
         chart_name = 'Top Movies Last Week'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         import urllib3, requests
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         headers = {
@@ -2796,10 +2710,8 @@ class ChartScraper:
             return 0
         from chart_scrapers import TMDBMatcher
         matcher = TMDBMatcher(self.db)
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         for idx, it in enumerate(r.json()[:10], 1):
-            if idx in existing_ranks:
-                continue
             title = (it.get('movie') or {}).get('title') or ''
             year = (it.get('movie') or {}).get('year')
             match = None
@@ -2820,18 +2732,17 @@ class ChartScraper:
                 continue
             
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'movie'),
-                rank=idx,
-                tmdb_id=match['tmdb_id'],
-                title=final_title,
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "movie"),
+                    "rank": idx,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": final_title,
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(idx)
-            saved = len(existing_ranks)
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -2839,10 +2750,6 @@ class ChartScraper:
         """Trakt Shows most watched weekly → 'Trakt / Top TV Shows Last Week'"""
         platform = 'Trakt'
         chart_name = 'Top TV Shows Last Week'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         import urllib3, requests
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         headers = {
@@ -2856,10 +2763,8 @@ class ChartScraper:
             return 0
         from chart_scrapers import TMDBMatcher
         matcher = TMDBMatcher(self.db)
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         for idx, it in enumerate(r.json()[:10], 1):
-            if idx in existing_ranks:
-                continue
             title = (it.get('show') or {}).get('title') or ''
             year = (it.get('show') or {}).get('year')
             match = None
@@ -2880,18 +2785,17 @@ class ChartScraper:
                 continue
             
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'tv'),
-                rank=idx,
-                tmdb_id=match['tmdb_id'],
-                title=final_title,
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "tv"),
+                    "rank": idx,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": final_title,
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(idx)
-            saved = len(existing_ranks)
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -2899,16 +2803,10 @@ class ChartScraper:
         """IMDb Top 10 this week → 'IMDb / Top 10 on IMDb this week'，movie/tv/both 按返回实际类型存储"""
         platform = 'IMDb'
         chart_name = 'Top 10 on IMDb this week'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_imdb_top_10()
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         for idx, it in enumerate(items[:10], 1):
-            if idx in existing_ranks:
-                continue
             title = it.get('title') or ''
             imdb_id = it.get('imdb_id') or ''
             match = None
@@ -2917,18 +2815,17 @@ class ChartScraper:
             if not match:
                 continue
             media_type = match.get('media_type') or 'movie'
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=media_type,
-                rank=idx,
-                tmdb_id=match['tmdb_id'],
-                title=match.get('title', title),
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": media_type,
+                    "rank": idx,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": match.get("title", title),
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(idx)
-            saved = len(existing_ranks)
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
@@ -2936,18 +2833,11 @@ class ChartScraper:
         """豆瓣一周口碑榜"""
         platform = '豆瓣'
         chart_name = '一周口碑榜'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_douban_weekly_movie_chart()
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         rank = 1
         for it in items[:10]:
-            if rank in existing_ranks:
-                rank += 1
-                continue
             title = it.get('title') or ''
             douban_id = it.get('douban_id') or ''
             match = None
@@ -2983,36 +2873,28 @@ class ChartScraper:
                 logger.warning(f"❌ 所有匹配方式都失败: {title}")
                 rank += 1; continue
             
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'movie'),
-                rank=rank,
-                tmdb_id=match['tmdb_id'],
-                title=match.get('title', title),
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "movie"),
+                    "rank": rank,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": match.get("title", title),
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
             rank += 1
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
     async def update_douban_weekly_chinese_tv(self) -> int:
         platform = '豆瓣'
         chart_name = '一周华语剧集口碑榜'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_douban_weekly_chinese_tv_chart()
-        saved = len(existing_ranks); rank = 1
+        entries: list[dict] = []; rank = 1
         for it in items[:10]:
-            if rank in existing_ranks:
-                rank += 1
-                continue
             title = it.get('title') or ''
             tmdb_id = await matcher.match_by_title_and_year(title, 'tv')
             match = None
@@ -3023,36 +2905,28 @@ class ChartScraper:
             if not match:
                 rank += 1; continue
             
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'tv'),
-                rank=rank,
-                tmdb_id=match['tmdb_id'],
-                title=match.get('title', title),
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "tv"),
+                    "rank": rank,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": match.get("title", title),
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
             rank += 1
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
 
     async def update_douban_weekly_global_tv(self) -> int:
         platform = '豆瓣'
         chart_name = '一周全球剧集口碑榜'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         matcher = TMDBMatcher(self.db)
         items = await self.scrape_douban_weekly_global_tv_chart()
-        saved = len(existing_ranks); rank = 1
+        entries: list[dict] = []; rank = 1
         for it in items[:10]:
-            if rank in existing_ranks:
-                rank += 1
-                continue
             title = it.get('title') or ''
             douban_id = it.get('douban_id') or ''
             match = None
@@ -3083,19 +2957,18 @@ class ChartScraper:
                         logger.info(f"    ✅ 中文名匹配成功: {title} -> {match['title']}")
             if not match:
                 rank += 1; continue
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'tv'),
-                rank=rank,
-                tmdb_id=match['tmdb_id'],
-                title=match.get('title', title),
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "tv"),
+                    "rank": rank,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": match.get("title", title),
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
             rank += 1
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
     
@@ -3103,10 +2976,6 @@ class ChartScraper:
         """烂番茄 Popular TV"""
         platform = '烂番茄'
         chart_name = 'Popular TV'
-        existing_ranks = self._get_existing_ranks(platform, chart_name)
-        if existing_ranks:
-            logger.info(f"{platform} {chart_name}: 检测到已存在 {len(existing_ranks)} 条记录，将继续补全缺失 rank")
-        
         matcher = TMDBMatcher(self.db)
         url = 'https://www.rottentomatoes.com/browse/tv_series_browse/sort:popular'
         
@@ -3125,12 +2994,9 @@ class ChartScraper:
                     return 0
                 await asyncio.sleep(5 * (attempt + 1))
         
-        saved = len(existing_ranks)
+        entries: list[dict] = []
         rank = 1
         for it in items[:10]:
-            if rank in existing_ranks:
-                rank += 1
-                continue
             title = it.get('name') or ''
             year = it.get('year')
             match = None
@@ -3158,19 +3024,18 @@ class ChartScraper:
                 continue
             
             final_title = match.get('title') or title or f"TMDB-{match['tmdb_id']}"
-            self._upsert_chart_entry_by_rank(
-                platform=platform,
-                chart_name=chart_name,
-                media_type=match.get('media_type', 'tv'),
-                rank=rank,
-                tmdb_id=match['tmdb_id'],
-                title=final_title,
-                poster=match.get('poster', ''),
+            entries.append(
+                {
+                    "media_type": match.get("media_type", "tv"),
+                    "rank": rank,
+                    "tmdb_id": match["tmdb_id"],
+                    "title": final_title,
+                    "poster": match.get("poster", ""),
+                }
             )
-            existing_ranks.add(rank)
-            saved = len(existing_ranks)
             rank += 1
-        self.db.commit()
+        entries.sort(key=lambda x: x["rank"])
+        saved = self._replace_chart_snapshot(platform, chart_name, entries)
         logger.info(f"{platform} {chart_name} 入库 {saved} 条")
         return saved
     
