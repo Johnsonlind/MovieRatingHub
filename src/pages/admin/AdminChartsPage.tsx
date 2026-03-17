@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { useDebounce } from '../../hooks/useDebounce';
 import { CardTabs } from '../../components/ui/CardTabs';
+import { ConfirmDialog } from '../../components/common/ConfirmDialog';
 
 interface MediaItem {
   id: number;
@@ -240,6 +241,57 @@ export default function AdminChartsPage() {
   const [pickerSelected, setPickerSelected] = useState<MediaItem | null>(null);
   const debouncedPickerQuery = useDebounce(pickerQuery, 350);
 
+  const [modal, setModal] = useState<{
+    open: boolean;
+    title: string;
+    message: React.ReactNode;
+    confirmText?: string;
+    cancelText?: string;
+    variant?: 'default' | 'danger';
+    onConfirm?: () => void;
+  }>({ open: false, title: '', message: '' });
+
+  const closeModal = () =>
+    setModal((m) => ({
+      ...m,
+      open: false,
+      onConfirm: undefined,
+    }));
+
+  const showAlert = (message: React.ReactNode, title = '提示') => {
+    setModal({
+      open: true,
+      title,
+      message,
+      confirmText: '确定',
+      cancelText: undefined,
+      variant: 'default',
+      onConfirm: closeModal,
+    });
+  };
+
+  const showConfirm = (opts: {
+    title: string;
+    message: React.ReactNode;
+    confirmText?: string;
+    cancelText?: string;
+    variant?: 'default' | 'danger';
+    onConfirm: () => void;
+  }) => {
+    setModal({
+      open: true,
+      title: opts.title,
+      message: opts.message,
+      confirmText: opts.confirmText ?? '确定',
+      cancelText: opts.cancelText ?? '取消',
+      variant: opts.variant ?? 'default',
+      onConfirm: () => {
+        closeModal();
+        opts.onConfirm();
+      },
+    });
+  };
+
   const { data: pickerData } = useQuery({
     queryKey: ['tmdb-picker', debouncedPickerQuery],
     queryFn: () => searchTMDB(debouncedPickerQuery),
@@ -356,7 +408,7 @@ export default function AdminChartsPage() {
     }
     
     if (conflictExists) {
-      alert(`该排名已存在条目，请先清空或选择其他排名。`);
+      showAlert(`该排名已存在条目，请先清空或选择其他排名。`);
       return;
     }
     
@@ -386,7 +438,7 @@ export default function AdminChartsPage() {
       if (!response.ok) {
         const err = await response.json().catch(()=>({}));
         const detail = (err && (err.detail || err.message)) ? (err.detail || err.message) : '添加失败';
-        alert(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        showAlert(typeof detail === 'string' ? detail : JSON.stringify(detail));
         return;
       }
       
@@ -415,7 +467,7 @@ export default function AdminChartsPage() {
         refetchType: 'active'
       });
     } catch (error) {
-      alert(`保存失败: ${error}`);
+      showAlert(`保存失败: ${error}`);
     } finally {
       setSubmitting(false);
       setPickerOpen(false);
@@ -579,129 +631,147 @@ export default function AdminChartsPage() {
   }
 
   async function handleClearTop250Chart(platform: string, chartName: string) {
-    if (!confirm(`确定要清空 ${chartName} 吗？此操作不可撤销！`)) {
-      return;
-    }
-    
-    const operationKey = `${platform}_${chartName}_clear`;
-    setPlatformOperations(prev => ({ ...prev, [operationKey]: true }));
-    setUpdateStatus(`正在清空 ${chartName}...`);
-    
-    try {
-      const token = localStorage.getItem('token');
-      const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
-      const backendChartName = CHART_NAME_REVERSE_MAP[chartName] || chartName;
-      
-      const response = await fetch(`/api/charts/clear-top250`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          platform: backendPlatform,
-          chart_name: backendChartName,
-        }),
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok) {
-        setUpdateStatus(`${chartName} 已清空！`);
-        if (activeKey) {
-          const [currentPlatform, currentChartName, media_type] = activeKey.split(':');
-          if (currentPlatform === platform && currentChartName === chartName) {
-            loadCurrentList(currentPlatform, currentChartName, media_type as SectionType);
+    showConfirm({
+      title: '清空榜单',
+      message: `确定要清空 ${chartName} 吗？此操作不可撤销。`,
+      confirmText: '清空',
+      variant: 'danger',
+      onConfirm: () => {
+        void (async () => {
+          const operationKey = `${platform}_${chartName}_clear`;
+          setPlatformOperations(prev => ({ ...prev, [operationKey]: true }));
+          setUpdateStatus(`正在清空 ${chartName}...`);
+          
+          try {
+            const token = localStorage.getItem('token');
+            const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+            const backendChartName = CHART_NAME_REVERSE_MAP[chartName] || chartName;
+            
+            const response = await fetch(`/api/charts/clear-top250`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                platform: backendPlatform,
+                chart_name: backendChartName,
+              }),
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+              setUpdateStatus(`${chartName} 已清空！`);
+              if (activeKey) {
+                const [currentPlatform, currentChartName, media_type] = activeKey.split(':');
+                if (currentPlatform === platform && currentChartName === chartName) {
+                  loadCurrentList(currentPlatform, currentChartName, media_type as SectionType);
+                }
+              }
+            } else {
+              setUpdateStatus(`清空失败: ${result.detail || '未知错误'}`);
+            }
+          } catch (error) {
+            setUpdateStatus(`清空失败: ${error}`);
+          } finally {
+            setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
+            setTimeout(() => setUpdateStatus(''), 3000);
           }
-        }
-      } else {
-        setUpdateStatus(`清空失败: ${result.detail || '未知错误'}`);
-      }
-    } catch (error) {
-      setUpdateStatus(`清空失败: ${error}`);
-    } finally {
-      setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
-      setTimeout(() => setUpdateStatus(''), 3000);
-    }
+        })();
+      },
+    });
   }
 
   async function handleClearPlatform(platform: string) {
-    if (!confirm(`确定要清空 ${platform} 平台的所有榜单吗？此操作不可撤销！`)) {
-      return;
-    }
-    
-    const operationKey = `${platform}_clear`;
-    setPlatformOperations(prev => ({ ...prev, [operationKey]: true }));
-    setUpdateStatus(`正在清空 ${platform} 榜单...`);
-    
-    try {
-      const token = localStorage.getItem('token');
-      const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
-      const response = await fetch(`/api/charts/clear/${backendPlatform}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok) {
-        setUpdateStatus(`${platform} 榜单已清空！`);
-        if (activeKey) {
-          const [currentPlatform, chart_name, media_type] = activeKey.split(':');
-          if (currentPlatform === platform) {
-            loadCurrentList(currentPlatform, chart_name, media_type as SectionType);
+    showConfirm({
+      title: '清空平台榜单',
+      message: `确定要清空 ${platform} 平台的所有榜单吗？此操作不可撤销。`,
+      confirmText: '清空',
+      variant: 'danger',
+      onConfirm: () => {
+        void (async () => {
+          const operationKey = `${platform}_clear`;
+          setPlatformOperations(prev => ({ ...prev, [operationKey]: true }));
+          setUpdateStatus(`正在清空 ${platform} 榜单...`);
+          
+          try {
+            const token = localStorage.getItem('token');
+            const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+            const response = await fetch(`/api/charts/clear/${backendPlatform}`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+              setUpdateStatus(`${platform} 榜单已清空！`);
+              if (activeKey) {
+                const [currentPlatform, chart_name, media_type] = activeKey.split(':');
+                if (currentPlatform === platform) {
+                  loadCurrentList(currentPlatform, chart_name, media_type as SectionType);
+                }
+              }
+            } else {
+              setUpdateStatus(`清空失败: ${result.detail || '未知错误'}`);
+            }
+          } catch (error) {
+            setUpdateStatus(`清空失败: ${error}`);
+          } finally {
+            setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
+            setTimeout(() => setUpdateStatus(''), 3000);
           }
-        }
-      } else {
-        setUpdateStatus(`清空失败: ${result.detail || '未知错误'}`);
-      }
-    } catch (error) {
-      setUpdateStatus(`清空失败: ${error}`);
-    } finally {
-      setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
-      setTimeout(() => setUpdateStatus(''), 3000);
-    }
+        })();
+      },
+    });
   }
 
   async function handleClearAllPlatforms() {
-    if (!confirm('确定要清空所有平台的所有榜单吗？此操作不可撤销！')) {
-      return;
-    }
-    
-    const operationKey = 'clear_all';
-    setPlatformOperations(prev => ({ ...prev, [operationKey]: true }));
-    setUpdateStatus('正在清空所有榜单...');
-    
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/charts/clear-all', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      const result = await response.json();
-      
-      if (response.ok) {
-        setUpdateStatus('所有榜单已清空！');
-        if (activeKey) {
-          const [currentPlatform, chart_name, media_type] = activeKey.split(':');
-          loadCurrentList(currentPlatform, chart_name, media_type as SectionType);
-        }
-      } else {
-        setUpdateStatus(`清空失败: ${result.detail || '未知错误'}`);
-      }
-    } catch (error) {
-      setUpdateStatus(`清空失败: ${error}`);
-    } finally {
-      setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
-      setTimeout(() => setUpdateStatus(''), 3000);
-    }
+    showConfirm({
+      title: '清空所有榜单',
+      message: '确定要清空所有平台的所有榜单吗？此操作不可撤销。',
+      confirmText: '清空',
+      variant: 'danger',
+      onConfirm: () => {
+        void (async () => {
+          const operationKey = 'clear_all';
+          setPlatformOperations(prev => ({ ...prev, [operationKey]: true }));
+          setUpdateStatus('正在清空所有榜单...');
+          
+          try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('/api/charts/clear-all', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+              setUpdateStatus('所有榜单已清空！');
+              if (activeKey) {
+                const [currentPlatform, chart_name, media_type] = activeKey.split(':');
+                loadCurrentList(currentPlatform, chart_name, media_type as SectionType);
+              }
+            } else {
+              setUpdateStatus(`清空失败: ${result.detail || '未知错误'}`);
+            }
+          } catch (error) {
+            setUpdateStatus(`清空失败: ${error}`);
+          } finally {
+            setPlatformOperations(prev => ({ ...prev, [operationKey]: false }));
+            setTimeout(() => setUpdateStatus(''), 3000);
+          }
+        })();
+      },
+    });
   }
 
   async function loadCurrentList(platform: string, chart_name: string, media_type: SectionType) {
@@ -785,7 +855,7 @@ export default function AdminChartsPage() {
       }
 
       const data = await response.json();
-      alert(data.message || '同步成功！');
+      showAlert(data.message || '同步成功！');
       
       queryClient.invalidateQueries({ 
         queryKey: ['public-charts'],
@@ -801,7 +871,7 @@ export default function AdminChartsPage() {
       });
     } catch (error) {
       console.error('同步榜单失败:', error);
-      alert(error instanceof Error ? error.message : '同步失败');
+      showAlert(error instanceof Error ? error.message : '同步失败');
     }
   }
 
@@ -935,6 +1005,16 @@ export default function AdminChartsPage() {
 
   return (
     <div className={`min-h-screen bg-[var(--page-bg)]`}>
+      <ConfirmDialog
+        open={modal.open}
+        title={modal.title}
+        message={modal.message}
+        confirmText={modal.confirmText}
+        cancelText={modal.cancelText}
+        variant={modal.variant}
+        onCancel={closeModal}
+        onConfirm={() => (modal.onConfirm ? modal.onConfirm() : closeModal())}
+      />
       {/* 反爬虫验证提示 */}
       {antiScrapingState && antiScrapingState.show && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
@@ -1528,10 +1608,6 @@ export default function AdminChartsPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-4 max-h-[50vh] overflow-auto">
               {[...(pickerData?.movies.results||[]), ...(pickerData?.tvShows.results||[])].filter(i=>{
                 if (!pickerContext) return true;
-                // 对于手动录入的榜单，严格限制类型：
-                // - movie 类型榜单只显示电影
-                // - tv 类型榜单只显示剧集
-                // - both 类型榜单显示所有
                 if (pickerContext.media_type === 'both') return true;
                 if (pickerContext.media_type === 'movie') return i.type === 'movie';
                 if (pickerContext.media_type === 'tv') return i.type === 'tv';
