@@ -3609,6 +3609,7 @@ async def shutdown_event():
 
 @app.get("/sitemap.xml")
 def sitemap():
+    """生成sitemap.xml"""
     lastmod = datetime.utcnow().strftime("%Y-%m-%d")
     sitemap_items = ""
     urls = [
@@ -3629,4 +3630,3 @@ def sitemap():
 </urlset>"""
 
     return Response(content=sitemap_xml, media_type="application/xml")
-           
