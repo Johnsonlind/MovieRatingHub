@@ -54,6 +54,11 @@ export default function ChartDetailPage() {
   const navigate = useNavigate();
   const contentRef = useRef<HTMLDivElement>(null);
 
+  const backToCharts = () => {
+    const platformParam = platform ? `?platform=${encodeURIComponent(platform)}` : '';
+    navigate(`/charts${platformParam}`);
+  };
+
   usePageMeta({
     title: chartName ? `${chartName} - RateFuse` : '榜单详情 - RateFuse',
     description: chartName ? `查看「${chartName}」完整榜单，并一键跳转到条目详情。` : '查看完整榜单，并一键跳转到条目详情。',
@@ -96,7 +101,7 @@ export default function ChartDetailPage() {
               加载失败，请稍后重试
             </div>
             <button
-              onClick={() => navigate('/charts')}
+              onClick={backToCharts}
               className="glass-button px-4 py-2 text-gray-800 dark:text-white"
             >
               返回榜单页
@@ -121,7 +126,7 @@ export default function ChartDetailPage() {
           {/* 返回按钮和标题 */}
           <div className="flex items-center gap-4 mb-6">
             <button
-              onClick={() => navigate('/charts')}
+              onClick={backToCharts}
               className="glass-button p-2 flex items-center justify-center text-gray-800 dark:text-white hover:scale-105 transition-all"
               aria-label="返回榜单页"
             >
