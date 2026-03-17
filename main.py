@@ -3601,4 +3601,32 @@ async def shutdown_event():
             print("TMDB 客户端连接池已关闭")
         except Exception as e:
             print(f"TMDB 客户端清理失败: {e}")
-            
+
+
+# ==========================================
+# 8. 其他路由
+# ==========================================
+
+@app.get("/sitemap.xml")
+def sitemap():
+    lastmod = datetime.utcnow().strftime("%Y-%m-%d")
+    sitemap_items = ""
+    urls = [
+        {"loc": "https://ratefuse.cn/", "changefreq": "daily", "priority": "1.0"},
+        {"loc": "https://ratefuse.cn/charts", "changefreq": "daily", "priority": "0.9"},
+    ]
+    for item in urls:
+        sitemap_items += f"""
+    <url>
+        <loc>{item['loc']}</loc>
+        <lastmod>{lastmod}</lastmod>
+        <changefreq>{item['changefreq']}</changefreq>
+        <priority>{item['priority']}</priority>
+    </url>"""
+
+    sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{sitemap_items}
+</urlset>"""
+
+    return Response(content=sitemap_xml, media_type="application/xml")
+           
