@@ -47,12 +47,13 @@ import fcntl
 # 1. 配置和初始化部分
 # ==========================================
 
-# 本地 redis-server 默认无密码，用 redis://localhost:6379/0
-# 线上有密码时在 .env 设置 REDIS_URL=redis://:密码@host:6379/0
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CACHE_EXPIRE_TIME = 24 * 60 * 60
 CHARTS_CACHE_EXPIRE = 2 * 60
 redis = None
+
+_local_cache = {}
+_local_cache_lock = asyncio.Lock()
 
 SECRET_KEY = "L1994z0912x."
 ALGORITHM = "HS256"
@@ -187,9 +188,20 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
         
+    user_cache_key = f"user:by_email:{email}"
+    cached_user = await get_cache(user_cache_key)
+    if cached_user:
+        try:
+            user = db.query(User).filter(User.id == cached_user.get("id")).first()
+            if user is not None:
+                return user
+        except Exception:
+            pass
+
     user = db.query(User).filter(User.email == email).first()
     if user is None:
         raise credentials_exception
+    await set_cache(user_cache_key, {"id": user.id}, expire=60)
     return user
 
 async def get_current_user_optional(
@@ -216,36 +228,46 @@ async def get_current_user_optional(
 
 async def get_cache(key: str):
     """从 Redis 获取缓存数据"""
-    if not redis:
-        return None
-        
-    try:
-        data = await redis.get(key)
-        
-        if data:
-            data = json.loads(data)
-            if isinstance(data, dict) and "status" in data:
-                if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
-                    return data
-                return None
-            return data
-        return None
-    except Exception as e:
-        logger.error(f"获取缓存出错: {e}")
-        return None
+    if redis:
+        try:
+            data = await redis.get(key)
+            if data:
+                data = json.loads(data)
+                if isinstance(data, dict) and "status" in data:
+                    if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+                        return data
+                    return None
+                return data
+            return None
+        except Exception as e:
+            logger.error(f"获取缓存出错: {e}")
+
+    now = time.time()
+    async with _local_cache_lock:
+        hit = _local_cache.get(key)
+        if not hit:
+            return None
+        expires_at, value = hit
+        if expires_at <= now:
+            _local_cache.pop(key, None)
+            return None
+        return value
 
 async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
     """将数据存入 Redis 缓存"""
-    if not redis:
-        return
-    try:
-        if isinstance(data, dict) and "status" in data:
-            if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+    if redis:
+        try:
+            if isinstance(data, dict) and "status" in data:
+                if data.get("status") == RATING_STATUS["SUCCESSFUL"]:
+                    await redis.setex(key, expire, json.dumps(data))
+            else:
                 await redis.setex(key, expire, json.dumps(data))
-        else:
-            await redis.setex(key, expire, json.dumps(data))
-    except Exception as e:
-        logger.error(f"设置缓存出错: {e}")
+        except Exception as e:
+            logger.error(f"设置缓存出错: {e}")
+
+    expires_at = time.time() + max(1, int(expire))
+    async with _local_cache_lock:
+        _local_cache[key] = (expires_at, data)
 
 
 async def get_tmdb_info_cached(id: str, type: str, request: Request):
@@ -2841,90 +2863,73 @@ async def get_public_charts(db: Session = Depends(get_db)):
     if cached is not None:
         return cached
     try:
-        metacritic_top250_charts = [
-            'Metacritic Best Movies of All Time',
-            'Metacritic Best TV Shows of All Time',
-        ]
-        
-        distinct_charts = db.query(
-            PublicChartEntry.platform,
-            PublicChartEntry.chart_name
-        ).distinct().all()
-        
+        metacritic_top250_charts = {
+            "Metacritic Best Movies of All Time",
+            "Metacritic Best TV Shows of All Time",
+        }
+
+        all_entries = db.query(PublicChartEntry).order_by(
+            PublicChartEntry.platform.asc(),
+            PublicChartEntry.chart_name.asc(),
+            PublicChartEntry.media_type.asc(),
+            PublicChartEntry.rank.asc(),
+        ).all()
+
+        grouped = {}
+        for e in all_entries:
+            if e.chart_name in metacritic_top250_charts:
+                key = (e.platform, e.chart_name)
+            else:
+                key = (e.platform, e.chart_name, e.media_type)
+            grouped.setdefault(key, []).append(e)
+
         result = []
-        processed_charts = set()
-        
-        for platform, chart_name in distinct_charts:
-            if chart_name in metacritic_top250_charts:
-                chart_key = (platform, chart_name)
-                if chart_key in processed_charts:
-                    continue
-                processed_charts.add(chart_key)
-                
-                entries = db.query(PublicChartEntry).filter(
-                    PublicChartEntry.platform == platform,
-                    PublicChartEntry.chart_name == chart_name,
-                ).order_by(PublicChartEntry.rank.asc()).all()
-                
-                if entries:
-                    chart_entries = []
-                    for e in entries:
-                        poster = e.poster or ""
-                        if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
-                            if not poster.startswith("/"):
-                                poster = "/" + poster
-                            poster = f"/tmdb-images{poster}"
-                        
-                        chart_entries.append({
-                            "tmdb_id": e.tmdb_id,
-                            "rank": e.rank,
-                            "title": e.title,
-                            "poster": poster,
-                            "media_type": e.media_type,
-                        })
-                    
-                    result.append({
+        for key, entries in grouped.items():
+            if not entries:
+                continue
+
+            chart_entries = []
+            for e in entries:
+                poster = e.poster or ""
+                if poster and not (
+                    poster.startswith("/tmdb-images/")
+                    or poster.startswith("/api/")
+                    or poster.startswith("http")
+                ):
+                    if not poster.startswith("/"):
+                        poster = "/" + poster
+                    poster = f"/tmdb-images{poster}"
+
+                chart_entries.append(
+                    {
+                        "tmdb_id": e.tmdb_id,
+                        "rank": e.rank,
+                        "title": e.title,
+                        "poster": poster,
+                        "media_type": e.media_type,
+                    }
+                )
+
+            if len(key) == 2:
+                platform, chart_name = key
+                result.append(
+                    {
                         "platform": platform,
                         "chart_name": chart_name,
                         "media_type": "both",
-                        "entries": chart_entries
-                    })
+                        "entries": chart_entries,
+                    }
+                )
             else:
-                distinct_media_types = db.query(PublicChartEntry.media_type).filter(
-                    PublicChartEntry.platform == platform,
-                    PublicChartEntry.chart_name == chart_name,
-                ).distinct().all()
-                
-                for (media_type,) in distinct_media_types:
-                    entries = db.query(PublicChartEntry).filter(
-                        PublicChartEntry.platform == platform,
-                        PublicChartEntry.chart_name == chart_name,
-                        PublicChartEntry.media_type == media_type,
-                    ).order_by(PublicChartEntry.rank.asc()).all()
-                    
-                    if entries:
-                        chart_entries = []
-                        for e in entries:
-                            poster = e.poster or ""
-                            if poster and not (poster.startswith("/tmdb-images/") or poster.startswith("/api/") or poster.startswith("http")):
-                                if not poster.startswith("/"):
-                                    poster = "/" + poster
-                                poster = f"/tmdb-images{poster}"
-                            
-                            chart_entries.append({
-                                "tmdb_id": e.tmdb_id,
-                                "rank": e.rank,
-                                "title": e.title,
-                                "poster": poster,
-                                "media_type": e.media_type,
-                            })
-                        
-                        result.append({
-                            "platform": platform,
-                            "chart_name": chart_name,
-                            "media_type": media_type,
-                            "entries": chart_entries
-                        })
+                platform, chart_name, media_type = key
+                result.append(
+                    {
+                        "platform": platform,
+                        "chart_name": chart_name,
+                        "media_type": media_type,
+                        "entries": chart_entries,
+                    }
+                )
         
         await set_cache(cache_key, result, expire=CHARTS_CACHE_EXPIRE)
         return result
