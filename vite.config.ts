@@ -12,6 +12,16 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      manifest: {
+        name: 'movie-rating-hub',
+        short_name: 'movie-rating-hub',
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        lang: 'en',
+        background_color: '#ffffff',
+        theme_color: '#ffffff',
+      },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
