@@ -3174,7 +3174,7 @@ async def update_top250_chart(
         
         if platform == "豆瓣" and chart_name == "豆瓣 Top 250":
             douban_cookie = current_user.douban_cookie if current_user.douban_cookie else None
-            count = await updater(douban_cookie=douban_cookie, request=request)
+            count = await updater(douban_cookie=douban_cookie)
         else:
             count = await updater()
         
