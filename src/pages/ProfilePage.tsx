@@ -15,7 +15,23 @@ import { toast } from "sonner";
 import { CardTabs } from '../components/ui/CardTabs';
 import { PageShell } from '../components/layout/PageShell';
 import { usePageMeta } from '../hooks/usePageMeta';
-import { authFetch } from '../api/authFetch';
+import { authFetch, authFetchJson } from '../api/authFetch';
+
+const formatChinaTime = (value?: string | null) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date).replace(/\//g, '-');
+};
 
 interface Creator {
   id: number;
@@ -107,7 +123,7 @@ export default function ProfilePage() {
     description: '',
     is_public: false
   });
-  const [activeTab, setActiveTab] = useState<'collections' | 'following'>('collections');
+  const [activeTab, setActiveTab] = useState<'collections' | 'following' | 'feedbacks'>('collections');
   const [following, setFollowing] = useState<Following[]>([]);
   const [showNoteDialog, setShowNoteDialog] = useState(false);
   const [editingFollow, setEditingFollow] = useState<Following | null>(null);
@@ -115,6 +131,18 @@ export default function ProfilePage() {
   const [isLoadingFollowing, setIsLoadingFollowing] = useState(true);
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
   const [confirmDeleteList, setConfirmDeleteList] = useState<FavoriteList | null>(null);
+  const [feedbacks, setFeedbacks] = useState<any[]>([]);
+  const [isLoadingFeedbacks, setIsLoadingFeedbacks] = useState(false);
+  const [feedbackContent, setFeedbackContent] = useState('');
+  const [feedbackTitle, setFeedbackTitle] = useState('');
+  const [feedbackImages, setFeedbackImages] = useState<FileList | null>(null);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [activeFeedbackId, setActiveFeedbackId] = useState<number | null>(null);
+  const [isLoadingFeedbackDetail, setIsLoadingFeedbackDetail] = useState(false);
+  const [activeFeedbackReply, setActiveFeedbackReply] = useState('');
+  const [isReplyingFeedback, setIsReplyingFeedback] = useState(false);
+  const [isResolvingFeedback, setIsResolvingFeedback] = useState(false);
+  const activeFeedbackChatRef = useRef<HTMLDivElement | null>(null);
 
   usePageMeta({
     title: user ? `${user.username} 的个人中心 - RateFuse` : '个人中心 - RateFuse',
@@ -144,6 +172,115 @@ export default function ProfilePage() {
       fetchFavorites();
     }
   }, [user]);
+
+  useEffect(() => {
+    const fetchFeedbacks = async () => {
+      if (!user) return;
+      setIsLoadingFeedbacks(true);
+      try {
+        const res = await authFetch('/api/feedbacks');
+        if (res.ok) {
+          const data = await res.json();
+          setFeedbacks(data);
+        }
+      } catch (err) {
+        console.error('获取反馈列表失败:', err);
+      } finally {
+        setIsLoadingFeedbacks(false);
+      }
+    };
+
+    if (user) {
+      fetchFeedbacks();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (activeTab !== 'feedbacks') return;
+
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const res = await authFetch('/api/feedbacks');
+        if (!res.ok) return;
+        const data = await res.json();
+        setFeedbacks((prev) => {
+          const prevById = new Map<number, any>(prev.map((x) => [x.id, x]));
+          return (data || []).map((x: any) => {
+            const old = prevById.get(x.id);
+            return old && old.messages ? { ...x, messages: old.messages } : x;
+          });
+        });
+      } catch {
+      }
+    };
+
+    const schedule = () => {
+      timer = window.setInterval(tick, 8000);
+    };
+
+    tick();
+    schedule();
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [user, activeTab]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (activeTab !== 'feedbacks') return;
+    if (!activeFeedbackId) return;
+
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const detail = await authFetchJson<any>(`/api/feedbacks/${activeFeedbackId}`);
+        setFeedbacks((prev) => prev.map((f) => (f.id === activeFeedbackId ? detail : f)));
+      } catch {
+      }
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 6000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') tick();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [user, activeTab, activeFeedbackId]);
+
+  useEffect(() => {
+    if (activeTab !== 'feedbacks') return;
+    if (!activeFeedbackId) return;
+    const fb = feedbacks.find((f) => f.id === activeFeedbackId);
+    const len = fb?.messages?.length || 0;
+    if (!len) return;
+    const el = activeFeedbackChatRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [activeTab, activeFeedbackId, feedbacks]);
 
   useEffect(() => {
     const fetchLists = async () => {
@@ -213,6 +350,131 @@ export default function ProfilePage() {
     } catch (error) {
       console.error('头像处理失败:', error);
       setError('头像上传失败');
+    }
+  };
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedbackContent.trim()) {
+      toast.error('请填写反馈内容');
+      return;
+    }
+    setIsSubmittingFeedback(true);
+    try {
+      const formData = new FormData();
+      formData.append('content', feedbackContent.trim());
+      if (feedbackTitle.trim()) {
+        formData.append('title', feedbackTitle.trim());
+      }
+      if (feedbackImages) {
+        Array.from(feedbackImages).forEach((file) => {
+          formData.append('images', file);
+        });
+      }
+      const res = await authFetch('/api/feedbacks', {
+        method: 'POST',
+        body: formData,
+        headers: {
+        } as any,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.detail || '提交失败');
+      }
+      const created = await res.json();
+      setFeedbacks((prev) => [created, ...prev]);
+      setFeedbackContent('');
+      setFeedbackTitle('');
+      setFeedbackImages(null);
+      toast.success('反馈已提交');
+    } catch (err: any) {
+      console.error('提交反馈失败:', err);
+      toast.error(err?.message || '提交失败');
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
+  const handleSelectFeedback = async (id: number) => {
+    if (activeFeedbackId === id) {
+      setActiveFeedbackId(null);
+      setActiveFeedbackReply('');
+      return;
+    }
+    setActiveFeedbackId(id);
+    setActiveFeedbackReply('');
+
+    const target = feedbacks.find((f) => f.id === id);
+    if (target && target.messages && Array.isArray(target.messages)) {
+      return;
+    }
+
+    setIsLoadingFeedbackDetail(true);
+    try {
+      const detail = await authFetchJson<any>(`/api/feedbacks/${id}`);
+      setFeedbacks((prev) => prev.map((f) => (f.id === id ? detail : f)));
+    } catch (err) {
+      console.error('获取反馈详情失败:', err);
+      toast.error('获取反馈详情失败');
+    } finally {
+      setIsLoadingFeedbackDetail(false);
+    }
+  };
+
+  const handleReplyFeedback = async (id: number) => {
+    const content = activeFeedbackReply.trim();
+    if (!content) return;
+    setIsReplyingFeedback(true);
+    try {
+      const detail = await authFetchJson<any>(`/api/feedbacks/${id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content }),
+      });
+      setFeedbacks((prev) => prev.map((f) => (f.id === id ? detail : f)));
+      setActiveFeedbackReply('');
+      toast.success('已发送追加消息');
+    } catch (err: any) {
+      console.error('追加消息失败:', err);
+      toast.error(err?.message || '追加消息失败');
+    } finally {
+      setIsReplyingFeedback(false);
+    }
+  };
+
+  const handleResolveFeedback = async (id: number) => {
+    setIsResolvingFeedback(true);
+    try {
+      const updated = await authFetchJson<any>(`/api/feedbacks/${id}/resolve`, {
+        method: 'POST',
+      });
+      setFeedbacks((prev) => prev.map((f) => (f.id === id ? { ...f, ...updated } : f)));
+      toast.success('已标记为已解决（等待管理员确认关闭）');
+    } catch (err: any) {
+      console.error('标记已解决失败:', err);
+      toast.error(err?.message || '标记已解决失败');
+    } finally {
+      setIsResolvingFeedback(false);
+    }
+  };
+
+  const handleDeleteFeedback = async (id: number) => {
+    const ok = window.confirm('确定要删除这条反馈吗？删除后无法恢复。');
+    if (!ok) return;
+    try {
+      const res = await authFetch(`/api/feedbacks/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.detail || '删除失败');
+      }
+      setFeedbacks((prev) => prev.filter((f) => f.id !== id));
+      if (activeFeedbackId === id) setActiveFeedbackId(null);
+      toast.success('已删除反馈');
+    } catch (err: any) {
+      console.error('删除反馈失败:', err);
+      toast.error(err?.message || '删除失败');
     }
   };
 
@@ -755,15 +1017,16 @@ export default function ProfilePage() {
             </form>
           </div>
 
-          {/* 收藏 / 关注 区域 - 卡片式标签 */}
+          {/* 收藏 / 关注 / 反馈 区域 - 卡片式标签 */}
           <div className="glass-card rounded-2xl p-8">
             <CardTabs
               tabs={[
                 { id: 'collections', label: '我的收藏' },
                 { id: 'following', label: '我的关注' },
+                { id: 'feedbacks', label: '我的反馈' },
               ]}
               activeId={activeTab}
-              onChange={(id) => setActiveTab(id as 'collections' | 'following')}
+              onChange={(id) => setActiveTab(id as 'collections' | 'following' | 'feedbacks')}
             />
 
             {activeTab === 'collections' && (
@@ -780,7 +1043,7 @@ export default function ProfilePage() {
               </div>
             )}
             
-            {activeTab === 'collections' ? (
+            {activeTab === 'collections' && (
               isLoadingLists ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {[1, 2, 3, 4, 5, 6].map(i => (
@@ -804,7 +1067,9 @@ export default function ProfilePage() {
                   ))}
                 </div>
               )
-            ) : (
+            )}
+
+            {activeTab === 'following' && (
               isLoadingFollowing ? (
                 <div className="grid grid-cols-1 gap-4">
                   {[1, 2, 3, 4].map(i => (
@@ -868,6 +1133,188 @@ export default function ProfilePage() {
                   ))}
                 </div>
               )
+            )}
+
+            {activeTab === 'feedbacks' && (
+              <div className="mt-6 space-y-6">
+                <form onSubmit={handleFeedbackSubmit} className="space-y-4">
+                  <div className="grid gap-3">
+                    <Input
+                      placeholder="反馈标题（可选）"
+                      value={feedbackTitle}
+                      onChange={(e) => setFeedbackTitle(e.target.value)}
+                    />
+                    <Textarea
+                      placeholder="请描述你遇到的问题或建议（必填）"
+                      rows={4}
+                      value={feedbackContent}
+                      onChange={(e) => setFeedbackContent(e.target.value)}
+                    />
+                    <div>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        onChange={(e) => setFeedbackImages(e.target.files)}
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      />
+                      <p className="mt-1 text-xs text-gray-400">支持多张图片，每张不超过 5MB</p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={isSubmittingFeedback} className="no-hover-scale">
+                      {isSubmittingFeedback ? '提交中...' : '提交反馈'}
+                    </Button>
+                  </div>
+                </form>
+
+                <div>
+                  <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">历史反馈</h3>
+                  {isLoadingFeedbacks ? (
+                    <div className="text-sm text-gray-500 dark:text-gray-400">加载中...</div>
+                  ) : feedbacks.length === 0 ? (
+                    <div className="text-sm text-gray-500 dark:text-gray-400">还没有提交过反馈</div>
+                  ) : (
+                    <div className="glass-card rounded-2xl p-4 sm:p-5 space-y-3 shadow-sm hover:shadow-md transition-shadow ring-1 ring-white/10 dark:ring-white/5 bg-white/30 dark:bg-gray-900/30 backdrop-blur">
+                      {feedbacks.map((fb) => (
+                        <div
+                          key={fb.id}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') handleSelectFeedback(fb.id);
+                          }}
+                          onClick={(e) => {
+                            const target = e.target as HTMLElement | null;
+                            if (target?.closest('button, a, input, textarea, select, label')) return;
+                            handleSelectFeedback(fb.id);
+                          }}
+                          className={`glass-card no-lift w-full text-left p-4 rounded-2xl flex flex-col gap-1 text-sm shadow-sm hover:shadow-md transition-shadow ${
+                            activeFeedbackId === fb.id
+                              ? 'ring-2 ring-blue-400/60 dark:ring-blue-400/40 bg-blue-50/20 dark:bg-blue-900/20'
+                              : 'ring-1 ring-white/10 dark:ring-white/5 bg-white/20 dark:bg-gray-900/20'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 -m-1 p-1 rounded-lg cursor-pointer">
+                            <div className="font-medium text-gray-900 dark:text-white line-clamp-1 flex-1 min-w-0">
+                              {fb.title || fb.messages?.[0]?.content || '反馈'}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                                {fb.status === 'pending'
+                                  ? '待处理'
+                                  : fb.status === 'replied'
+                                  ? '已回复'
+                                  : '已关闭'}
+                              </span>
+                              <button
+                                type="button"
+                                className="no-hover-scale text-[11px] px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-white/60 dark:hover:bg-gray-800/50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteFeedback(fb.id);
+                                }}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {formatChinaTime(fb.last_message_at || fb.created_at)}
+                          </div>
+                          {fb.is_resolved_by_user && fb.status !== 'closed' && (
+                            <div className="text-[11px] text-green-700 dark:text-green-300">
+                              我已标记为已解决{fb.resolved_at ? ` · ${formatChinaTime(fb.resolved_at)}` : ''}
+                            </div>
+                          )}
+
+                          {activeFeedbackId === fb.id && (
+                            <div className="mt-2 border-t border-dashed border-gray-200 dark:border-gray-700 pt-2 space-y-2">
+                              {isLoadingFeedbackDetail && !fb.messages && (
+                                <div className="text-xs text-gray-500 dark:text-gray-400">加载详情中...</div>
+                              )}
+                              {fb.messages && Array.isArray(fb.messages) && fb.messages.length > 0 && (
+                                <div ref={activeFeedbackChatRef} className="max-h-64 overflow-auto space-y-1 text-xs">
+                                  {fb.messages.map((msg: any) => (
+                                    <div
+                                      key={msg.id}
+                                      className={`flex ${
+                                        msg.sender_type === 'admin' ? 'justify-end text-blue-600 dark:text-blue-300' : 'justify-start'
+                                      }`}
+                                    >
+                                      <div className="inline-block rounded-lg px-2 py-1 bg-gray-100 dark:bg-gray-800 max-w-[80%] whitespace-pre-wrap break-words">
+                                        <div className="text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">
+                                          {msg.sender_type === 'admin' ? '管理员' : '我'} · {formatChinaTime(msg.created_at)}
+                                        </div>
+                                        <div className="text-[13px] text-gray-900 dark:text-gray-100">{msg.content}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {fb.images && Array.isArray(fb.images) && fb.images.length > 0 && (
+                                <div className="pt-1">
+                                  <div className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">附件图片</div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {fb.images.map((url: string) => (
+                                      <a
+                                        key={url}
+                                        href={url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="block w-16 h-16 rounded-md overflow-hidden border border-gray-200 dark:border-gray-700 bg-black/5"
+                                      >
+                                        <img src={url} alt="反馈图片" className="w-full h-full object-cover" loading="lazy" />
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 追加消息与“已解决” */}
+                              <div className="pt-2 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                                    {fb.status === 'closed'
+                                      ? '该反馈已关闭'
+                                      : '你可以追加问题，或在确认解决后标记为已解决'}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      disabled={isResolvingFeedback || fb.status === 'closed' || !!fb.is_resolved_by_user}
+                                      onClick={() => handleResolveFeedback(fb.id)}
+                                    >
+                                      {fb.is_resolved_by_user ? '已标记解决' : isResolvingFeedback ? '提交中...' : '标记为已解决'}
+                                    </Button>
+                                  </div>
+                                </div>
+                                <Textarea
+                                  placeholder={fb.status === 'closed' ? '已关闭，无法继续回复' : '追加问题 / 补充信息（发送后状态会回到待处理）'}
+                                  rows={3}
+                                  value={activeFeedbackReply}
+                                  onChange={(e) => setActiveFeedbackReply(e.target.value)}
+                                  disabled={fb.status === 'closed'}
+                                />
+                                <div className="flex justify-end">
+                                  <Button
+                                    type="button"
+                                    disabled={fb.status === 'closed' || isReplyingFeedback || !activeFeedbackReply.trim()}
+                                    onClick={() => handleReplyFeedback(fb.id)}
+                                  >
+                                    {isReplyingFeedback ? '发送中...' : '发送追加'}
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
