@@ -1339,7 +1339,7 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                         }.get(platform, 70)
                         if platform == "metacritic" and extract_year(tmdb_info.get("year")) is None:
                             threshold = 60
-                            
+
                     matched_results = []
                     for result in results:
                         await check_request()
@@ -1898,7 +1898,7 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
         
         await random_delay()
         print(f"访问 Metacritic 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
         await asyncio.sleep(0.2)
     
         rate_limit = await check_rate_limit(page, "metacritic")
