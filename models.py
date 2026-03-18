@@ -117,7 +117,7 @@ class Follow(Base):
     follower_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     following_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     note = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'))
+    created_at = Column(DateTime, server_default=text('UTC_TIMESTAMP()'))
     
     __table_args__ = (
         UniqueConstraint('follower_id', 'following_id', name='follower_id'),
@@ -133,7 +133,7 @@ class SchedulerStatus(Base):
     running = Column(Boolean, default=False, nullable=False)
     last_update = Column(DateTime, nullable=True)
     next_update = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
+    updated_at = Column(DateTime, server_default=text('UTC_TIMESTAMP()'), onupdate=text('UTC_TIMESTAMP()'))
 
 class MediaDetailAccessLog(Base):
     __tablename__ = "media_detail_access_logs"
