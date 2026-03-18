@@ -385,7 +385,7 @@ body::before {
 }
 
 .glass-card.no-lift:hover {
-  transform: translateY(-1px) scale(1.01);
+  transform: none;
 }
 
 :root[data-theme='dark'] .glass-card:hover {
