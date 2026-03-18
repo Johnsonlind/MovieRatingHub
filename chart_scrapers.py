@@ -2142,7 +2142,7 @@ class ChartScraper:
                         await page.context.add_cookies(cookies)
                         logger.info("Letterboxd Top 250: 已注入 LETTERBOXD_COOKIE")
                 all_movies = []
-                base_url = "https://letterboxd.com/dave/list/official-top-250-narrative-feature-films"
+                base_url = "https://letterboxd.com/official/list/letterboxds-top-500-films/"
                 
                 for page_num in range(1, 4):
                     if page_num == 1:
