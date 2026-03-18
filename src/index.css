@@ -746,6 +746,13 @@ button,
   }
 }
 
+.no-hover-scale,
+.no-hover-scale:hover,
+.no-hover-scale:focus-visible {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
 textarea,
 input[type="text"],
 input[type="email"],
