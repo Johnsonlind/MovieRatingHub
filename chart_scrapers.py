@@ -2116,7 +2116,7 @@ class ChartScraper:
                     logger.info(f"访问 Letterboxd Top 250 第 {page_num} 页: {url}")
                     
                     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
                     if await _is_cloudflare_challenge(page):
                         logger.warning(f"Letterboxd Top 250 第 {page_num} 页: 检测到 Cloudflare，尝试 FlareSolverr…")
                         fs = await _letterboxd_flaresolverr(url)
@@ -2130,63 +2130,106 @@ class ChartScraper:
                         await ctx_to_close.add_cookies(fs["cookies"])
                         page = await ctx_to_close.new_page()
                         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(2)
                         if await _is_cloudflare_challenge(page):
                             logger.warning("Letterboxd Top 250: FlareSolverr 后仍为 CF，返回空")
                             return []
                     
                     try:
-                        await page.wait_for_selector('li.posteritem.numbered-list-item', timeout=3000)
+                        await page.wait_for_selector('ul.js-list-entries li.posteritem', timeout=10000)
                     except Exception:
                         pass
                     
-                    items = await page.query_selector_all('li.posteritem.numbered-list-item')
-                    
-                    for item in items:
-                        try:
-                            rank_elem = await item.query_selector('p.list-number')
-                            rank_text = await rank_elem.inner_text() if rank_elem else ""
-                            rank = int(rank_text.strip()) if rank_text.strip().isdigit() else None
-                            
+                    page_items_count = 0
+                    try:
+                        from bs4 import BeautifulSoup
+
+                        html = await page.content()
+                        soup = BeautifulSoup(html, "html.parser")
+                        items = soup.select("ul.js-list-entries li.posteritem.numbered-list-item")
+                        if not items:
+                            items = soup.select("li.posteritem.numbered-list-item")
+
+                        for item in items:
+                            rank_text = (item.select_one("p.list-number") or {}).get_text(strip=True) if item.select_one("p.list-number") else ""
+                            rank = int(rank_text) if rank_text.isdigit() else None
                             if not rank:
                                 continue
-                            
-                            link_elem = await item.query_selector('a[data-item-link]')
-                            if not link_elem:
-                                link_elem = await item.query_selector('a[href*="/film/"]')
-                            
-                            if not link_elem:
+
+                            a = item.select_one('a.frame[href*="/film/"]') or item.select_one('a[href*="/film/"]')
+                            if not a:
                                 continue
-                            
-                            href = await link_elem.get_attribute('href')
-                            if not href:
-                                href = await link_elem.get_attribute('data-item-link')
-                            
+
+                            href = (a.get("href") or "").strip()
                             if not href:
                                 continue
-                            
-                            if href.startswith('/'):
+
+                            if href.startswith("/"):
                                 full_url = f"https://letterboxd.com{href}"
-                            elif href.startswith('http'):
+                            elif href.startswith("http"):
                                 full_url = href
                             else:
                                 full_url = f"https://letterboxd.com/{href}"
-                            
-                            title_elem = await item.query_selector('[data-item-name]')
-                            title = await title_elem.get_attribute('data-item-name') if title_elem else ""
+
+                            title = ""
+                            react = item.select_one('[data-item-name]')
+                            if react and react.get("data-item-name"):
+                                title = react.get("data-item-name", "").strip()
                             if not title:
-                                title = await link_elem.get_attribute('data-original-title') or ""
-                            
-                            title = title.strip() if title else ""
-                            
-                            all_movies.append({
-                                'rank': rank,
-                                'title': title,
-                                'url': full_url
-                            })
-                        except Exception as e:
-                            logger.warning(f"解析电影项失败: {e}")
-                            continue
+                                frame_title = (a.select_one(".frame-title") or {}).get_text(strip=True) if a.select_one(".frame-title") else ""
+                                title = frame_title.strip() if frame_title else ""
+
+                            all_movies.append({"rank": rank, "title": title, "url": full_url})
+                            page_items_count += 1
+                    except Exception as e:
+                        logger.warning(f"Letterboxd Top 250 第 {page_num} 页: soup 解析失败: {e}")
+
+                    if page_items_count == 0:
+                        items = await page.query_selector_all('li.posteritem.numbered-list-item')
+                        for item in items:
+                            try:
+                                rank_elem = await item.query_selector('p.list-number')
+                                rank_text = await rank_elem.inner_text() if rank_elem else ""
+                                rank = int(rank_text.strip()) if rank_text.strip().isdigit() else None
+
+                                if not rank:
+                                    continue
+
+                                link_elem = await item.query_selector('a[data-item-link]')
+                                if not link_elem:
+                                    link_elem = await item.query_selector('a.frame[href*="/film/"]')
+                                if not link_elem:
+                                    link_elem = await item.query_selector('a[href*="/film/"]')
+
+                                if not link_elem:
+                                    continue
+
+                                href = await link_elem.get_attribute('href')
+                                if not href:
+                                    href = await link_elem.get_attribute('data-item-link')
+
+                                if not href:
+                                    continue
+
+                                if href.startswith('/'):
+                                    full_url = f"https://letterboxd.com{href}"
+                                elif href.startswith('http'):
+                                    full_url = href
+                                else:
+                                    full_url = f"https://letterboxd.com/{href}"
+
+                                title_elem = await item.query_selector('[data-item-name]')
+                                title = await title_elem.get_attribute('data-item-name') if title_elem else ""
+                                if not title:
+                                    ft = await link_elem.query_selector('.frame-title')
+                                    title = (await ft.inner_text()) if ft else ""
+
+                                title = title.strip() if title else ""
+
+                                all_movies.append({'rank': rank, 'title': title, 'url': full_url})
+                            except Exception as e:
+                                logger.warning(f"解析电影项失败: {e}")
+                                continue
                     
                     await asyncio.sleep(1)
                 
@@ -2424,7 +2467,19 @@ class ChartScraper:
                     
                     while scroll_attempts < max_scroll_attempts:
                         page_content = await page.content()
-                        card_count = len(re.findall(r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"', page_content))
+                        card_count_old = len(
+                            re.findall(
+                                r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"',
+                                page_content,
+                            )
+                        )
+                        card_count_new = len(
+                            re.findall(
+                                r'<h3[^>]*data-testid="product-title"[^>]*>',
+                                page_content,
+                            )
+                        )
+                        card_count = max(card_count_old, card_count_new)
                         logger.debug(f"第 {page_num} 页滚动尝试 {scroll_attempts + 1}: 找到 {card_count} 个卡片")
                         
                         if card_count >= 24:
@@ -2435,7 +2490,19 @@ class ChartScraper:
                             logger.debug(f"第 {page_num} 页卡片数量未增加，可能已加载完成")
                             await asyncio.sleep(2)
                             page_content = await page.content()
-                            new_count = len(re.findall(r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"', page_content))
+                            new_count_old = len(
+                                re.findall(
+                                    r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"',
+                                    page_content,
+                                )
+                            )
+                            new_count_new = len(
+                                re.findall(
+                                    r'<h3[^>]*data-testid="product-title"[^>]*>',
+                                    page_content,
+                                )
+                            )
+                            new_count = max(new_count_old, new_count_new)
                             if new_count == card_count:
                                 break
                             card_count = new_count
@@ -2449,65 +2516,103 @@ class ChartScraper:
                     
                     page_content = await page.content()
                     logger.info(f"第 {page_num} 页从页面源代码提取数据...")
-                    
-                    heading_pattern = r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"[^>]*>(.*?)</h3>'
-                    headings = re.findall(heading_pattern, page_content, re.DOTALL)
-                    logger.debug(f"第 {page_num} 页找到 {len(headings)} 个标题元素")
-                    
+
                     page_items_count = 0
-                    for heading_html in headings:
-                        try:
-                            rank_match = re.search(r'<span>(\d+)\.</span>', heading_html)
+
+                    try:
+                        from bs4 import BeautifulSoup
+
+                        soup = BeautifulSoup(page_content, "html.parser")
+                        cards = soup.select('div[data-testid="filter-results"]')
+                        logger.debug(f"第 {page_num} 页找到 {len(cards)} 个 filter-results 卡片")
+
+                        for card in cards:
+                            h3 = card.select_one('h3[data-testid="product-title"]')
+                            if not h3:
+                                continue
+
+                            spans = h3.find_all("span")
+                            if len(spans) < 2:
+                                continue
+
+                            rank_text = spans[0].get_text(strip=True)
+                            rank_match = re.search(r"(\d+)", rank_text)
                             if not rank_match:
                                 continue
                             rank = int(rank_match.group(1))
-                            
-                            title_match = re.search(r'<span>\d+\.</span>\s*<span>([^<]+)</span>', heading_html)
-                            title = None
-                            if title_match:
-                                title = title_match.group(1).strip()
-                            
-                            if not title:
-                                rank_escaped = rank_match.group(0)
-                                card_block_pattern = rf'{re.escape(rank_escaped)}.*?data-title="([^"]+)"'
-                                data_title_match = re.search(card_block_pattern, page_content, re.DOTALL)
-                                if data_title_match:
-                                    title = data_title_match.group(1).strip()
-                            
+
+                            title = spans[1].get_text(strip=True)
                             if not title:
                                 continue
-                            
+
                             year = None
-                            heading_start = page_content.find(heading_html)
-                            if heading_start != -1:
-                                date_segment = page_content[heading_start:heading_start + 1000]
-                                date_match = re.search(r'<span[^>]*class="[^"]*u-text-uppercase[^"]*"[^>]*>([^<]+)</span>', date_segment)
-                                if date_match:
-                                    date_text = date_match.group(1).strip()
-                                    year_match = re.search(r'(\d{4})', date_text)
-                                    if year_match:
-                                        year = int(year_match.group(1))
-                            
-                            if not year:
-                                title_escaped = re.escape(title)
-                                rank_escaped = rank_match.group(0)
-                                card_block_pattern = rf'(?:data-title="{title_escaped}"|{re.escape(rank_escaped)}.*?<span>{re.escape(title)}</span>).*?<span[^>]*class="[^"]*u-text-uppercase[^"]*"[^>]*>([^<]+)</span>'
-                                date_match = re.search(card_block_pattern, page_content, re.DOTALL)
-                                if date_match:
-                                    date_text = date_match.group(1).strip()
-                                    year_match = re.search(r'(\d{4})', date_text)
-                                    if year_match:
-                                        year = int(year_match.group(1))
-                            
-                            all_items.append({
-                                'rank': rank,
-                                'title': title,
-                                'year': year
-                            })
+                            card_text = card.get_text(" ", strip=True)
+                            year_match = re.search(r"\b(19|20)\d{2}\b", card_text)
+                            if year_match:
+                                try:
+                                    year = int(year_match.group(0))
+                                except Exception:
+                                    year = None
+
+                            all_items.append({"rank": rank, "title": title, "year": year})
                             page_items_count += 1
-                        except Exception as e:
-                            logger.warning(f"解析 Metacritic 项目失败: {e}")
-                            continue
+                    except Exception as e:
+                        logger.warning(f"第 {page_num} 页 soup 解析失败，回退旧规则: {e}")
+
+                    if page_items_count == 0:
+                        heading_pattern = r'<h3[^>]*class="[^"]*c-finderProductCard_titleHeading[^"]*"[^>]*>(.*?)</h3>'
+                        headings = re.findall(heading_pattern, page_content, re.DOTALL)
+                        logger.debug(f"第 {page_num} 页(旧规则)找到 {len(headings)} 个标题元素")
+
+                        for heading_html in headings:
+                            try:
+                                rank_match = re.search(r'<span>(\d+)\.</span>', heading_html)
+                                if not rank_match:
+                                    continue
+                                rank = int(rank_match.group(1))
+
+                                title_match = re.search(r'<span>\d+\.</span>\s*<span>([^<]+)</span>', heading_html)
+                                title = None
+                                if title_match:
+                                    title = title_match.group(1).strip()
+
+                                if not title:
+                                    rank_escaped = rank_match.group(0)
+                                    card_block_pattern = rf'{re.escape(rank_escaped)}.*?data-title="([^"]+)"'
+                                    data_title_match = re.search(card_block_pattern, page_content, re.DOTALL)
+                                    if data_title_match:
+                                        title = data_title_match.group(1).strip()
+
+                                if not title:
+                                    continue
+
+                                year = None
+                                heading_start = page_content.find(heading_html)
+                                if heading_start != -1:
+                                    date_segment = page_content[heading_start:heading_start + 1000]
+                                    date_match = re.search(r'<span[^>]*class="[^"]*u-text-uppercase[^"]*"[^>]*>([^<]+)</span>', date_segment)
+                                    if date_match:
+                                        date_text = date_match.group(1).strip()
+                                        year_match = re.search(r'(\d{4})', date_text)
+                                        if year_match:
+                                            year = int(year_match.group(1))
+
+                                if not year:
+                                    title_escaped = re.escape(title)
+                                    rank_escaped = rank_match.group(0)
+                                    card_block_pattern = rf'(?:data-title="{title_escaped}"|{re.escape(rank_escaped)}.*?<span>{re.escape(title)}</span>).*?<span[^>]*class="[^"]*u-text-uppercase[^"]*"[^>]*>([^<]+)</span>'
+                                    date_match = re.search(card_block_pattern, page_content, re.DOTALL)
+                                    if date_match:
+                                        date_text = date_match.group(1).strip()
+                                        year_match = re.search(r'(\d{4})', date_text)
+                                        if year_match:
+                                            year = int(year_match.group(1))
+
+                                all_items.append({"rank": rank, "title": title, "year": year})
+                                page_items_count += 1
+                            except Exception as e:
+                                logger.warning(f"解析 Metacritic 项目失败: {e}")
+                                continue
                     
                     logger.info(f"第 {page_num} 页成功解析 {page_items_count} 个项目")
                     
