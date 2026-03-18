@@ -357,7 +357,7 @@ export default function ProfilePage() {
     const favoritesToShow = sortedFavorites.slice(0, postersToShow);
 
     return (
-      <div ref={elementRef} className="glass-card rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div ref={elementRef} className="glass-card no-lift rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
         <div className="flex flex-col h-full">
           {/* 海报堆叠展示区域 */}
           <Link 
@@ -818,7 +818,7 @@ export default function ProfilePage() {
               ) : (
                 <div className="grid grid-cols-1 gap-4">
                   {following.map(follow => (
-                    <div key={follow.id} className="glass-card rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                    <div key={follow.id} className="glass-card no-lift rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
                       <div className="flex items-center gap-4">
                         <img
                           src={follow.avatar || '/default-avatar.png'}
