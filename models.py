@@ -148,7 +148,6 @@ class MediaDetailAccessLog(Base):
     
     user = relationship("User")
 
-
 class Feedback(Base):
     __tablename__ = "feedback"
 
@@ -169,7 +168,6 @@ class Feedback(Base):
     images = relationship("FeedbackImage", back_populates="feedback", cascade="all, delete-orphan")
     status_events = relationship("FeedbackStatusEvent", back_populates="feedback", cascade="all, delete-orphan")
 
-
 class FeedbackMessage(Base):
     __tablename__ = "feedback_messages"
 
@@ -183,7 +181,6 @@ class FeedbackMessage(Base):
     feedback = relationship("Feedback", back_populates="messages")
     sender = relationship("User")
 
-
 class FeedbackImage(Base):
     __tablename__ = "feedback_images"
 
@@ -193,7 +190,6 @@ class FeedbackImage(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     feedback = relationship("Feedback", back_populates="images")
-
 
 class FeedbackStatusEvent(Base):
     __tablename__ = "feedback_status_events"
@@ -209,6 +205,19 @@ class FeedbackStatusEvent(Base):
 
     feedback = relationship("Feedback", back_populates="status_events")
     changed_by = relationship("User")
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    type = Column(String(50), nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    link = Column(Text, nullable=True)
+    is_read = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = relationship("User")
 
 def init_db():
     Base.metadata.create_all(bind=engine)
