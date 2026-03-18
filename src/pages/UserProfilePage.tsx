@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { AuthModal } from '../components/auth/AuthModal';
 import { PageShell } from '../components/layout/PageShell';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { formatChinaDate } from '../utils/time';
 
 interface Creator {
   id: number;
@@ -406,7 +407,7 @@ export default function UserProfilePage() {
               {list.favorites.length} 部作品
             </p>
             <p className="text-sm text-gray-700 dark:text-gray-300">
-              {new Date(list.created_at).toLocaleDateString()}
+              {formatChinaDate(list.created_at)}
             </p>
           </div>
         </div>
