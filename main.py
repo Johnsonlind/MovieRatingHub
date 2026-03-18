@@ -897,7 +897,7 @@ async def get_favorite_lists(
                     "name": lst.name,
                     "description": lst.description,
                     "is_public": lst.is_public,
-                    "created_at": lst.created_at,
+                    "created_at": _to_shanghai_iso(lst.created_at),
                     "original_list_id": lst.original_list_id,
                     "original_creator": original_creator,
                     "creator": creator,
@@ -965,7 +965,7 @@ async def create_favorite_list(
             "name": new_list.name,
             "description": new_list.description,
             "is_public": new_list.is_public,
-            "created_at": new_list.created_at,
+            "created_at": _to_shanghai_iso(new_list.created_at),
             "favorites": []
         }
     except HTTPException:
@@ -1103,7 +1103,7 @@ async def update_favorite_list(
             "description": favorite_list.description,
             "is_public": favorite_list.is_public,
             "user_id": favorite_list.user_id,
-            "created_at": favorite_list.created_at,
+            "created_at": _to_shanghai_iso(favorite_list.created_at),
             "favorites": [{
                 "id": fav.id,
                 "media_id": fav.media_id,
@@ -1381,7 +1381,7 @@ async def get_user_favorite_lists(
                 "description": list.description,
                 "is_public": list.is_public,
                 "is_collected": is_collected,
-                "created_at": list.created_at,
+                "created_at": _to_shanghai_iso(list.created_at),
                 "favorites": [{
                     "id": fav.id,
                     "media_id": fav.media_id,
@@ -1479,7 +1479,7 @@ async def get_following(
                 "username": follow.following.username,
                 "avatar": follow.following.avatar,
                 "note": follow.note,
-                "created_at": follow.created_at,
+                "created_at": _to_shanghai_iso(follow.created_at),
             }
             for follow in follows
             if follow.following is not None
@@ -1547,7 +1547,7 @@ async def debug_follows(
         {
             "follower_id": f.follower_id,
             "following_id": f.following_id,
-            "created_at": f.created_at
+            "created_at": _to_shanghai_iso(f.created_at)
         }
         for f in follows
     ]
@@ -2220,12 +2220,26 @@ def _now_utc_naive() -> datetime:
     """Return UTC time stored as naive datetime (MySQL DATETIME)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
+def _iso_now_shanghai() -> str:
+    return _to_shanghai_iso(_now_utc_naive()) or ""
+
 def _to_shanghai_iso(dt: Optional[datetime]) -> Optional[str]:
     """Convert naive UTC datetime to Asia/Shanghai ISO string with offset."""
     if not dt:
         return None
     aware_utc = dt.replace(tzinfo=timezone.utc)
     return aware_utc.astimezone(_TZ_SHANGHAI).isoformat()
+
+def _parse_iso_to_utc_naive(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_TZ_SHANGHAI)
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 def _add_status_event(
     db: Session,
@@ -2698,7 +2712,8 @@ async def admin_delete_feedback(
 
 def _parse_yyyy_mm_dd(value: str) -> datetime:
     try:
-        return datetime.strptime(value, "%Y-%m-%d")
+        local_midnight = datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=_TZ_SHANGHAI)
+        return local_midnight.astimezone(timezone.utc).replace(tzinfo=None)
     except Exception:
         raise HTTPException(status_code=400, detail="日期格式必须是 YYYY-MM-DD")
 
@@ -2802,7 +2817,7 @@ async def admin_get_media_detail_views(
         u = getattr(r, "user", None)
         items.append(
             {
-                "visited_at": r.visited_at.isoformat() if r.visited_at else None,
+                "visited_at": _to_shanghai_iso(r.visited_at) if r.visited_at else None,
                 "media_type": r.media_type,
                 "title": r.title,
                 "url": r.url,
@@ -3459,7 +3474,7 @@ async def sync_charts(
             "status": "success",
             "message": f"榜单数据已同步，共 {synced_count} 条记录",
             "total_count": synced_count,
-            "timestamp": synced_at.isoformat()
+            "timestamp": _to_shanghai_iso(synced_at)
         }
     except Exception as e:
         db.rollback()
@@ -3656,9 +3671,8 @@ async def auto_update_charts(
         results['豆瓣华语剧集'] = await scraper.update_douban_weekly_chinese_tv()
         results['豆瓣全球剧集'] = await scraper.update_douban_weekly_global_tv()
         
-        from datetime import timezone
-        beijing_tz = timezone(timedelta(hours=8))
-        update_time = datetime.now(beijing_tz)
+        update_time = datetime.now(_TZ_SHANGHAI)
+        update_time_utc_naive = update_time.astimezone(timezone.utc).replace(tzinfo=None)
         
         from chart_scrapers import scheduler_instance
         if scheduler_instance:
@@ -3668,7 +3682,7 @@ async def auto_update_charts(
         try:
             db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
             if db_status:
-                db_status.last_update = update_time
+                db_status.last_update = update_time_utc_naive
                 db.commit()
                 logger.info("手动更新后，数据库中的last_update已更新")
         except Exception as db_error:
@@ -3724,7 +3738,7 @@ async def auto_update_platform_charts(
             "message": f"{platform} 平台榜单数据已成功更新",
             "platform": platform,
             "results": results,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _iso_now_shanghai()
         }
         
     except Exception as e:
@@ -3795,7 +3809,7 @@ async def update_top250_chart(
             "platform": platform,
             "chart_name": chart_name,
             "count": count,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _iso_now_shanghai()
         }
         
     except HTTPException:
@@ -3846,7 +3860,7 @@ async def clear_platform_charts(
             "status": "success",
             "message": f"已清空 {platform} 平台的所有榜单（Top 250 榜单除外），共删除 {deleted_count} 条记录",
             "deleted_count": deleted_count,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _iso_now_shanghai()
         }
     except Exception as e:
         logger.error(f"清空 {platform} 平台榜单失败: {e}")
@@ -3880,7 +3894,7 @@ async def clear_top250_chart(
             "platform": platform,
             "chart_name": chart_name,
             "deleted_count": deleted_count,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _iso_now_shanghai()
         }
     except HTTPException:
         raise
@@ -3916,7 +3930,7 @@ async def clear_all_charts(
             "status": "success",
             "message": f"已清空所有平台的所有榜单（Top 250 榜单除外），共删除 {deleted_count} 条记录",
             "deleted_count": deleted_count,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _iso_now_shanghai()
         }
     except Exception as e:
         logger.error(f"清空所有榜单失败: {e}")
@@ -3978,7 +3992,7 @@ async def get_charts_status(db: Session = Depends(get_db)):
                     "chart_name": entry.chart_name,
                     "media_type": entry.media_type,
                     "count": count,
-                    "last_updated": entry.latest_update.isoformat() if entry.latest_update else None
+                    "last_updated": _to_shanghai_iso(entry.latest_update) if entry.latest_update else None
                 })
             
             status[platform] = platform_status
@@ -3986,7 +4000,7 @@ async def get_charts_status(db: Session = Depends(get_db)):
         return {
             "status": "success",
             "data": status,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _iso_now_shanghai()
         }
         
     except Exception as e:
@@ -4026,8 +4040,8 @@ async def start_scheduler_endpoint(
         
         db_status = SchedulerStatus(
             running=True,
-            next_update=datetime.fromisoformat(scheduler_status['next_update'].replace('+08:00', '')),
-            last_update=datetime.fromisoformat(scheduler_status['last_update']) if scheduler_status['last_update'] else None
+            next_update=_parse_iso_to_utc_naive(scheduler_status.get("next_update")),
+            last_update=_parse_iso_to_utc_naive(scheduler_status.get("last_update")),
         )
         db.add(db_status)
         db.commit()
@@ -4036,7 +4050,7 @@ async def start_scheduler_endpoint(
         return {
             "status": "success",
             "message": "定时任务调度器已启动",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _iso_now_shanghai(),
             "scheduler_status": scheduler_status
         }
     except Exception as e:
@@ -4068,7 +4082,7 @@ async def stop_scheduler_endpoint(
         return {
             "status": "success",
             "message": "定时任务调度器已停止",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _iso_now_shanghai()
         }
     except Exception as e:
         logger.error(f"停止调度器失败: {e}")
@@ -4097,7 +4111,7 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
             return {
                 "status": "success",
                 "data": status,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _iso_now_shanghai()
             }
         
         db_status = db.query(SchedulerStatus).order_by(SchedulerStatus.updated_at.desc()).first()
@@ -4110,9 +4124,9 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
                 "data": {
                     "running": db_status.running,
                     "next_update": next_update.isoformat(),
-                    "last_update": db_status.last_update.isoformat() if db_status.last_update else None
+                    "last_update": _to_shanghai_iso(db_status.last_update) if db_status.last_update else None
                 },
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _iso_now_shanghai()
             }
         else:
             from chart_scrapers import get_scheduler_status
@@ -4121,7 +4135,7 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
             return {
                 "status": "success",
                 "data": status,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _iso_now_shanghai()
             }
     except Exception as e:
         logger.error(f"获取调度器状态失败: {e}")
