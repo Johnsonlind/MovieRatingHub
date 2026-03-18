@@ -10,6 +10,7 @@ import {
   BarChart3,
   PenLine,
   Edit3,
+  Eye,
   MoreHorizontal,
   Home,
 } from 'lucide-react';
@@ -20,6 +21,7 @@ const SIDEBAR_ITEMS = [
   { id: 'charts', path: '/admin/charts', label: '榜单管理', icon: BarChart3 },
   { id: 'rating-input', path: '/admin/ratings/input', label: '评分手动录入', icon: PenLine },
   { id: 'rating-edit', path: '/admin/ratings/edit', label: '评分数据修改', icon: Edit3 },
+  { id: 'detail-views', path: '/admin/detail-views', label: '访问记录', icon: Eye },
   { id: 'other', path: '/admin/other', label: '其他功能', icon: MoreHorizontal },
 ];
 
