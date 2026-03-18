@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, PublicChartEntry, SchedulerStatus
+from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, PublicChartEntry, SchedulerStatus, MediaDetailAccessLog
 from sqlalchemy.orm import Session, selectinload
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform, create_rating_data, get_tmdb_http_client, TMDB_API_BASE_URL
 from redis import asyncio as aioredis
@@ -42,6 +42,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from browser_pool import browser_pool
 import traceback
 import fcntl
+from sqlalchemy import desc
 
 # ==========================================
 # 1. 配置和初始化部分
@@ -119,7 +120,6 @@ class OAuth2PasswordBearerOptional(OAuth2):
 AUTH_COOKIE_NAME = "ratefuse_token"
 
 def get_token_from_request(request: Request) -> Optional[str]:
-    """优先从 Authorization 头取 token，否则从 Cookie 取（勾选「记住我」时使用）。"""
     auth = request.headers.get("Authorization")
     if auth:
         scheme, param = get_authorization_scheme_param(auth)
@@ -128,7 +128,6 @@ def get_token_from_request(request: Request) -> Optional[str]:
     return request.cookies.get(AUTH_COOKIE_NAME)
 
 def oauth2_scheme_with_cookie(request: Request) -> str:
-    """从 Header 或 Cookie 取 token，没有则抛 401。"""
     token = get_token_from_request(request)
     if not token:
         raise HTTPException(
@@ -139,7 +138,6 @@ def oauth2_scheme_with_cookie(request: Request) -> str:
     return token
 
 def oauth2_scheme_optional_with_cookie(request: Request) -> Optional[str]:
-    """从 Header 或 Cookie 取 token，没有则返回 None。"""
     return get_token_from_request(request)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=8)
@@ -227,7 +225,6 @@ async def get_current_user_optional(
         return None
 
 async def get_cache(key: str):
-    """从 Redis 获取缓存数据"""
     if redis:
         try:
             data = await redis.get(key)
@@ -254,7 +251,6 @@ async def get_cache(key: str):
         return value
 
 async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
-    """将数据存入 Redis 缓存"""
     if redis:
         try:
             if isinstance(data, dict) and "status" in data:
@@ -271,7 +267,6 @@ async def set_cache(key: str, data: dict, expire: int = CACHE_EXPIRE_TIME):
 
 
 async def get_tmdb_info_cached(id: str, type: str, request: Request):
-    """带 Redis 缓存的 TMDB 基础信息获取"""
     cache_key = f"tmdb:info:{type}:{id}"
     cached = await get_cache(cache_key)
     if cached:
@@ -348,7 +343,6 @@ async def register(
     }
 
 def _login_verify_sync(email: str, password: str) -> tuple[Optional[User], Optional[str]]:
-    """在线程中执行：查用户 + 校验密码，避免阻塞事件循环。返回 (user, error_detail)。"""
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.email == email).first()
@@ -425,7 +419,6 @@ async def login(request: Request):
 
 @app.post("/auth/logout")
 async def logout(response: Response):
-    """清除「记住我」使用的 Cookie"""
     response = JSONResponse(content={"ok": True})
     response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
     return response
@@ -568,7 +561,6 @@ async def update_douban_cookie(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """更新用户的豆瓣Cookie"""
     try:
         data = await request.json()
         cookie = data.get("cookie", "").strip()
@@ -593,7 +585,6 @@ async def update_douban_cookie(
 async def get_douban_cookie(
     current_user: User = Depends(get_current_user)
 ):
-    """获取用户的豆瓣Cookie状态"""
     return {
         "has_cookie": bool(current_user.douban_cookie)
     }
@@ -1557,7 +1548,6 @@ async def get_batch_ratings(
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """批量获取多个影视的评分信息"""
     start_time = time.time()
     try:
         body = await request.json()
@@ -1717,7 +1707,6 @@ async def get_all_platform_ratings(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """并行获取所有平台的评分信息"""
     start_time = time.time()
     try:
         if await request.is_disconnected():
@@ -1796,7 +1785,6 @@ async def get_tmdb_rating(
     id: str,
     request: Request,
 ):
-    """获取 TMDB 评分数据（含剧集分季），并写入缓存"""
     start_time = time.time()
     if type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="type 必须是 movie 或 tv")
@@ -1835,7 +1823,6 @@ async def get_tmdb_rating(
                     sn_int = int(sn)
                 except (TypeError, ValueError):
                     continue
-                # 过滤掉 Special（0）
                 if sn_int <= 0:
                     continue
                 season_numbers.append(sn_int)
@@ -1887,7 +1874,6 @@ async def get_platform_rating(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """获取指定平台的评分信息，优化缓存和错误处理"""
     start_time = time.time()
     try:
         if await request.is_disconnected():
@@ -2002,7 +1988,6 @@ router = APIRouter()
 _tmdb_client = None
 
 async def get_tmdb_client():
-    """获取或创建 TMDB API 客户端"""
     global _tmdb_client
     if _tmdb_client is None or _tmdb_client.is_closed:
         _tmdb_client = httpx.AsyncClient(
@@ -2022,7 +2007,6 @@ async def get_tmdb_client():
     return _tmdb_client
 
 def _normalized_query_for_cache(query_params) -> str:
-    """将 query 参数按 key 排序后拼接"""
     if not query_params:
         return ""
     sorted_items = sorted(query_params.items(), key=lambda x: x[0])
@@ -2035,7 +2019,6 @@ TMDB_SEARCH_WINDOW = 10.0
 
 
 async def _check_tmdb_search_rate_limit(client_ip: str) -> None:
-    """仅对 search 路径限流，超限抛 429"""
     if not client_ip:
         return
     now = time.time()
@@ -2051,7 +2034,6 @@ async def _check_tmdb_search_rate_limit(client_ip: str) -> None:
 
 @router.get("/api/tmdb-proxy/{path:path}")
 async def tmdb_proxy(path: str, request: Request):
-    """代理 TMDB API 请求并缓存结果"""
     try:
         qs = _normalized_query_for_cache(dict(request.query_params))
         cache_key = f"tmdb:{path}:{qs}"
@@ -2100,7 +2082,6 @@ async def tmdb_proxy(path: str, request: Request):
 
 @app.get("/api/image-proxy")
 async def image_proxy(url: str, response: Response):
-    """代理图片请求并添加缓存控制"""
     try:
         if url.startswith('/tmdb-images/'):
             url = f"https://image.tmdb.org/t/p{url[12:]}"
@@ -2174,7 +2155,6 @@ async def image_proxy(url: str, response: Response):
 
 @router.get("/api/trakt-proxy/{path:path}")
 async def trakt_proxy(path: str, request: Request):
-    """代理 Trakt API 请求并缓存结果"""
     try:
         cache_key = f"trakt:{path}:{request.query_params}"
         cached_data = await get_cache(cache_key)
@@ -2212,8 +2192,142 @@ def require_admin(user: User):
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
 
+def _parse_yyyy_mm_dd(value: str) -> datetime:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except Exception:
+        raise HTTPException(status_code=400, detail="日期格式必须是 YYYY-MM-DD")
+
+@app.post("/api/track/detail-view")
+async def track_media_detail_view(
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    body = await request.json()
+    media_type = str(body.get("media_type") or "").strip().lower()
+    if media_type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
+
+    title = str(body.get("title") or "").strip()
+    url = str(body.get("url") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="缺少 title")
+    if not url:
+        raise HTTPException(status_code=400, detail="缺少 url")
+
+    tmdb_id = body.get("tmdb_id")
+    tmdb_id_int: Optional[int] = None
+    if tmdb_id is not None and str(tmdb_id).strip() != "":
+        try:
+            tmdb_id_int = int(tmdb_id)
+        except (TypeError, ValueError):
+            tmdb_id_int = None
+
+    log = MediaDetailAccessLog(
+        user_id=current_user.id if current_user else None,
+        visited_at=datetime.utcnow(),
+        media_type=media_type,
+        tmdb_id=tmdb_id_int,
+        title=title,
+        url=url,
+    )
+    try:
+        db.add(log)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"写入详情页访问日志失败: {e}")
+        raise HTTPException(status_code=500, detail="写入访问日志失败")
+
+    return {"ok": True}
+
+@app.get("/api/admin/detail-views")
+async def admin_get_media_detail_views(
+    date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    media_type: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 1
+    if page_size > 200:
+        page_size = 200
+
+    if date and (start_date or end_date):
+        raise HTTPException(status_code=400, detail="date 与 start_date/end_date 不能同时传")
+
+    if date:
+        start_dt = _parse_yyyy_mm_dd(date)
+        end_dt = start_dt + timedelta(days=1)
+    else:
+        start_dt = _parse_yyyy_mm_dd(start_date) if start_date else None
+        end_dt = (_parse_yyyy_mm_dd(end_date) + timedelta(days=1)) if end_date else None
+
+    if media_type is not None:
+        media_type = str(media_type).strip().lower()
+        if media_type not in ("movie", "tv"):
+            raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
+
+    q = db.query(MediaDetailAccessLog).options(selectinload(MediaDetailAccessLog.user))
+    if start_dt is not None:
+        q = q.filter(MediaDetailAccessLog.visited_at >= start_dt)
+    if end_dt is not None:
+        q = q.filter(MediaDetailAccessLog.visited_at < end_dt)
+    if media_type:
+        q = q.filter(MediaDetailAccessLog.media_type == media_type)
+
+    total = q.count()
+    rows = (
+        q.order_by(desc(MediaDetailAccessLog.visited_at))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    items = []
+    for r in rows:
+        u = getattr(r, "user", None)
+        items.append(
+            {
+                "visited_at": r.visited_at.isoformat() if r.visited_at else None,
+                "media_type": r.media_type,
+                "title": r.title,
+                "url": r.url,
+                "user": (
+                    {
+                        "id": u.id,
+                        "email": u.email,
+                        "username": u.username,
+                    }
+                    if u
+                    else None
+                ),
+            }
+        )
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "filters": {
+            "date": date,
+            "start_date": start_date,
+            "end_date": end_date,
+            "media_type": media_type,
+        },
+    }
+
 def _build_seasons_list(body: dict, platform: str, media_type: str) -> list:
-    """从 body.seasons 构建分季评分列表，仅剧集需要"""
     if media_type != "tv":
         return []
     seasons = body.get("seasons") or []
@@ -2259,7 +2373,6 @@ def _build_seasons_list(body: dict, platform: str, media_type: str) -> list:
     return result
 
 def _build_manual_rating_payload(platform: str, body: dict, media_type: str):
-    """根据平台和请求体构建手动录入的评分数据结构"""
     status = RATING_STATUS["SUCCESSFUL"]
     seasons_list = _build_seasons_list(body, platform, media_type) if media_type == "tv" else []
     url = str(body.get("url") or "").strip()
@@ -2362,7 +2475,6 @@ async def save_manual_rating(
     request: Request,
     current_user: User = Depends(get_current_user),
 ):
-    """管理员：保存/覆盖指定影视某平台的手动评分到缓存"""
     require_admin(current_user)
     if media_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
@@ -2402,7 +2514,6 @@ async def create_manual_rating(
     request: Request,
     current_user: User = Depends(get_current_user),
 ):
-    """管理员：新建手动评分（与 PUT 相同逻辑，body 需包含 tmdb_id, media_type, platform）"""
     require_admin(current_user)
     body = await request.json()
     media_type = str(body.get("media_type") or "").strip().lower()
@@ -2442,7 +2553,6 @@ async def create_manual_rating(
     return {"ok": True, "platform": platform, "message": "已保存"}
 
 async def tmdb_enrich(tmdb_id: int, media_type: str):
-    """使用多语言回退获取TMDB信息"""
     from ratings import _fetch_tmdb_with_language_fallback, get_tmdb_http_client
     
     try:
@@ -2535,7 +2645,6 @@ async def add_chart_entries_bulk(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """批量录入榜单"""
     require_admin(current_user)
     items = (await request.json()).get("items", [])
     if not isinstance(items, list) or not items:
@@ -2724,7 +2833,6 @@ async def set_entry_lock(
     entry.locked = locked
     db.commit()
     return {"rank": rank, "locked": locked}
-
 @app.delete("/api/charts/entries")
 async def delete_chart_entry(
     platform: str,
@@ -2794,7 +2902,6 @@ async def sync_charts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """同步榜单数据到公开页面（将ChartEntry数据复制到PublicChartEntry）"""
     require_admin(current_user)
     
     try:
@@ -2857,7 +2964,6 @@ async def sync_charts(
 
 @app.get("/api/charts/public")
 async def get_public_charts(db: Session = Depends(get_db)):
-    """获取所有公开榜单数据"""
     cache_key = "charts:public"
     cached = await get_cache(cache_key)
     if cached is not None:
@@ -2943,7 +3049,6 @@ async def get_chart_detail(
     chart_name: str,
     db: Session = Depends(get_db)
 ):
-    """获取完整榜单详情（Top 250）"""
     try:
         platform_map = {
             'Rotten Tomatoes': '烂番茄',
@@ -3027,7 +3132,6 @@ async def auto_update_charts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """自动更新所有榜单数据"""
     require_admin(current_user)
     
     try:
@@ -3083,7 +3187,6 @@ async def auto_update_platform_charts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """自动更新指定平台的榜单数据"""
     require_admin(current_user)
     
     try:
@@ -3130,7 +3233,6 @@ async def update_top250_chart(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """更新单个 Top 250 榜单"""
     require_admin(current_user)
     
     try:
@@ -3216,7 +3318,6 @@ async def clear_platform_charts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """清空指定平台的所有榜单（排除 Top 250 榜单）"""
     require_admin(current_user)
     
     try:
@@ -3253,7 +3354,6 @@ async def clear_top250_chart(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """清空单个 Top 250 榜单"""
     require_admin(current_user)
     
     try:
@@ -3289,7 +3389,6 @@ async def clear_all_charts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """清空所有平台的所有榜单（排除 Top 250 榜单）"""
     require_admin(current_user)
     
     try:
@@ -3323,7 +3422,6 @@ async def clear_all_charts(
 async def test_notification(
     current_user: User = Depends(get_current_user)
 ):
-    """测试Telegram通知"""
     require_admin(current_user)
     
     try:
@@ -3346,7 +3444,6 @@ async def test_notification(
 
 @app.get("/api/charts/status")
 async def get_charts_status(db: Session = Depends(get_db)):
-    """获取榜单数据状态"""
     try:
         platforms = ["豆瓣", "IMDb", "Letterboxd", "烂番茄", "MTC"]
         status = {}
@@ -3413,7 +3510,6 @@ async def start_scheduler_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """启动定时任务调度器"""
     require_admin(current_user)
     
     try:
@@ -3450,7 +3546,6 @@ async def stop_scheduler_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """停止定时任务调度器"""
     require_admin(current_user)
     
     try:
@@ -3476,7 +3571,6 @@ async def stop_scheduler_endpoint(
         raise HTTPException(status_code=500, detail=f"停止调度器失败: {str(e)}")
 
 def calculate_next_update():
-    """计算下次更新时间（每天北京时间21:30）"""
     from datetime import timezone, timedelta
     beijing_tz = timezone(timedelta(hours=8))
     now_beijing = datetime.now(beijing_tz)
@@ -3491,7 +3585,6 @@ def calculate_next_update():
 
 @app.get("/api/scheduler/status")
 async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
-    """获取调度器状态"""
     try:
         from chart_scrapers import scheduler_instance
         if scheduler_instance and scheduler_instance.running:
@@ -3532,7 +3625,6 @@ async def get_scheduler_status_endpoint(db: Session = Depends(get_db)):
 
 @app.get("/api/health")
 async def health_check():
-    """健康检查端点"""
     redis_status = "healthy" if redis else "unhealthy"
     
     browser_pool_stats = browser_pool.get_stats()
@@ -3552,8 +3644,11 @@ async def health_check():
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时初始化"""
     global redis
+    try:
+        MediaDetailAccessLog.__table__.create(bind=engine, checkfirst=True)
+    except Exception as e:
+        logger.error(f"创建 media_detail_access_logs 表失败（可能无权限/连接异常）: {e}")
     try:
         redis = await aioredis.from_url(
             REDIS_URL,
@@ -3592,7 +3687,6 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """应用关闭时清理资源"""
     try:
         await browser_pool.cleanup()
         print("浏览器池已清理")
@@ -3614,7 +3708,6 @@ async def shutdown_event():
 
 @app.get("/sitemap.xml")
 def sitemap():
-    """生成sitemap.xml"""
     lastmod = datetime.utcnow().strftime("%Y-%m-%d")
     sitemap_items = ""
     urls = [
