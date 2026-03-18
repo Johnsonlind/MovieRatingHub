@@ -28,6 +28,7 @@ import { SeasonRatings } from '../components/tv/SeasonRatings';
 import type { TVShow } from '../types/media';
 import { PageShell } from '../components/layout/PageShell';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { authFetch } from '../api/authFetch';
 
 const PRELOAD_IMAGES = [
   `/logos/douban.png`,
@@ -52,6 +53,7 @@ export default function TVShowPage() {
   const [selectedSeason, setSelectedSeason] = useState<number | undefined>(undefined);
   const [isExporting, setIsExporting] = useState(false);
   const exportSeasonRef = useRef<number | undefined>(undefined);
+  const [trackedId, setTrackedId] = useState<string | null>(null);
   
   const {
     platformStatuses,
@@ -100,6 +102,28 @@ export default function TVShowPage() {
       });
     }
   }, [tvShow]);
+
+  useEffect(() => {
+    if (!id || !tvShow) return;
+    if (trackedId === id) return;
+
+    const url = `${window.location.origin}/tv/${id}`;
+    authFetch('/api/track/detail-view', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        media_type: 'tv',
+        tmdb_id: Number(id),
+        title: tvShow.title,
+        url,
+      }),
+      withAuth: true,
+    })
+      .then(() => setTrackedId(id))
+      .catch(() => {
+        // ignore
+      });
+  }, [id, tvShow, trackedId]);
 
   useEffect(() => {
     if (tvShow?.poster) {
@@ -327,7 +351,7 @@ export default function TVShowPage() {
                         />
                       </div>
                       <div className="mt-2 text-xs text-white/80 text-protection">
-                        如遇失败，可点击平台图标重试
+                        失败可重试，并非所有剧集都有 Letterboxd 评分，请耐心
                       </div>
                     </div>
 
