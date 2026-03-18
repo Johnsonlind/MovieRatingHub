@@ -11,6 +11,7 @@ import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { UserButton } from '../components/ui/UserButton';
 import { ChartsButton } from '../components/ui/ChartsButton';
+import { NotificationButton } from '../components/ui/NotificationButton';
 import { MiniFavoriteButton } from '../components/ui/MiniFavoriteButton';
 import { Footer } from '../components/common/Footer';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -226,6 +227,7 @@ export default function HomePage() {
       <ThemeToggle />
       <div className="absolute top-2 sm:top-3 right-2 sm:right-2 z-30 flex items-center gap-2">
         <ChartsButton />
+        <NotificationButton />
         <UserButton />
       </div>
       
