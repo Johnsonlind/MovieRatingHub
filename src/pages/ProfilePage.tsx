@@ -16,22 +16,9 @@ import { CardTabs } from '../components/ui/CardTabs';
 import { PageShell } from '../components/layout/PageShell';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { authFetch, authFetchJson } from '../api/authFetch';
+import { formatChinaDate, formatChinaDateTime } from '../utils/time';
 
-const formatChinaTime = (value?: string | null) => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(date).replace(/\//g, '-');
-};
+const formatChinaTime = (value?: string | null) => formatChinaDateTime(value);
 
 interface Creator {
   id: number;
@@ -744,7 +731,7 @@ export default function ProfilePage() {
               {list.favorites.length} 部作品
             </p>
             <p className="text-sm text-gray-700 dark:text-gray-300">
-              {new Date(list.created_at).toLocaleDateString()}
+              {formatChinaDate(list.created_at)}
             </p>
           </div>
 
