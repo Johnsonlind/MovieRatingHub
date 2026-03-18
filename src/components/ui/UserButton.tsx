@@ -7,16 +7,23 @@ import { useAuth } from '../auth/AuthContext';
 import { AuthModal } from '../auth/AuthModal';
 import { useNavigate } from 'react-router-dom';
 import { Dialog } from '../common/Dialog';
+import { Input } from '../common/Input';
 import { Textarea } from '../common/Textarea';
 import { Button } from '../common/Button';
 import { toast } from 'sonner';
+import { authFetch } from '../../api/authFetch';
 
 export function UserButton() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [showCookieDialog, setShowCookieDialog] = useState(false);
+  const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
   const [cookieValue, setCookieValue] = useState('');
   const [hasCookie, setHasCookie] = useState(false);
+  const [feedbackTitle, setFeedbackTitle] = useState('');
+  const [feedbackContent, setFeedbackContent] = useState('');
+  const [feedbackImages, setFeedbackImages] = useState<FileList | null>(null);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -53,6 +60,41 @@ export function UserButton() {
   const handleLogout = () => {
     logout();
     setShowDropdown(false);
+  };
+
+  const handleOpenFeedbackDialog = () => {
+    setShowFeedbackDialog(true);
+    setShowDropdown(false);
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!feedbackContent.trim()) {
+      toast.error('请填写反馈内容');
+      return;
+    }
+    setSubmittingFeedback(true);
+    try {
+      const formData = new FormData();
+      formData.append('content', feedbackContent.trim());
+      if (feedbackTitle.trim()) formData.append('title', feedbackTitle.trim());
+      if (feedbackImages) {
+        Array.from(feedbackImages).forEach((file) => formData.append('images', file));
+      }
+      const res = await authFetch('/api/feedbacks', { method: 'POST', body: formData } as any);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.detail || '提交失败');
+      }
+      toast.success('反馈已提交');
+      setShowFeedbackDialog(false);
+      setFeedbackTitle('');
+      setFeedbackContent('');
+      setFeedbackImages(null);
+    } catch (e: any) {
+      toast.error(e?.message || '提交失败');
+    } finally {
+      setSubmittingFeedback(false);
+    }
   };
 
   useEffect(() => {
@@ -178,7 +220,7 @@ export function UserButton() {
                 navigate('/profile');
                 setShowDropdown(false);
               }}
-              className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
               role="menuitem"
             >
               个人中心
@@ -189,22 +231,29 @@ export function UserButton() {
                   navigate('/admin');
                   setShowDropdown(false);
                 }}
-                className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+                className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
                 role="menuitem"
               >
                 管理后台
               </button>
             )}
             <button
+              onClick={handleOpenFeedbackDialog}
+              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              role="menuitem"
+            >
+              提交反馈
+            </button>
+            <button
               onClick={handleOpenCookieDialog}
-              className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
               role="menuitem"
             >
               {hasCookie ? '✓ 豆瓣Cookie' : '设置豆瓣Cookie'}
             </button>
             <button
               onClick={handleLogout}
-              className="block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
               role="menuitem"
             >
               退出登录
@@ -213,6 +262,62 @@ export function UserButton() {
         </div>,
         document.body
       )}
+
+      <Dialog
+        open={showFeedbackDialog}
+        onClose={() => {
+          setShowFeedbackDialog(false);
+          setFeedbackTitle('');
+          setFeedbackContent('');
+          setFeedbackImages(null);
+        }}
+        title="提交反馈"
+      >
+        <div className="space-y-4">
+          <Input
+            placeholder="反馈标题（可选）"
+            value={feedbackTitle}
+            onChange={(e) => setFeedbackTitle(e.target.value)}
+          />
+          <Textarea
+            placeholder="请描述你遇到的问题或建议（必填）"
+            rows={5}
+            value={feedbackContent}
+            onChange={(e) => setFeedbackContent(e.target.value)}
+          />
+          <div>
+            <input
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={(e) => setFeedbackImages(e.target.files)}
+              className="block w-full text-sm text-gray-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            />
+            <p className="mt-1 text-xs text-gray-400">支持多张图片，每张不超过 5MB</p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              className="no-hover-scale cursor-pointer"
+              onClick={() => {
+                setShowFeedbackDialog(false);
+                setFeedbackTitle('');
+                setFeedbackContent('');
+                setFeedbackImages(null);
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              className="no-hover-scale cursor-pointer"
+              disabled={submittingFeedback || !feedbackContent.trim()}
+              onClick={handleSubmitFeedback}
+            >
+              {submittingFeedback ? '提交中...' : '提交反馈'}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
 
       <Dialog
         open={showCookieDialog}
