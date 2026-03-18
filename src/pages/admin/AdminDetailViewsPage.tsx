@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Film, RefreshCw } from 'lucide-react';
 import { authFetchJson } from '../../api/authFetch';
+import { formatChinaDateTime } from '../../utils/time';
 
 type MediaType = 'movie' | 'tv';
 
@@ -186,7 +187,7 @@ export default function AdminDetailViewsPage() {
                 data!.items.map((it, idx) => (
                   <tr key={`${it.visited_at || 'null'}-${idx}`} className="text-gray-800 dark:text-gray-100">
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {it.visited_at ? new Date(it.visited_at).toLocaleString() : '-'}
+                      {it.visited_at ? formatChinaDateTime(it.visited_at) : '-'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">{it.media_type === 'movie' ? '电影' : '剧集'}</td>
                     <td className="px-4 py-3 max-w-[360px] truncate" title={it.title}>
