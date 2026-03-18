@@ -146,13 +146,31 @@ class ChartScraper:
     ) -> None:
         """按 rank 覆盖写入，保证幂等（可重复执行）"""
         try:
+            existing = (
+                self.db.query(ChartEntry)
+                .filter(
+                    ChartEntry.platform == platform,
+                    ChartEntry.chart_name == chart_name,
+                    ChartEntry.rank == rank,
+                )
+                .first()
+            )
+            if existing and getattr(existing, "locked", False):
+                return
             self.db.query(ChartEntry).filter(
                 ChartEntry.platform == platform,
                 ChartEntry.chart_name == chart_name,
                 ChartEntry.rank == rank,
             ).delete()
         except Exception:
-            pass
+            try:
+                self.db.query(ChartEntry).filter(
+                    ChartEntry.platform == platform,
+                    ChartEntry.chart_name == chart_name,
+                    ChartEntry.rank == rank,
+                ).delete()
+            except Exception:
+                pass
         self.db.add(
             ChartEntry(
                 platform=platform,
@@ -168,18 +186,37 @@ class ChartScraper:
     def _replace_chart_snapshot(self, platform: str, chart_name: str, entries: list[dict]) -> int:
         """两阶段方案的“提交阶段”"""
         try:
+            locked_rows = (
+                self.db.query(ChartEntry)
+                .filter(
+                    ChartEntry.platform == platform,
+                    ChartEntry.chart_name == chart_name,
+                    ChartEntry.locked == True,
+                )
+                .all()
+            )
+            locked_keys = {(r.media_type, int(r.rank)) for r in locked_rows if r.rank is not None}
+
             self.db.query(ChartEntry).filter(
                 ChartEntry.platform == platform,
                 ChartEntry.chart_name == chart_name,
+                ChartEntry.locked == False,
             ).delete(synchronize_session=False)
 
             for e in entries:
+                try:
+                    mt = e["media_type"]
+                    rk = int(e["rank"])
+                except Exception:
+                    continue
+                if (mt, rk) in locked_keys:
+                    continue
                 self.db.add(
                     ChartEntry(
                         platform=platform,
                         chart_name=chart_name,
-                        media_type=e["media_type"],
-                        rank=int(e["rank"]),
+                        media_type=mt,
+                        rank=rk,
                         tmdb_id=int(e["tmdb_id"]),
                         title=e.get("title") or "",
                         poster=e.get("poster") or "",
@@ -2141,26 +2178,30 @@ class ChartScraper:
                         pass
                     
                     page_items_count = 0
+                    html = await page.content()
+
                     try:
-                        from bs4 import BeautifulSoup
+                        pattern = r'<li[^>]*class="[^"]*posteritem[^"]*numbered-list-item[^"]*"[^>]*>(.*?)</li>'
+                        for m in re.finditer(pattern, html, re.DOTALL):
+                            block = m.group(1)
 
-                        html = await page.content()
-                        soup = BeautifulSoup(html, "html.parser")
-                        items = soup.select("ul.js-list-entries li.posteritem.numbered-list-item")
-                        if not items:
-                            items = soup.select("li.posteritem.numbered-list-item")
-
-                        for item in items:
-                            rank_text = (item.select_one("p.list-number") or {}).get_text(strip=True) if item.select_one("p.list-number") else ""
-                            rank = int(rank_text) if rank_text.isdigit() else None
-                            if not rank:
+                            rank_match = re.search(
+                                r'<p[^>]*class="[^"]*list-number[^"]*"[^>]*>\s*(\d+)\s*<',
+                                block,
+                            )
+                            if not rank_match:
                                 continue
+                            rank = int(rank_match.group(1))
 
-                            a = item.select_one('a.frame[href*="/film/"]') or item.select_one('a[href*="/film/"]')
-                            if not a:
-                                continue
+                            title_match = re.search(r'data-item-name="([^"]+)"', block)
+                            title = title_match.group(1).strip() if title_match else ""
 
-                            href = (a.get("href") or "").strip()
+                            href_match = re.search(r'data-item-link="([^"]+)"', block)
+                            href = href_match.group(1).strip() if href_match else ""
+                            if not href:
+                                href_match = re.search(r'href="(/film/[^"]+/)"', block)
+                                href = href_match.group(1).strip() if href_match else ""
+
                             if not href:
                                 continue
 
@@ -2171,18 +2212,53 @@ class ChartScraper:
                             else:
                                 full_url = f"https://letterboxd.com/{href}"
 
-                            title = ""
-                            react = item.select_one('[data-item-name]')
-                            if react and react.get("data-item-name"):
-                                title = react.get("data-item-name", "").strip()
-                            if not title:
-                                frame_title = (a.select_one(".frame-title") or {}).get_text(strip=True) if a.select_one(".frame-title") else ""
-                                title = frame_title.strip() if frame_title else ""
-
                             all_movies.append({"rank": rank, "title": title, "url": full_url})
                             page_items_count += 1
                     except Exception as e:
-                        logger.warning(f"Letterboxd Top 250 第 {page_num} 页: soup 解析失败: {e}")
+                        logger.warning(f"Letterboxd Top 250 第 {page_num} 页: regex 解析失败: {e}")
+
+                    if page_items_count == 0:
+                        try:
+                            from bs4 import BeautifulSoup
+
+                            soup = BeautifulSoup(html, "html.parser")
+                            items = soup.select("ul.js-list-entries li.posteritem.numbered-list-item")
+                            if not items:
+                                items = soup.select("li.posteritem.numbered-list-item")
+
+                            for item in items:
+                                rank_text = (item.select_one("p.list-number") or {}).get_text(strip=True) if item.select_one("p.list-number") else ""
+                                rank = int(rank_text) if rank_text.isdigit() else None
+                                if not rank:
+                                    continue
+
+                                a = item.select_one('a.frame[href*="/film/"]') or item.select_one('a[href*="/film/"]')
+                                if not a:
+                                    continue
+
+                                href = (a.get("href") or "").strip()
+                                if not href:
+                                    continue
+
+                                if href.startswith("/"):
+                                    full_url = f"https://letterboxd.com{href}"
+                                elif href.startswith("http"):
+                                    full_url = href
+                                else:
+                                    full_url = f"https://letterboxd.com/{href}"
+
+                                title = ""
+                                react = item.select_one('[data-item-name]')
+                                if react and react.get("data-item-name"):
+                                    title = react.get("data-item-name", "").strip()
+                                if not title:
+                                    frame_title = (a.select_one(".frame-title") or {}).get_text(strip=True) if a.select_one(".frame-title") else ""
+                                    title = frame_title.strip() if frame_title else ""
+
+                                all_movies.append({"rank": rank, "title": title, "url": full_url})
+                                page_items_count += 1
+                        except Exception as e:
+                            logger.warning(f"Letterboxd Top 250 第 {page_num} 页: soup 解析失败: {e}")
 
                     if page_items_count == 0:
                         items = await page.query_selector_all('li.posteritem.numbered-list-item')
