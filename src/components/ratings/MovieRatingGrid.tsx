@@ -1,8 +1,7 @@
 // ==========================================
 // 电影评分网格组件
 // ==========================================
-import { RatingCard, RottenTomatoesCard } from './RatingCard';
-import { MetacriticCard } from './MetacriticCard';
+import { RatingCard, RottenTomatoesCard, MetacriticCard } from './RatingCard';
 import type { MovieRatingData, FetchStatus } from '../../types/ratings';
 import { formatRating } from '../../utils/formatRating';
 import { isValidRatingData } from '../../utils/ratingHelpers';
