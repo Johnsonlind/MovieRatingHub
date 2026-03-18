@@ -8,7 +8,7 @@ import time
 import ssl
 from zoneinfo import ZoneInfo
 from datetime import timezone
-from typing import Optional
+from typing import Optional, Any
 import hashlib
 import httpx
 import logging
@@ -41,6 +41,7 @@ from models import (
     FeedbackMessage,
     FeedbackImage,
     FeedbackStatusEvent,
+    Notification,
 )
 from sqlalchemy.orm import Session, selectinload
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform, create_rating_data, get_tmdb_http_client, TMDB_API_BASE_URL
@@ -54,7 +55,7 @@ import secrets
 import aiohttp
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
-from sqlalchemy import func, or_, not_, and_, create_engine
+from sqlalchemy import func, or_, not_, and_, create_engine, case
 from sqlalchemy.pool import QueuePool
 from fastapi.middleware.gzip import GZipMiddleware
 from browser_pool import browser_pool
@@ -63,7 +64,7 @@ import fcntl
 from sqlalchemy import desc
 
 # ==========================================
-# 1. 配置和初始化部分
+# 1. 配置和初始化
 # ==========================================
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -108,7 +109,7 @@ engine = create_engine(
 )
 
 # ==========================================
-# 2. 辅助类和函数
+# 2. 辅助类
 # ==========================================
 
 class OAuth2PasswordBearerOptional(OAuth2):
@@ -308,8 +309,94 @@ def check_following_status(db: Session, follower_id: Optional[int], following_id
     
     return bool(follow)
 
+def _serialize_notification(n: Notification) -> dict[str, Any]:
+    return {
+        "id": n.id,
+        "user_id": n.user_id,
+        "type": n.type,
+        "content": n.content,
+        "link": n.link,
+        "is_read": bool(n.is_read),
+        "created_at": _to_shanghai_iso(n.created_at),
+    }
+
+def _create_notification(
+    db: Session,
+    user_id: int,
+    type_: str,
+    content: str,
+    link: Optional[str] = None,
+) -> Notification:
+    n = Notification(
+        user_id=user_id,
+        type=type_,
+        content=content,
+        link=link,
+        is_read=False,
+        created_at=_now_utc_naive(),
+    )
+    db.add(n)
+    return n
+
+def _notify_followers(
+    db: Session,
+    actor_user_id: int,
+    type_: str,
+    content: str,
+    link: Optional[str] = None,
+) -> int:
+    follower_rows = db.query(Follow.follower_id).filter(Follow.following_id == actor_user_id).all()
+    created = 0
+    for (fid,) in follower_rows:
+        if not fid or fid == actor_user_id:
+            continue
+        _create_notification(db, user_id=int(fid), type_=type_, content=content, link=link)
+        created += 1
+    return created
+
+def _notify_admins(
+    db: Session,
+    type_: str,
+    content: str,
+    link: Optional[str] = None,
+    exclude_user_id: Optional[int] = None,
+) -> int:
+    admin_rows = db.query(User.id).filter(User.is_admin == True).all()
+    created = 0
+    for (uid,) in admin_rows:
+        if not uid:
+            continue
+        if exclude_user_id and int(uid) == int(exclude_user_id):
+            continue
+        _create_notification(db, user_id=int(uid), type_=type_, content=content, link=link)
+        created += 1
+    return created
+
+@app.get("/sitemap.xml")
+def sitemap():
+    lastmod = datetime.utcnow().strftime("%Y-%m-%d")
+    sitemap_items = ""
+    urls = [
+        {"loc": "https://ratefuse.cn/", "changefreq": "daily", "priority": "1.0"},
+        {"loc": "https://ratefuse.cn/charts", "changefreq": "daily", "priority": "0.9"},
+    ]
+    for item in urls:
+        sitemap_items += f"""
+    <url>
+        <loc>{item['loc']}</loc>
+        <lastmod>{lastmod}</lastmod>
+        <changefreq>{item['changefreq']}</changefreq>
+        <priority>{item['priority']}</priority>
+    </url>"""
+
+    sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{sitemap_items}
+</urlset>"""
+
+    return Response(content=sitemap_xml, media_type="application/xml")
+
 # ==========================================
-# 3. 用户认证相关路由
+# 3. 用户认证
 # ==========================================
 
 @app.post("/auth/register")
@@ -662,7 +749,7 @@ async def update_profile(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
-# 4. 收藏相关路由
+# 4. 收藏
 # ==========================================
 
 @app.post("/api/favorites")
@@ -711,6 +798,14 @@ async def add_favorite(
         )
         
         db.add(favorite)
+        list_name = (favorite_list.name or "").strip() or "列表"
+        _notify_followers(
+            db,
+            actor_user_id=current_user.id,
+            type_="follow_user_update",
+            content=f"你关注的 {current_user.username} 更新了列表《{list_name}》",
+            link=f"/favorite-lists/{favorite_list.id}",
+        )
         db.commit()
         db.refresh(favorite)
         
@@ -779,7 +874,16 @@ async def delete_favorite(
                 status_code=404,
                 detail="收藏不存在或无权限删除"
             )
-        
+
+        favorite_list = db.query(FavoriteList).filter(FavoriteList.id == favorite.list_id).first()
+        list_name = ((favorite_list.name if favorite_list else "") or "").strip() or "列表"
+        _notify_followers(
+            db,
+            actor_user_id=current_user.id,
+            type_="follow_user_update",
+            content=f"你关注的 {current_user.username} 更新了列表《{list_name}》",
+            link=f"/favorite-lists/{favorite.list_id}",
+        )
         db.delete(favorite)
         db.commit()
         
@@ -816,7 +920,16 @@ async def update_favorite(
         
         if "note" in data:
             favorite.note = data["note"]
-        
+
+        favorite_list = db.query(FavoriteList).filter(FavoriteList.id == favorite.list_id).first()
+        list_name = ((favorite_list.name if favorite_list else "") or "").strip() or "列表"
+        _notify_followers(
+            db,
+            actor_user_id=current_user.id,
+            type_="follow_user_update",
+            content=f"你关注的 {current_user.username} 更新了列表《{list_name}》",
+            link=f"/favorite-lists/{favorite.list_id}",
+        )
         db.commit()
         db.refresh(favorite)
         
@@ -957,6 +1070,16 @@ async def create_favorite_list(
         )
         
         db.add(new_list)
+        db.flush()
+
+        list_name = (new_list.name or "").strip() or "新列表"
+        _notify_followers(
+            db,
+            actor_user_id=current_user.id,
+            type_="follow_user_new_list",
+            content=f"你关注的 {current_user.username} 创建了新列表《{list_name}》",
+            link=f"/favorite-lists/{new_list.id}",
+        )
         db.commit()
         db.refresh(new_list)
         
@@ -1093,7 +1216,15 @@ async def update_favorite_list(
         
         if "is_public" in data:
             favorite_list.is_public = data["is_public"]
-        
+
+        list_name = (favorite_list.name or "").strip() or "列表"
+        _notify_followers(
+            db,
+            actor_user_id=current_user.id,
+            type_="follow_user_update",
+            content=f"你关注的 {current_user.username} 更新了列表《{list_name}》",
+            link=f"/favorite-lists/{favorite_list.id}",
+        )
         db.commit()
         db.refresh(favorite_list)
         
@@ -1242,7 +1373,15 @@ async def reorder_favorites(
             
             if favorite:
                 favorite.sort_order = item['sort_order']
-        
+
+        list_name = (favorite_list.name or "").strip() or "列表"
+        _notify_followers(
+            db,
+            actor_user_id=current_user.id,
+            type_="follow_user_update",
+            content=f"你关注的 {current_user.username} 更新了列表《{list_name}》",
+            link=f"/favorite-lists/{favorite_list.id}",
+        )
         db.commit()
         
         updated_favorites = db.query(Favorite).filter(
@@ -1303,8 +1442,70 @@ async def uncollect_favorite_list(
         )
     
 # ==========================================
-# 5. 用户关系相关路由
+# 5. 用户关系
 # ==========================================
+
+@app.get("/api/users/search")
+async def search_users(
+    q: str = "",
+    limit: int = 20,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = (q or "").strip()
+    limit = max(1, min(int(limit), 50))
+    offset = max(0, int(offset))
+
+    if not q:
+        return {"list": [], "total": 0}
+
+    q_lower = q.lower()
+    like_any = f"%{q_lower}%"
+    like_prefix = f"{q_lower}%"
+
+    base = db.query(User).filter(
+        User.id != current_user.id,
+        func.lower(User.username).like(like_any),
+    )
+
+    if hasattr(User, "is_banned"):
+        base = base.filter(getattr(User, "is_banned") == False)
+
+    total = base.with_entities(func.count(User.id)).scalar() or 0
+
+    rows = (
+        base.outerjoin(
+            Follow,
+            and_(
+                Follow.follower_id == current_user.id,
+                Follow.following_id == User.id,
+            ),
+        )
+        .with_entities(User, Follow.id.label("follow_id"))
+        .order_by(
+            case((func.lower(User.username).like(like_prefix), 0), else_=1),
+            func.length(User.username),
+            func.lower(User.username),
+            User.id,
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "list": [
+            {
+                "id": u.id,
+                "username": u.username,
+                "avatar": u.avatar,
+                "is_following": follow_id is not None,
+            }
+            for (u, follow_id) in rows
+        ],
+        "total": int(total),
+    }
 
 @app.get("/api/users/{user_id}")
 async def get_user_info(
@@ -1553,7 +1754,130 @@ async def debug_follows(
     ]
 
 # ==========================================
-# 6. 代理和辅助路由
+# 6. 站内通知
+# ==========================================
+
+@app.get("/api/notifications")
+async def get_notifications(
+    limit: int = 50,
+    offset: int = 0,
+    unread_only: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+
+    q = db.query(Notification).filter(Notification.user_id == current_user.id)
+    if unread_only:
+        q = q.filter(Notification.is_read == False)
+    items = q.order_by(desc(Notification.created_at)).offset(offset).limit(limit).all()
+    return [_serialize_notification(n) for n in items]
+
+@app.get("/api/notifications/unread-count")
+async def get_unread_notifications_count(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    cnt = (
+        db.query(func.count(Notification.id))
+        .filter(Notification.user_id == current_user.id, Notification.is_read == False)
+        .scalar()
+    )
+    return {"count": int(cnt or 0)}
+
+@app.put("/api/notifications/read")
+async def mark_notifications_read(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    ids = body.get("ids")
+    mark_all = bool(body.get("all"))
+    updated = 0
+
+    try:
+        if mark_all:
+            updated = (
+                db.query(Notification)
+                .filter(Notification.user_id == current_user.id, Notification.is_read == False)  # noqa: E712
+                .update({"is_read": True}, synchronize_session=False)
+            )
+        elif isinstance(ids, list) and ids:
+            cleaned_ids: list[int] = []
+            for x in ids:
+                try:
+                    cleaned_ids.append(int(x))
+                except Exception:
+                    continue
+            if cleaned_ids:
+                updated = (
+                    db.query(Notification)
+                    .filter(
+                        Notification.user_id == current_user.id,
+                        Notification.id.in_(cleaned_ids),
+                    )
+                    .update({"is_read": True}, synchronize_session=False)
+                )
+        db.commit()
+        return {"updated": int(updated or 0)}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"标记已读失败: {str(e)}")
+
+@app.delete("/api/notifications")
+async def delete_notifications(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    ids = body.get("ids")
+    delete_all = bool(body.get("all"))
+    deleted = 0
+
+    try:
+        if delete_all:
+            deleted = (
+                db.query(Notification)
+                .filter(Notification.user_id == current_user.id)
+                .delete(synchronize_session=False)
+            )
+        elif isinstance(ids, list) and ids:
+            cleaned_ids: list[int] = []
+            for x in ids:
+                try:
+                    cleaned_ids.append(int(x))
+                except Exception:
+                    continue
+            if cleaned_ids:
+                deleted = (
+                    db.query(Notification)
+                    .filter(
+                        Notification.user_id == current_user.id,
+                        Notification.id.in_(cleaned_ids),
+                    )
+                    .delete(synchronize_session=False)
+                )
+        db.commit()
+        return {"deleted": int(deleted or 0)}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"清除通知失败: {str(e)}")
+
+# ==========================================
+# 7. 评分获取与图片代理
 # ==========================================
 
 @app.get("/")
@@ -2201,7 +2525,7 @@ async def trakt_proxy(path: str, request: Request):
 app.include_router(router)
 
 # ==========================================
-# 7. 管理员后台
+# 8. 反馈
 # ==========================================
 
 UPLOAD_ROOT = os.path.join(os.path.dirname(__file__), "uploads")
@@ -2217,14 +2541,12 @@ def require_admin(user: User):
 _TZ_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 def _now_utc_naive() -> datetime:
-    """Return UTC time stored as naive datetime (MySQL DATETIME)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 def _iso_now_shanghai() -> str:
     return _to_shanghai_iso(_now_utc_naive()) or ""
 
 def _to_shanghai_iso(dt: Optional[datetime]) -> Optional[str]:
-    """Convert naive UTC datetime to Asia/Shanghai ISO string with offset."""
     if not dt:
         return None
     aware_utc = dt.replace(tzinfo=timezone.utc)
@@ -2356,6 +2678,16 @@ async def create_feedback(
     )
     db.add(message)
 
+    fb_title = (feedback.title or "").strip() or f"反馈#{feedback.id}"
+    actor = (current_user.username or "").strip() or f"用户#{current_user.id}"
+    _notify_admins(
+        db,
+        type_="feedback_new",
+        content=f"{actor} 提交了新的反馈《{fb_title}》",
+        link="/admin/feedbacks",
+        exclude_user_id=current_user.id,
+    )
+
     saved_images: list[FeedbackImage] = []
     for idx, upload in enumerate(images or []):
         if not upload.filename:
@@ -2456,6 +2788,16 @@ async def user_reply_feedback(
     feedback.last_message_at = now
     feedback.updated_at = now
 
+    fb_title = (feedback.title or "").strip() or f"反馈#{feedback.id}"
+    actor = (current_user.username or "").strip() or f"用户#{current_user.id}"
+    _notify_admins(
+        db,
+        type_="feedback_update",
+        content=f"{actor} 追加了反馈《{fb_title}》的新消息",
+        link="/admin/feedbacks",
+        exclude_user_id=current_user.id,
+    )
+
     db.commit()
     db.refresh(feedback)
     return _serialize_feedback(
@@ -2484,6 +2826,16 @@ async def user_mark_feedback_resolved(
     feedback.is_resolved_by_user = True
     feedback.resolved_at = now
     feedback.updated_at = now
+
+    fb_title = (feedback.title or "").strip() or f"反馈#{feedback.id}"
+    actor = (current_user.username or "").strip() or f"用户#{current_user.id}"
+    _notify_admins(
+        db,
+        type_="feedback_update",
+        content=f"{actor} 标记反馈《{fb_title}》为已解决",
+        link="/admin/feedbacks",
+        exclude_user_id=current_user.id,
+    )
     db.commit()
     db.refresh(feedback)
     return _serialize_feedback(feedback, include_messages=False)
@@ -2637,6 +2989,14 @@ async def admin_reply_feedback(
         feedback.is_resolved_by_user = False
         feedback.resolved_at = None
 
+    fb_title = (feedback.title or "").strip() or f"反馈#{feedback.id}"
+    _create_notification(
+        db,
+        user_id=feedback.user_id,
+        type_="feedback_reply",
+        content=f"管理员回复了你的反馈《{fb_title}》",
+        link=f"/profile?tab=feedbacks&feedback_id={feedback.id}",
+    )
     db.commit()
     db.refresh(feedback)
 
@@ -2709,6 +3069,10 @@ async def admin_delete_feedback(
     db.delete(feedback)
     db.commit()
     return {"ok": True}
+
+# ==========================================
+# 9. 访问记录
+# ==========================================
 
 def _parse_yyyy_mm_dd(value: str) -> datetime:
     try:
@@ -2845,6 +3209,10 @@ async def admin_get_media_detail_views(
             "media_type": media_type,
         },
     }
+
+# ==========================================
+# 10. 手动评分与榜单
+# ==========================================
 
 def _build_seasons_list(body: dict, platform: str, media_type: str) -> list:
     if media_type != "tv":
@@ -4155,9 +4523,8 @@ async def health_check():
         "browser_pool_stats": browser_pool_stats
     }
 
-
 # ==========================================
-# 8. 应用启动和关闭事件
+# 11. 应用启动和关闭事件
 # ==========================================
 
 @app.on_event("startup")
@@ -4218,30 +4585,3 @@ async def shutdown_event():
             print("TMDB 客户端连接池已关闭")
         except Exception as e:
             print(f"TMDB 客户端清理失败: {e}")
-
-# ==========================================
-# 9. 其他路由
-# ==========================================
-
-@app.get("/sitemap.xml")
-def sitemap():
-    lastmod = datetime.utcnow().strftime("%Y-%m-%d")
-    sitemap_items = ""
-    urls = [
-        {"loc": "https://ratefuse.cn/", "changefreq": "daily", "priority": "1.0"},
-        {"loc": "https://ratefuse.cn/charts", "changefreq": "daily", "priority": "0.9"},
-    ]
-    for item in urls:
-        sitemap_items += f"""
-    <url>
-        <loc>{item['loc']}</loc>
-        <lastmod>{lastmod}</lastmod>
-        <changefreq>{item['changefreq']}</changefreq>
-        <priority>{item['priority']}</priority>
-    </url>"""
-
-    sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{sitemap_items}
-</urlset>"""
-
-    return Response(content=sitemap_xml, media_type="application/xml")
