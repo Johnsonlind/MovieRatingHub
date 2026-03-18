@@ -148,6 +148,68 @@ class MediaDetailAccessLog(Base):
     
     user = relationship("User")
 
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)  # pending | replied | closed
+    is_resolved_by_user = Column(Boolean, default=False, nullable=False, index=True)
+    resolved_at = Column(DateTime, nullable=True, index=True)
+    closed_by = Column(String(20), nullable=True)
+    closed_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_message_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = relationship("User")
+    messages = relationship("FeedbackMessage", back_populates="feedback", cascade="all, delete-orphan")
+    images = relationship("FeedbackImage", back_populates="feedback", cascade="all, delete-orphan")
+    status_events = relationship("FeedbackStatusEvent", back_populates="feedback", cascade="all, delete-orphan")
+
+
+class FeedbackMessage(Base):
+    __tablename__ = "feedback_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feedback_id = Column(Integer, ForeignKey("feedback.id"), nullable=False, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    sender_type = Column(String(20), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    feedback = relationship("Feedback", back_populates="messages")
+    sender = relationship("User")
+
+
+class FeedbackImage(Base):
+    __tablename__ = "feedback_images"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feedback_id = Column(Integer, ForeignKey("feedback.id"), nullable=False, index=True)
+    image_path = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    feedback = relationship("Feedback", back_populates="images")
+
+
+class FeedbackStatusEvent(Base):
+    __tablename__ = "feedback_status_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feedback_id = Column(Integer, ForeignKey("feedback.id"), nullable=False, index=True)
+    from_status = Column(String(20), nullable=True)
+    to_status = Column(String(20), nullable=False)
+    changed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    changed_by_type = Column(String(20), nullable=False)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    feedback = relationship("Feedback", back_populates="status_events")
+    changed_by = relationship("User")
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 
