@@ -473,7 +473,7 @@ export default function ChartsPage() {
               </div>
             </div>
           ) : (
-            <div className="glass-card rounded-2xl overflow-hidden">
+            <div className="glass-card no-lift rounded-2xl overflow-hidden">
               <div className="px-6 pt-4">
                 <CardTabs
                   tabs={platformsWithCharts.map((platform) => ({
