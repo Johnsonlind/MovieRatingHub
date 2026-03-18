@@ -22,7 +22,7 @@ export function CardTabs({ tabs, activeId, onChange, className }: CardTabsProps)
   return (
     <div
       className={cn(
-        'overflow-x-auto -mx-1',
+        'overflow-x-auto px-1 pb-1 scrollbar-gentle',
         className,
       )}
     >
