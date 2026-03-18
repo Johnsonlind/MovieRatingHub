@@ -8,6 +8,7 @@ import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { useDebounce } from '../../hooks/useDebounce';
 import { CardTabs } from '../../components/ui/CardTabs';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
+import { formatChinaDateTime } from '../../utils/time';
 
 interface MediaItem {
   id: number;
@@ -1087,7 +1088,7 @@ export default function AdminChartsPage() {
                 </span>
                 {getCurrentSchedulerState()?.last_update && (
                   <span className={`text-xs text-gray-600 dark:text-gray-400`}>
-                    上次更新: {new Date(getCurrentSchedulerState()?.last_update).toLocaleString()}
+                    上次更新: {formatChinaDateTime(getCurrentSchedulerState()?.last_update)}
                   </span>
                 )}
               </div>
@@ -1141,7 +1142,7 @@ export default function AdminChartsPage() {
               </span>
               {getCurrentSchedulerState()?.next_update && (
                 <span className={`text-xs text-gray-600 dark:text-gray-400`}>
-                  下次更新: {new Date(getCurrentSchedulerState()?.next_update).toLocaleString()}
+                  下次更新: {formatChinaDateTime(getCurrentSchedulerState()?.next_update)}
                 </span>
               )}
             </div>
@@ -1178,7 +1179,7 @@ export default function AdminChartsPage() {
             
             {getCurrentSchedulerState()?.last_update && (
               <div className={`text-sm text-gray-600 dark:text-gray-400`}>
-                上次更新: {new Date(getCurrentSchedulerState()?.last_update).toLocaleString()}
+                上次更新: {formatChinaDateTime(getCurrentSchedulerState()?.last_update)}
               </div>
             )}
           </div>
