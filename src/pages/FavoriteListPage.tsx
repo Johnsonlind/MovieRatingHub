@@ -750,9 +750,25 @@ export default function FavoriteListPage() {
                               {...provided.dragHandleProps}
                               className={`glass-card rounded-xl overflow-hidden mb-4
                                 ${snapshot.isDragging ? 'ring-2 ring-blue-500' : ''}`}
+                              onClick={(e) => {
+                                const target = e.target as HTMLElement | null;
+                                if (target?.closest('button, a, input, textarea, select, label')) return;
+                                if (sortType !== 'custom_edit') {
+                                  navigate(`/${favorite.media_type}/${favorite.media_id}`);
+                                }
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  if (sortType !== 'custom_edit') {
+                                    navigate(`/${favorite.media_type}/${favorite.media_id}`);
+                                  }
+                                }
+                              }}
                             >
                               {/* 使用 loading="lazy" 延迟加载图片 */}
-                              <div className="flex flex-row">
+                              <div className={`flex flex-row ${sortType !== 'custom_edit' ? 'cursor-pointer' : ''}`}>
                                 <div className="w-32 sm:w-48 h-48 sm:h-72 flex-shrink-0 overflow-hidden">
                                   <img
                                     src={favorite.poster}
