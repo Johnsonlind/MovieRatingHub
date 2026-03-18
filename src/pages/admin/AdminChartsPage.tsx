@@ -1418,7 +1418,76 @@ export default function AdminChartsPage() {
                                             >
                                               {current ? '修改' : '选择'}
                                             </button>
-                                            {/* 其余按钮逻辑保持原样，这里略去以控制篇幅 */}
+                                            {current && (
+                                              <button
+                                                onClick={async () => {
+                                                  const effectiveType =
+                                                    sec.media_type === 'both'
+                                                      ? currentListsByType.movie.find((i) => i.rank === r)
+                                                        ? 'movie'
+                                                        : 'tv'
+                                                      : sec.media_type;
+                                                  const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+                                                  const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
+                                                  await fetch(
+                                                    `/api/charts/entries/lock?platform=${encodeURIComponent(
+                                                      backendPlatform,
+                                                    )}&chart_name=${encodeURIComponent(
+                                                      backendChartName,
+                                                    )}&media_type=${encodeURIComponent(
+                                                      effectiveType,
+                                                    )}&rank=${r}&locked=${!locked}`,
+                                                    {
+                                                      method: 'PUT',
+                                                      headers: {
+                                                        Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+                                                      },
+                                                    },
+                                                  );
+                                                  setSubmitting((s) => !s);
+                                                }}
+                                                className={`px-2 py-1 rounded text-xs transition-colors ${
+                                                  locked
+                                                    ? 'bg-red-500 text-white hover:bg-red-600'
+                                                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                                                }`}
+                                              >
+                                                {locked ? '解锁' : '锁定'}
+                                              </button>
+                                            )}
+                                            {current && !locked && (
+                                              <button
+                                                onClick={async () => {
+                                                  const effectiveType =
+                                                    sec.media_type === 'both'
+                                                      ? currentListsByType.movie.find((i) => i.rank === r)
+                                                        ? 'movie'
+                                                        : 'tv'
+                                                      : sec.media_type;
+                                                  const backendPlatform = PLATFORM_NAME_REVERSE_MAP[platform] || platform;
+                                                  const backendChartName = CHART_NAME_REVERSE_MAP[sec.name] || sec.name;
+                                                  await fetch(
+                                                    `/api/charts/entries?platform=${encodeURIComponent(
+                                                      backendPlatform,
+                                                    )}&chart_name=${encodeURIComponent(
+                                                      backendChartName,
+                                                    )}&media_type=${encodeURIComponent(
+                                                      effectiveType,
+                                                    )}&rank=${r}`,
+                                                    {
+                                                      method: 'DELETE',
+                                                      headers: {
+                                                        Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+                                                      },
+                                                    },
+                                                  );
+                                                  setSubmitting((s) => !s);
+                                                }}
+                                                className="px-2 py-1 rounded text-xs transition-colors bg-gray-600 text-gray-200 hover:bg-gray-500"
+                                              >
+                                                清空
+                                              </button>
+                                            )}
                                           </div>
                                         </td>
                                       </tr>
