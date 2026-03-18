@@ -30,6 +30,7 @@ const TVShowPage = lazy(() => import('./pages/TVShowPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
 const FavoriteListPage = lazy(() => import('./pages/FavoriteListPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 const AuthConfirmPage = lazy(() => import('./pages/AuthConfirmPage'));
 const AuthErrorPage = lazy(() => import('./pages/AuthErrorPage'));
@@ -63,6 +64,7 @@ function App() {
                 <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="/favorite-lists/:id" element={<FavoriteListPage />} />
                 <Route path="/profile/:id" element={<UserProfilePage />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/charts" element={<ChartsPage />} />
                 <Route path="/charts/:platform/:chartName" element={<ChartDetailPage />} />
                 {/* 管理员后台 */}
