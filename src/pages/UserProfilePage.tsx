@@ -460,7 +460,8 @@ export default function UserProfilePage() {
         />
         
       <div className="glass-card rounded-2xl p-8 mb-8">
-        <div className="flex items-center gap-4">
+        {/* Safari 下 `glass-card` 的 content-visibility/contain 可能导致高度测量异常，这里显式关闭裁切/延迟渲染 */}
+        <div className="flex items-center gap-4 contain-none">
           <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white dark:border-gray-700">
             <img
               src={userInfo.avatar || '/default-avatar.png'}
