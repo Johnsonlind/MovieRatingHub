@@ -3,7 +3,7 @@
 // ==========================================
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../components/auth/AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Upload } from 'lucide-react';
 import { getBase64Image } from '../api/image';
 import { Dialog } from '../components/common/Dialog';
@@ -17,6 +17,7 @@ import { PageShell } from '../components/layout/PageShell';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { authFetch, authFetchJson } from '../api/authFetch';
 import { formatChinaDate, formatChinaDateTime } from '../utils/time';
+import { searchUsers, type UserSearchItem } from '../api/users';
 
 const formatChinaTime = (value?: string | null) => formatChinaDateTime(value);
 
@@ -90,6 +91,7 @@ const useElementSize = () => {
 export default function ProfilePage() {
   const { user, isLoading, updateUserInfo, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<ProfileFormData>({
     username: user?.username || '',
@@ -131,6 +133,13 @@ export default function ProfilePage() {
   const [isResolvingFeedback, setIsResolvingFeedback] = useState(false);
   const activeFeedbackChatRef = useRef<HTMLDivElement | null>(null);
 
+  const [userSearchInput, setUserSearchInput] = useState('');
+  const [userSearchResults, setUserSearchResults] = useState<UserSearchItem[]>([]);
+  const [userSearchTotal, setUserSearchTotal] = useState(0);
+  const [userSearchOffset, setUserSearchOffset] = useState(0);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
+  const [userSearchError, setUserSearchError] = useState<string>('');
+
   usePageMeta({
     title: user ? `${user.username} 的个人中心 - RateFuse` : '个人中心 - RateFuse',
     description: '管理个人资料、创建与分享片单、查看关注列表。',
@@ -142,6 +151,19 @@ export default function ProfilePage() {
       navigate('/');
     }
   }, [user, isLoading, navigate]);
+
+  useEffect(() => {
+    const tab = (searchParams.get('tab') || '').trim();
+    const fidRaw = (searchParams.get('feedback_id') || '').trim();
+    const fid = fidRaw ? Number(fidRaw) : NaN;
+
+    if (tab === 'feedbacks') {
+      setActiveTab('feedbacks');
+      if (!Number.isNaN(fid) && fid > 0) {
+        setActiveFeedbackId(fid);
+      }
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const fetchFavorites = async () => {
@@ -308,6 +330,46 @@ export default function ProfilePage() {
       fetchFollowing();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (activeTab !== 'following') return;
+
+    const q = userSearchInput.trim();
+    setUserSearchError('');
+
+    if (!q) {
+      setUserSearchResults([]);
+      setUserSearchTotal(0);
+      setUserSearchOffset(0);
+      return;
+    }
+
+    let cancelled = false;
+    const t = window.setTimeout(async () => {
+      setIsSearchingUsers(true);
+      try {
+        const data = await searchUsers({ q, limit: 10, offset: 0 });
+        if (cancelled) return;
+        setUserSearchResults(data.list || []);
+        setUserSearchTotal(data.total || 0);
+        setUserSearchOffset((data.list || []).length);
+      } catch (e: any) {
+        if (cancelled) return;
+        setUserSearchError(e?.message || '搜索失败');
+        setUserSearchResults([]);
+        setUserSearchTotal(0);
+        setUserSearchOffset(0);
+      } finally {
+        if (!cancelled) setIsSearchingUsers(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [user, activeTab, userSearchInput]);
 
   const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -831,6 +893,42 @@ export default function ProfilePage() {
     }
   };
 
+  const handleToggleFollowFromSearch = async (target: UserSearchItem) => {
+    const wasFollowing = !!target.is_following;
+    setUserSearchResults((prev) =>
+      prev.map((u) => (u.id === target.id ? { ...u, is_following: !wasFollowing } : u))
+    );
+    try {
+      const res = await authFetch(`/api/users/${target.id}/follow`, {
+        method: wasFollowing ? 'DELETE' : 'POST',
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.detail || '操作失败');
+      }
+
+      if (wasFollowing) {
+        setFollowing((prev) => prev.filter((x) => x.id !== target.id));
+      } else {
+        setFollowing((prev) => [
+          ...prev,
+          {
+            id: target.id,
+            username: target.username,
+            avatar: target.avatar || '',
+            note: null,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      }
+    } catch (e: any) {
+      setUserSearchResults((prev) =>
+        prev.map((u) => (u.id === target.id ? { ...u, is_following: wasFollowing } : u))
+      );
+      toast.error(e?.message || '操作失败');
+    }
+  };
+
   const handleUpdateNote = async () => {
     if (!editingFollow) return;
 
@@ -1004,7 +1102,7 @@ export default function ProfilePage() {
             </form>
           </div>
 
-          {/* 收藏 / 关注 / 反馈 区域 - 卡片式标签 */}
+          {/* 收藏 / 关注 / 反馈 */}
           <div className="glass-card rounded-2xl p-8">
             <CardTabs
               tabs={[
@@ -1057,69 +1155,162 @@ export default function ProfilePage() {
             )}
 
             {activeTab === 'following' && (
-              isLoadingFollowing ? (
-                <div className="grid grid-cols-1 gap-4">
-                  {[1, 2, 3, 4].map(i => (
-                    <div key={i} className="bg-gray-300 dark:bg-gray-600 rounded-xl p-4 h-20 animate-pulse"></div>
-                  ))}
-                </div>
-              ) : following.length === 0 ? (
-                <div className="text-center py-12">
-                  <p className="text-gray-500 dark:text-gray-400">您还没有关注任何用户</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4">
-                  {following.map(follow => (
-                    <div key={follow.id} className="glass-card no-lift rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-4">
-                        <img
-                          src={follow.avatar || '/default-avatar.png'}
-                          alt={follow.username}
-                          className="w-12 h-12 rounded-full object-cover cursor-pointer"
-                          onClick={() => navigate(`/profile/${follow.id}`)}
-                          loading="lazy"
-                        />
-                        <div className="flex-1">
-                          <h3 
-                            className="text-lg font-medium dark:text-white cursor-pointer hover:text-blue-500"
-                            onClick={() => navigate(`/profile/${follow.id}`)}
-                          >
-                            {follow.username}
-                          </h3>
-                          {follow.note && (
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                              {follow.note}
-                            </p>
+              <div className="mt-6 space-y-6">
+                {/* 用户搜索 */}
+                <div className="glass-card no-lift rounded-2xl p-5 shadow-sm ring-1 ring-white/10 dark:ring-white/5 bg-white/20 dark:bg-gray-900/20 backdrop-blur">
+                  <div className="flex items-center gap-3">
+                    <input
+                      value={userSearchInput}
+                      onChange={(e) => setUserSearchInput(e.target.value)}
+                      placeholder="搜索用户（按用户名）"
+                      className="flex-1 rounded-xl border border-gray-200/60 dark:border-gray-700/60 bg-white/60 dark:bg-gray-900/50 px-4 py-2 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-400/50"
+                    />
+                    {isSearchingUsers && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400">搜索中...</div>
+                    )}
+                  </div>
+                  {userSearchError && (
+                    <div className="mt-2 text-xs text-red-500">{userSearchError}</div>
+                  )}
+
+                  {userSearchInput.trim() && (
+                    <div className="mt-4 space-y-2">
+                      {userSearchResults.length === 0 && !isSearchingUsers ? (
+                        <div className="text-sm text-gray-500 dark:text-gray-400">没有找到相关用户</div>
+                      ) : (
+                        <>
+                          {userSearchResults.map((u) => (
+                            <div
+                              key={u.id}
+                              className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-white/40 dark:hover:bg-gray-800/40 transition-colors"
+                            >
+                              <img
+                                src={u.avatar || '/default-avatar.png'}
+                                alt={u.username}
+                                className="w-10 h-10 rounded-full object-cover cursor-pointer"
+                                onClick={() => navigate(`/profile/${u.id}`)}
+                                loading="lazy"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div
+                                  className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate cursor-pointer hover:text-blue-500"
+                                  onClick={() => navigate(`/profile/${u.id}`)}
+                                >
+                                  {u.username}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleToggleFollowFromSearch(u)}
+                                className={`px-3 py-1.5 rounded-full text-sm transition-opacity hover:opacity-90 ${
+                                  u.is_following
+                                    ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200'
+                                    : 'bg-blue-500 text-white'
+                                }`}
+                              >
+                                {u.is_following ? '已关注' : '关注'}
+                              </button>
+                            </div>
+                          ))}
+
+                          {userSearchResults.length < userSearchTotal && (
+                            <div className="pt-2 flex justify-center">
+                              <button
+                                className="text-sm text-blue-600 dark:text-blue-300 hover:underline"
+                                onClick={async () => {
+                                  const q = userSearchInput.trim();
+                                  if (!q) return;
+                                  setIsSearchingUsers(true);
+                                  try {
+                                    const data = await searchUsers({
+                                      q,
+                                      limit: 10,
+                                      offset: userSearchOffset,
+                                    });
+                                    setUserSearchResults((prev) => [...prev, ...(data.list || [])]);
+                                    setUserSearchTotal(data.total || 0);
+                                    setUserSearchOffset((prev) => prev + (data.list || []).length);
+                                  } catch (e: any) {
+                                    toast.error(e?.message || '加载更多失败');
+                                  } finally {
+                                    setIsSearchingUsers(false);
+                                  }
+                                }}
+                              >
+                                加载更多
+                              </button>
+                            </div>
                           )}
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              setEditingFollow(follow);
-                              setShowNoteDialog(true);
-                            }}
-                            className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => handleUnfollow(follow.id)}
-                            className="p-2 text-gray-500 hover:text-red-600"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                                d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 我的关注 */}
+                {isLoadingFollowing ? (
+                  <div className="grid grid-cols-1 gap-4">
+                    {[1, 2, 3, 4].map(i => (
+                      <div key={i} className="bg-gray-300 dark:bg-gray-600 rounded-xl p-4 h-20 animate-pulse"></div>
+                    ))}
+                  </div>
+                ) : following.length === 0 ? (
+                  <div className="text-center py-6">
+                    <p className="text-gray-500 dark:text-gray-400">您还没有关注任何用户</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {following.map(follow => (
+                      <div key={follow.id} className="glass-card no-lift rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-center gap-4">
+                          <img
+                            src={follow.avatar || '/default-avatar.png'}
+                            alt={follow.username}
+                            className="w-12 h-12 rounded-full object-cover cursor-pointer"
+                            onClick={() => navigate(`/profile/${follow.id}`)}
+                            loading="lazy"
+                          />
+                          <div className="flex-1">
+                            <h3 
+                              className="text-lg font-medium dark:text-white cursor-pointer hover:text-blue-500"
+                              onClick={() => navigate(`/profile/${follow.id}`)}
+                            >
+                              {follow.username}
+                            </h3>
+                            {follow.note && (
+                              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                                {follow.note}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                setEditingFollow(follow);
+                                setShowNoteDialog(true);
+                              }}
+                              className="p-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleUnfollow(follow.id)}
+                              className="p-2 text-gray-500 hover:text-red-600"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                  d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {activeTab === 'feedbacks' && (
