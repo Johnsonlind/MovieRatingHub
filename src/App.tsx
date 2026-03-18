@@ -38,6 +38,7 @@ const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage')
 const AdminChartsPage = lazy(() => import('./pages/admin/AdminChartsPage'));
 const AdminRatingInputPage = lazy(() => import('./pages/admin/AdminRatingInputPage'));
 const AdminRatingEditPage = lazy(() => import('./pages/admin/AdminRatingEditPage'));
+const AdminDetailViewsPage = lazy(() => import('./pages/admin/AdminDetailViewsPage'));
 const AdminOtherPage = lazy(() => import('./pages/admin/AdminOtherPage'));
 const ChartsPage = lazy(() => import('./pages/ChartsPage'));
 const ChartDetailPage = lazy(() => import('./pages/ChartDetailPage'));
@@ -69,6 +70,7 @@ function App() {
                   <Route path="charts" element={<AdminChartsPage />} />
                   <Route path="ratings/input" element={<AdminRatingInputPage />} />
                   <Route path="ratings/edit" element={<AdminRatingEditPage />} />
+                  <Route path="detail-views" element={<AdminDetailViewsPage />} />
                   <Route path="other" element={<AdminOtherPage />} />
                 </Route>
               </Routes>
