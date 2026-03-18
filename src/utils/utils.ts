@@ -28,6 +28,7 @@ export function formatDate(dateString: string): string {
   try {
     const date = new Date(dateString);
     return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
       year: 'numeric',
       month: 'long',
       day: 'numeric'
