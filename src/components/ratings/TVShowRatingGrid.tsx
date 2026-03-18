@@ -1,8 +1,7 @@
 // ==========================================
 // 剧集评分网格组件
 // ==========================================
-import { RatingCard, RottenTomatoesCard } from './RatingCard';
-import { MetacriticCard } from './MetacriticCard';
+import { RatingCard, RottenTomatoesCard, MetacriticCard } from './RatingCard';
 import type { DoubanRating, TVShowRatingData } from '../../types/ratings';
 import { formatRating } from '../../utils/formatRating';
 import ErrorMessage from '../ui/ErrorMessage';
