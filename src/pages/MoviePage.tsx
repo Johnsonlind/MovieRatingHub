@@ -26,6 +26,7 @@ import { calculateOverallRating } from '../utils/ratings/calculateOverallRating'
 import { OverallRatingCard } from '../components/ratings/OverallRatingCard';
 import { PageShell } from '../components/layout/PageShell';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { authFetch } from '../api/authFetch';
 
 const PRELOAD_IMAGES = [
   '/logos/douban.png',
@@ -48,6 +49,7 @@ const formatQueryError = (error: unknown): { status: FetchStatus; detail: string
 export default function MoviePage() {
   const { id } = useParams();
   const [isExporting, setIsExporting] = useState(false);
+  const [trackedId, setTrackedId] = useState<string | null>(null);
   
   const {
     platformStatuses,
@@ -86,6 +88,28 @@ export default function MoviePage() {
       });
     }
   }, [movie]);
+
+  useEffect(() => {
+    if (!id || !movie) return;
+    if (trackedId === id) return;
+
+    const url = `${window.location.origin}/movie/${id}`;
+    authFetch('/api/track/detail-view', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        media_type: 'movie',
+        tmdb_id: Number(id),
+        title: movie.title,
+        url,
+      }),
+      withAuth: true,
+    })
+      .then(() => setTrackedId(id))
+      .catch(() => {
+        // ignore
+      });
+  }, [id, movie, trackedId]);
 
   useEffect(() => {
     if (movie?.poster) {
@@ -276,7 +300,7 @@ export default function MoviePage() {
                         />
                       </div>
                       <div className="mt-2 text-xs text-white/80 text-protection">
-                        如遇失败，可点击平台图标重试
+                        失败可重试，Letterboxd 请耐心
                       </div>
                     </div>
 
