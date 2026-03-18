@@ -6,6 +6,8 @@ import os
 from dotenv import load_dotenv
 import time
 import ssl
+from zoneinfo import ZoneInfo
+from datetime import timezone
 from typing import Optional
 import hashlib
 import httpx
@@ -16,14 +18,30 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, HTTPException, Request, Depends, APIRouter, Response
+from fastapi import FastAPI, HTTPException, Request, Depends, APIRouter, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
-from models import SQLALCHEMY_DATABASE_URL, User, Favorite, FavoriteList, SessionLocal, PasswordReset, Follow, ChartEntry, PublicChartEntry, SchedulerStatus, MediaDetailAccessLog
+from models import (
+    SQLALCHEMY_DATABASE_URL,
+    User,
+    Favorite,
+    FavoriteList,
+    SessionLocal,
+    PasswordReset,
+    Follow,
+    ChartEntry,
+    PublicChartEntry,
+    SchedulerStatus,
+    MediaDetailAccessLog,
+    Feedback,
+    FeedbackMessage,
+    FeedbackImage,
+    FeedbackStatusEvent,
+)
 from sqlalchemy.orm import Session, selectinload
 from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform, create_rating_data, get_tmdb_http_client, TMDB_API_BASE_URL
 from redis import asyncio as aioredis
@@ -2017,7 +2035,6 @@ _tmdb_rate_lock = asyncio.Lock()
 TMDB_SEARCH_LIMIT = 10
 TMDB_SEARCH_WINDOW = 10.0
 
-
 async def _check_tmdb_search_rate_limit(client_ip: str) -> None:
     if not client_ip:
         return
@@ -2030,7 +2047,6 @@ async def _check_tmdb_search_rate_limit(client_ip: str) -> None:
         if len(times) >= TMDB_SEARCH_LIMIT:
             raise HTTPException(status_code=429, detail="TMDB 搜索请求过于频繁，请稍后再试")
         times.append(now)
-
 
 @router.get("/api/tmdb-proxy/{path:path}")
 async def tmdb_proxy(path: str, request: Request):
@@ -2185,12 +2201,500 @@ async def trakt_proxy(path: str, request: Request):
 app.include_router(router)
 
 # ==========================================
-# 6.1 手工榜单录入与聚合（管理员）
+# 7. 管理员后台
 # ==========================================
+
+UPLOAD_ROOT = os.path.join(os.path.dirname(__file__), "uploads")
+FEEDBACK_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "feedback")
+
+os.makedirs(FEEDBACK_UPLOAD_DIR, exist_ok=True)
 
 def require_admin(user: User):
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
+
+
+_TZ_SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+def _now_utc_naive() -> datetime:
+    """Return UTC time stored as naive datetime (MySQL DATETIME)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+def _to_shanghai_iso(dt: Optional[datetime]) -> Optional[str]:
+    """Convert naive UTC datetime to Asia/Shanghai ISO string with offset."""
+    if not dt:
+        return None
+    aware_utc = dt.replace(tzinfo=timezone.utc)
+    return aware_utc.astimezone(_TZ_SHANGHAI).isoformat()
+
+def _add_status_event(
+    db: Session,
+    feedback_id: int,
+    from_status: Optional[str],
+    to_status: str,
+    changed_by_id: Optional[int],
+    changed_by_type: str,
+    reason: Optional[str] = None,
+):
+    evt = FeedbackStatusEvent(
+        feedback_id=feedback_id,
+        from_status=from_status,
+        to_status=to_status,
+        changed_by_id=changed_by_id,
+        changed_by_type=changed_by_type,
+        reason=reason,
+        created_at=_now_utc_naive(),
+    )
+    db.add(evt)
+
+def _serialize_feedback(feedback: Feedback, include_messages: bool = False, include_user: bool = False):
+    data = {
+        "id": feedback.id,
+        "user_id": feedback.user_id,
+        "title": feedback.title,
+        "status": feedback.status,
+        "is_resolved_by_user": getattr(feedback, "is_resolved_by_user", False),
+        "resolved_at": _to_shanghai_iso(getattr(feedback, "resolved_at", None)),
+        "closed_by": getattr(feedback, "closed_by", None),
+        "closed_at": _to_shanghai_iso(getattr(feedback, "closed_at", None)),
+        "created_at": _to_shanghai_iso(feedback.created_at),
+        "updated_at": _to_shanghai_iso(feedback.updated_at),
+        "last_message_at": _to_shanghai_iso(feedback.last_message_at),
+        "images": [img.image_path for img in getattr(feedback, "images", [])],
+    }
+
+    if include_user and getattr(feedback, "user", None):
+        data["user"] = {
+            "id": feedback.user.id,
+            "email": feedback.user.email,
+            "username": feedback.user.username,
+        }
+
+    if include_messages:
+        data["messages"] = [
+            {
+                "id": msg.id,
+                "sender_id": msg.sender_id,
+                "sender_type": msg.sender_type,
+                "content": msg.content,
+                "created_at": _to_shanghai_iso(msg.created_at),
+            }
+            for msg in sorted(feedback.messages, key=lambda m: m.created_at or _now_utc_naive())
+        ]
+
+    return data
+
+def _delete_feedback_files(feedback: Feedback):
+    for img in getattr(feedback, "images", []) or []:
+        try:
+            p = str(img.image_path or "")
+            if not p:
+                continue
+            if p.startswith("/uploads/feedback/"):
+                filename = p.split("/uploads/feedback/", 1)[1]
+                abs_path = os.path.join(FEEDBACK_UPLOAD_DIR, filename)
+                if os.path.exists(abs_path):
+                    os.remove(abs_path)
+        except Exception:
+            pass
+
+@app.post("/api/feedbacks")
+async def create_feedback(
+    content: str = Form(...),
+    title: Optional[str] = Form(None),
+    images: list[UploadFile] = File(default_factory=list),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="反馈内容不能为空")
+
+    feedback = Feedback(
+        user_id=current_user.id,
+        title=title.strip() if title else None,
+        status="pending",
+        is_resolved_by_user=False,
+        resolved_at=None,
+        closed_by=None,
+        closed_at=None,
+        created_at=_now_utc_naive(),
+        updated_at=_now_utc_naive(),
+        last_message_at=_now_utc_naive(),
+    )
+    db.add(feedback)
+    db.flush()
+    _add_status_event(
+        db,
+        feedback_id=feedback.id,
+        from_status=None,
+        to_status="pending",
+        changed_by_id=current_user.id,
+        changed_by_type="user",
+        reason="用户创建反馈",
+    )
+
+    message = FeedbackMessage(
+        feedback_id=feedback.id,
+        sender_id=current_user.id,
+        sender_type="user",
+        content=content.strip(),
+        created_at=_now_utc_naive(),
+    )
+    db.add(message)
+
+    saved_images: list[FeedbackImage] = []
+    for idx, upload in enumerate(images or []):
+        if not upload.filename:
+            continue
+        filename = upload.filename
+        _, ext = os.path.splitext(filename)
+        safe_ext = ext.lower() if ext else ""
+        ts = int(time.time() * 1000)
+        stored_name = f"{feedback.id}_{ts}_{idx}{safe_ext}"
+        stored_path = os.path.join(FEEDBACK_UPLOAD_DIR, stored_name)
+
+        content_bytes = await upload.read()
+        if len(content_bytes) > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="单张图片大小不能超过 5MB")
+        with open(stored_path, "wb") as f:
+            f.write(content_bytes)
+
+        relative_path = f"/uploads/feedback/{stored_name}"
+        img = FeedbackImage(
+            feedback_id=feedback.id,
+            image_path=relative_path,
+            created_at=_now_utc_naive(),
+        )
+        db.add(img)
+        saved_images.append(img)
+
+    db.commit()
+    db.refresh(feedback)
+
+    return _serialize_feedback(feedback, include_messages=True)
+
+@app.delete("/api/feedbacks/{feedback_id}")
+async def user_delete_feedback(
+    feedback_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    feedback = (
+        db.query(Feedback)
+        .options(selectinload(Feedback.images))
+        .filter(Feedback.id == feedback_id)
+        .first()
+    )
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+    if feedback.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权删除该反馈")
+
+    _delete_feedback_files(feedback)
+    db.delete(feedback)
+    db.commit()
+    return {"ok": True}
+
+@app.post("/api/feedbacks/{feedback_id}/messages")
+async def user_reply_feedback(
+    feedback_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    payload = await request.json()
+    content = str(payload.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="回复内容不能为空")
+
+    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+    if feedback.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该反馈")
+    if feedback.status == "closed":
+        raise HTTPException(status_code=400, detail="该反馈已关闭，无法继续回复")
+
+    now = _now_utc_naive()
+    msg = FeedbackMessage(
+        feedback_id=feedback.id,
+        sender_id=current_user.id,
+        sender_type="user",
+        content=content,
+        created_at=now,
+    )
+    db.add(msg)
+
+    from_status = feedback.status
+    if feedback.status != "pending":
+        feedback.status = "pending"
+        _add_status_event(
+            db,
+            feedback_id=feedback.id,
+            from_status=from_status,
+            to_status="pending",
+            changed_by_id=current_user.id,
+            changed_by_type="user",
+            reason="用户追加问题",
+        )
+    feedback.is_resolved_by_user = False
+    feedback.resolved_at = None
+    feedback.last_message_at = now
+    feedback.updated_at = now
+
+    db.commit()
+    db.refresh(feedback)
+    return _serialize_feedback(
+        db.query(Feedback)
+        .options(selectinload(Feedback.messages), selectinload(Feedback.images))
+        .filter(Feedback.id == feedback.id)
+        .first(),
+        include_messages=True,
+    )
+
+@app.post("/api/feedbacks/{feedback_id}/resolve")
+async def user_mark_feedback_resolved(
+    feedback_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+    if feedback.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权操作该反馈")
+    if feedback.status == "closed":
+        raise HTTPException(status_code=400, detail="该反馈已关闭，无需标记")
+
+    now = _now_utc_naive()
+    feedback.is_resolved_by_user = True
+    feedback.resolved_at = now
+    feedback.updated_at = now
+    db.commit()
+    db.refresh(feedback)
+    return _serialize_feedback(feedback, include_messages=False)
+
+@app.get("/api/feedbacks")
+async def list_my_feedbacks(
+    status: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    query = (
+        db.query(Feedback)
+        .filter(Feedback.user_id == current_user.id)
+        .order_by(Feedback.last_message_at.desc())
+    )
+
+    if status:
+        query = query.filter(Feedback.status == status)
+
+    feedbacks = query.offset(max(offset, 0)).limit(min(max(limit, 1), 100)).all()
+    return [_serialize_feedback(fb) for fb in feedbacks]
+
+@app.get("/api/feedbacks/{feedback_id}")
+async def get_my_feedback_detail(
+    feedback_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    feedback = (
+        db.query(Feedback)
+        .options(
+            selectinload(Feedback.messages),
+            selectinload(Feedback.images),
+        )
+        .filter(Feedback.id == feedback_id)
+        .first()
+    )
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+    if feedback.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="无权查看该反馈")
+
+    return _serialize_feedback(feedback, include_messages=True)
+
+@app.get("/api/admin/feedbacks")
+async def admin_list_feedbacks(
+    status: Optional[str] = None,
+    user_id: Optional[int] = None,
+    offset: int = 0,
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    query = db.query(Feedback).options(selectinload(Feedback.user)).order_by(Feedback.last_message_at.desc())
+
+    if status:
+        query = query.filter(Feedback.status == status)
+    if user_id:
+        query = query.filter(Feedback.user_id == user_id)
+
+    feedbacks = query.offset(max(offset, 0)).limit(min(max(limit, 1), 200)).all()
+    return [_serialize_feedback(fb, include_user=True) for fb in feedbacks]
+
+@app.get("/api/admin/feedbacks/{feedback_id}")
+async def admin_get_feedback_detail(
+    feedback_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    feedback = (
+        db.query(Feedback)
+        .options(
+            selectinload(Feedback.user),
+            selectinload(Feedback.messages),
+            selectinload(Feedback.images),
+        )
+        .filter(Feedback.id == feedback_id)
+        .first()
+    )
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+
+    return _serialize_feedback(feedback, include_messages=True, include_user=True)
+
+@app.post("/api/admin/feedbacks/{feedback_id}/reply")
+async def admin_reply_feedback(
+    feedback_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    payload = await request.json()
+    content = str(payload.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="回复内容不能为空")
+
+    new_status = payload.get("status")
+
+    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+
+    now = _now_utc_naive()
+    message = FeedbackMessage(
+        feedback_id=feedback.id,
+        sender_id=current_user.id,
+        sender_type="admin",
+        content=content,
+        created_at=now,
+    )
+    db.add(message)
+
+    feedback.last_message_at = now
+    feedback.updated_at = now
+    from_status = feedback.status
+
+    if new_status:
+        if new_status not in ("pending", "replied", "closed"):
+            raise HTTPException(status_code=400, detail="无效的状态")
+        feedback.status = new_status
+    else:
+        feedback.status = "replied"
+
+    if feedback.status != from_status:
+        _add_status_event(
+            db,
+            feedback_id=feedback.id,
+            from_status=from_status,
+            to_status=feedback.status,
+            changed_by_id=current_user.id,
+            changed_by_type="admin",
+            reason="管理员回复",
+        )
+
+    if feedback.status == "closed":
+        feedback.closed_by = "admin"
+        feedback.closed_at = now
+    else:
+        feedback.closed_by = None
+        feedback.closed_at = None
+
+    if feedback.status == "pending":
+        feedback.is_resolved_by_user = False
+        feedback.resolved_at = None
+
+    db.commit()
+    db.refresh(feedback)
+
+    return _serialize_feedback(feedback, include_messages=True, include_user=True)
+
+@app.put("/api/admin/feedbacks/{feedback_id}/status")
+async def admin_update_feedback_status(
+    feedback_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    payload = await request.json()
+    status = str(payload.get("status") or "").strip()
+    if status not in ("pending", "replied", "closed"):
+        raise HTTPException(status_code=400, detail="无效的状态")
+
+    feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+
+    from_status = feedback.status
+    now = _now_utc_naive()
+    feedback.status = status
+    feedback.updated_at = now
+    if status == "closed":
+        feedback.closed_by = "admin"
+        feedback.closed_at = now
+    else:
+        feedback.closed_by = None
+        feedback.closed_at = None
+    if status == "pending":
+        feedback.is_resolved_by_user = False
+        feedback.resolved_at = None
+
+    if from_status != status:
+        _add_status_event(
+            db,
+            feedback_id=feedback.id,
+            from_status=from_status,
+            to_status=status,
+            changed_by_id=current_user.id,
+            changed_by_type="admin",
+            reason="管理员修改状态",
+        )
+    db.commit()
+    db.refresh(feedback)
+
+    return _serialize_feedback(feedback, include_messages=True, include_user=True)
+
+@app.delete("/api/admin/feedbacks/{feedback_id}")
+async def admin_delete_feedback(
+    feedback_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+    feedback = (
+        db.query(Feedback)
+        .options(selectinload(Feedback.images))
+        .filter(Feedback.id == feedback_id)
+        .first()
+    )
+    if not feedback:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+
+    _delete_feedback_files(feedback)
+    db.delete(feedback)
+    db.commit()
+    return {"ok": True}
 
 def _parse_yyyy_mm_dd(value: str) -> datetime:
     try:
@@ -3639,7 +4143,7 @@ async def health_check():
 
 
 # ==========================================
-# 7. 应用启动和关闭事件
+# 8. 应用启动和关闭事件
 # ==========================================
 
 @app.on_event("startup")
@@ -3701,9 +4205,8 @@ async def shutdown_event():
         except Exception as e:
             print(f"TMDB 客户端清理失败: {e}")
 
-
 # ==========================================
-# 8. 其他路由
+# 9. 其他路由
 # ==========================================
 
 @app.get("/sitemap.xml")
