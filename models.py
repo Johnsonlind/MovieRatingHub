@@ -135,6 +135,19 @@ class SchedulerStatus(Base):
     next_update = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
 
+class MediaDetailAccessLog(Base):
+    __tablename__ = "media_detail_access_logs"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    visited_at = Column(DateTime, default=datetime.utcnow, index=True)
+    media_type = Column(String(10), nullable=False, index=True)  # movie | tv
+    tmdb_id = Column(Integer, nullable=True, index=True)
+    title = Column(String(255), nullable=False)
+    url = Column(Text, nullable=False)
+    
+    user = relationship("User")
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 
