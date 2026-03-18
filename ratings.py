@@ -1337,7 +1337,9 @@ async def search_platform(platform, tmdb_info, request=None, douban_cookie=None)
                             "rottentomatoes": 70,
                             "metacritic": 70
                         }.get(platform, 70)
-
+                        if platform == "metacritic" and extract_year(tmdb_info.get("year")) is None:
+                            threshold = 60
+                            
                     matched_results = []
                     for result in results:
                         await check_request()
@@ -1896,7 +1898,7 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
         
         await random_delay()
         print(f"访问 Metacritic 搜索页面: {search_url}")
-        await page.goto(search_url, wait_until='domcontentloaded', timeout=10000)
+        await page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
         await asyncio.sleep(0.2)
     
         rate_limit = await check_rate_limit(page, "metacritic")
@@ -1905,7 +1907,16 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
             return {"status": RATING_STATUS["RATE_LIMIT"], "status_reason": "访问频率限制"} 
         
         try:
-            items = await page.query_selector_all('[data-testid="search-result-item"]')
+            try:
+                await page.wait_for_selector(
+                    '[data-testid="search-item"], [data-testid="search-result-item"]',
+                    timeout=8000,
+                )
+            except Exception:
+                pass
+            items = await page.query_selector_all(
+                '[data-testid="search-item"], [data-testid="search-result-item"]'
+            )
             results = []
             
             if not items:
@@ -1920,20 +1931,48 @@ async def handle_metacritic_search(page, search_url, tmdb_info=None):
                     match_year = main_series_year
                     print(f"Metacritic使用主系列年份进行匹配: {main_series_year}")
             
+            seen_urls = set()
+            fallback_year = str(tmdb_info.get("year")) if tmdb_info and tmdb_info.get("year") else ""
             for item in items:
                 try:
-                    title_elem = await item.query_selector('.g-text-medium-fluid')
-                    year_elem = await item.query_selector('.u-text-uppercase')
-                    url = await item.get_attribute('href')
+                    a = await item.query_selector('a[href]')
+                    url = await a.get_attribute('href') if a else None
+                    if not url:
+                        continue
+                    if url.startswith("http"):
+                        full_url = url
+                    else:
+                        full_url = f"https://www.metacritic.com{url}"
+                    if full_url in seen_urls:
+                        continue
+                    seen_urls.add(full_url)
+
+                    title_elem = await item.query_selector('p.c-search-item__title, .c-search-item__title')
+                    year_elem = await item.query_selector(
+                        'li.c-search-product-meta__release-date span, ' +
+                        'li.c-search-product-meta__list-item.c-search-product-meta__release-date span'
+                    )
                 
-                    if title_elem and year_elem and url:
-                        title = await title_elem.inner_text()
-                        year = await year_elem.inner_text()
-                    
+                    title = (await title_elem.inner_text()).strip() if title_elem else ""
+                    year = (await year_elem.inner_text()).strip() if year_elem else ""
+
+                    if not year and fallback_year:
+                        year = fallback_year
+
+                    if not year:
+                        try:
+                            item_text = (await item.inner_text()).strip()
+                            year_match = re.search(r'\b(19\d{2}|20\d{2})\b', item_text)
+                            if year_match:
+                                year = year_match.group(1)
+                        except Exception:
+                            pass
+
+                    if title:
                         results.append({
-                            "title": title.strip(),
-                            "year": year.strip(),
-                            "url": f"https://www.metacritic.com{url}"
+                            "title": title,
+                            "year": year,
+                            "url": full_url
                         })
                 except Exception as e:
                     print(f"处理Metacritic单个搜索结果时出错: {e}")
