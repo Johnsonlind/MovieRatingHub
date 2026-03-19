@@ -1,5 +1,5 @@
 # ==========================================
-# 数据库模型
+# 数据模型层（ORM）
 # ==========================================
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, text, BigInteger
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
