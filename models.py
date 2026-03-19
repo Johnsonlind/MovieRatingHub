@@ -1,7 +1,7 @@
 # ==========================================
 # 数据库模型
 # ==========================================
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, text, BigInteger
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from sqlalchemy.dialects.mysql import LONGTEXT
 from datetime import datetime
@@ -21,6 +21,7 @@ class User(Base):
     avatar = Column(LONGTEXT, nullable=True) 
     created_at = Column(DateTime, default=datetime.utcnow)
     is_admin = Column(Boolean, default=False)
+    is_banned = Column(Boolean, default=False, index=True)
     douban_cookie = Column(Text, nullable=True)
 
     favorites = relationship("Favorite", back_populates="user")
@@ -141,7 +142,7 @@ class MediaDetailAccessLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     visited_at = Column(DateTime, default=datetime.utcnow, index=True)
-    media_type = Column(String(10), nullable=False, index=True)  # movie | tv
+    media_type = Column(String(10), nullable=False, index=True)
     tmdb_id = Column(Integer, nullable=True, index=True)
     title = Column(String(255), nullable=False)
     url = Column(Text, nullable=False)
@@ -155,7 +156,7 @@ class Feedback(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     title = Column(String(255), nullable=True)
-    status = Column(String(20), nullable=False, default="pending", index=True)  # pending | replied | closed
+    status = Column(String(20), nullable=False, default="pending", index=True)
     is_resolved_by_user = Column(Boolean, default=False, nullable=False, index=True)
     resolved_at = Column(DateTime, nullable=True, index=True)
     closed_by = Column(String(20), nullable=True)
@@ -168,6 +169,23 @@ class Feedback(Base):
     messages = relationship("FeedbackMessage", back_populates="feedback", cascade="all, delete-orphan")
     images = relationship("FeedbackImage", back_populates="feedback", cascade="all, delete-orphan")
     status_events = relationship("FeedbackStatusEvent", back_populates="feedback", cascade="all, delete-orphan")
+
+
+class TelegramFeedbackMapping(Base):
+    __tablename__ = "telegram_feedback_mappings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feedback_id = Column(Integer, ForeignKey("feedback.id"), nullable=False, index=True)
+    telegram_chat_id = Column(BigInteger, nullable=False)
+    telegram_message_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    feedback = relationship("Feedback")
+
+    __table_args__ = (
+        UniqueConstraint("feedback_id", "telegram_chat_id", name="uq_feedback_chat"),
+    )
 
 class FeedbackMessage(Base):
     __tablename__ = "feedback_messages"
@@ -216,9 +234,53 @@ class Notification(Base):
     content = Column(Text, nullable=False)
     link = Column(Text, nullable=True)
     is_read = Column(Boolean, nullable=False, default=False, index=True)
+    read_at = Column(DateTime, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     user = relationship("User")
+
+class MediaPlatformStatus(Base):
+    __tablename__ = "media_platform_status"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    media_type = Column(String(10), nullable=False, index=True)
+    tmdb_id = Column(Integer, nullable=False, index=True)
+    platform = Column(String(50), nullable=False, index=True)
+
+    status = Column(String(20), nullable=False, default="active", index=True)
+    lock_source = Column(String(20), nullable=True)
+    remark = Column(Text, nullable=True)
+
+    failure_count = Column(Integer, nullable=False, default=0)
+    last_failure_status = Column(String(30), nullable=True)
+
+    title_snapshot = Column(String(255), nullable=True)
+    last_status_changed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("media_type", "tmdb_id", "platform", name="uq_media_platform_status"),
+    )
+
+class MediaPlatformStatusLog(Base):
+    __tablename__ = "media_platform_status_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    media_type = Column(String(10), nullable=False, index=True)
+    tmdb_id = Column(Integer, nullable=False, index=True)
+    platform = Column(String(50), nullable=False, index=True)
+
+    from_status = Column(String(20), nullable=True)
+    to_status = Column(String(20), nullable=False)
+    change_type = Column(String(30), nullable=False)
+    reason = Column(Text, nullable=True)
+
+    operator_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    operator = relationship("User")
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
