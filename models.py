@@ -145,6 +145,7 @@ class MediaDetailAccessLog(Base):
     tmdb_id = Column(Integer, nullable=True, index=True)
     title = Column(String(255), nullable=False)
     url = Column(Text, nullable=False)
+    platform_rating_fetch_statuses = Column(Text, nullable=True)
     
     user = relationship("User")
 
