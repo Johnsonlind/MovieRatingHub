@@ -1,7 +1,7 @@
 // ==========================================
 // 认证模态框
 // ==========================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog } from '@headlessui/react';
 import { useAuth } from './AuthContext';
 import { X } from 'lucide-react';
@@ -23,6 +23,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [rememberMe, setRememberMe] = useState(false);
   
   const { login, register, sendPasswordResetEmail } = useAuth();
+  const submitLock = useRef(false);
 
   useEffect(() => {
     const theme = document.documentElement.getAttribute('data-theme');
@@ -47,6 +48,8 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitLock.current) return;
+    submitLock.current = true;
     setError('');
     setIsLoading(true);
 
@@ -61,6 +64,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       setError(err instanceof Error ? err.message : '操作失败');
     } finally {
       setIsLoading(false);
+      submitLock.current = false;
     }
   };
 
@@ -136,6 +140,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                         required
                         placeholder="用户名"
                         value={username}
+                        disabled={isLoading}
                         onChange={(e) => setUsername(e.target.value)}
                         className="w-full px-4 py-2 text-sm sm:text-base rounded-lg border border-white/30 outline-none
                           bg-white/20 text-black dark:text-white placeholder-gray-500 dark:placeholder-white/60 focus:border-transparent focus:ring-0"
@@ -149,6 +154,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                       required
                       placeholder="邮箱"
                       value={email}
+                      disabled={isLoading}
                       onChange={(e) => setEmail(e.target.value)}
                       className="w-full px-4 py-2 text-sm sm:text-base rounded-lg border border-white/30 outline-none
                         bg-white/20 text-black dark:text-white placeholder-gray-500 dark:placeholder-white/60 focus:border-transparent focus:ring-0"
@@ -161,6 +167,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                       required
                       placeholder="密码"
                       value={password}
+                      disabled={isLoading}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full px-4 py-2 text-sm sm:text-base rounded-lg border border-white/30 outline-none
                         bg-white/20 text-black dark:text-white placeholder-gray-500 dark:placeholder-white/60 focus:border-transparent focus:ring-0"
@@ -172,6 +179,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                       <input
                         type="checkbox"
                         checked={rememberMe}
+                        disabled={isLoading}
                         onChange={(e) => setRememberMe(e.target.checked)}
                         className="mr-2 rounded border-white/30 bg-white/10"
                       />
@@ -184,6 +192,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                       <button
                         type="button"
                         onClick={handleForgotPassword}
+                        disabled={isLoading}
                         className="text-xs sm:text-sm text-white/70 hover:text-white transition-colors"
                       >
                         忘记密码？
