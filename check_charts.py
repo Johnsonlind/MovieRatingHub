@@ -1,8 +1,6 @@
 # ==========================================
-# 榜单数据查询工具
+# 榜单数据巡检脚本
 # ==========================================
-"""查询数据库中各个榜单的数据情况"""
-
 from main import get_db
 from models import ChartEntry
 from sqlalchemy import func
