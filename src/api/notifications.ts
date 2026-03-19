@@ -8,7 +8,8 @@ export type NotificationType =
   | 'feedback_new'
   | 'feedback_update'
   | 'follow_user_update'
-  | 'follow_user_new_list';
+  | 'follow_user_new_list'
+  | 'follow_user_new_follower';
 
 export interface NotificationItem {
   id: number;
