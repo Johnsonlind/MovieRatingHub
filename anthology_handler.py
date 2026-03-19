@@ -17,14 +17,17 @@ ANTHOLOGY_TITLE_PATTERNS = [
 ]
 
 class AnthologyHandler:
-    """选集剧处理器"""
+    """选集剧处理器 - 处理跨平台搜索和评分获取"""
     
     def __init__(self):
         self.tmdb_api_key = "4f681fa7b5ab7346a4e184bbf2d41715"
         self.trakt_api_key = "db74b025288459dc36589f6207fb96aabd83be8ea5d502810a049c29ffd9bff0"
     
     def is_anthology_series(self, tmdb_info: Dict[str, Any]) -> bool:
-        """判断是否为选集剧"""
+        """
+        启发式判断是否为选集剧
+        用于决定是否需要多策略搜索，不保证100%准确
+        """
         if tmdb_info.get("type") != "tv":
             return False
         
@@ -50,7 +53,7 @@ class AnthologyHandler:
         return False
     
     def extract_main_series_info(self, tmdb_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """从标题动态提取主系列信息"""
+        """从标题动态提取主系列信息，避免硬编码维护成本"""
         title = tmdb_info.get("title", "")
         original_title = tmdb_info.get("original_title", "")
         year = tmdb_info.get("year", "")
