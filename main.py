@@ -55,7 +55,7 @@ import secrets
 import aiohttp
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
-from sqlalchemy import func, or_, not_, and_, create_engine, case
+from sqlalchemy import func, or_, not_, and_, create_engine, case, text
 from sqlalchemy.pool import QueuePool
 from fastapi.middleware.gzip import GZipMiddleware
 from browser_pool import browser_pool
@@ -3107,6 +3107,20 @@ async def track_media_detail_view(
         except (TypeError, ValueError):
             tmdb_id_int = None
 
+    platform_rating_fetch_statuses = body.get("platform_rating_fetch_statuses")
+    platform_rating_fetch_statuses_json: Optional[str] = None
+    if platform_rating_fetch_statuses is not None:
+        if isinstance(platform_rating_fetch_statuses, str):
+            platform_rating_fetch_statuses_json = platform_rating_fetch_statuses
+        else:
+            try:
+                platform_rating_fetch_statuses_json = json.dumps(
+                    platform_rating_fetch_statuses,
+                    ensure_ascii=False,
+                )
+            except Exception:
+                platform_rating_fetch_statuses_json = None
+
     log = MediaDetailAccessLog(
         user_id=current_user.id if current_user else None,
         visited_at=datetime.utcnow(),
@@ -3114,6 +3128,7 @@ async def track_media_detail_view(
         tmdb_id=tmdb_id_int,
         title=title,
         url=url,
+        platform_rating_fetch_statuses=platform_rating_fetch_statuses_json,
     )
     try:
         db.add(log)
@@ -3179,12 +3194,21 @@ async def admin_get_media_detail_views(
     items = []
     for r in rows:
         u = getattr(r, "user", None)
+        statuses_raw = getattr(r, "platform_rating_fetch_statuses", None)
+        statuses = None
+        if statuses_raw:
+            try:
+                statuses = json.loads(statuses_raw)
+            except Exception:
+                statuses = None
         items.append(
             {
                 "visited_at": _to_shanghai_iso(r.visited_at) if r.visited_at else None,
+                "id": r.id,
                 "media_type": r.media_type,
                 "title": r.title,
                 "url": r.url,
+                "platform_rating_fetch_statuses": statuses,
                 "user": (
                     {
                         "id": u.id,
@@ -3209,6 +3233,105 @@ async def admin_get_media_detail_views(
             "media_type": media_type,
         },
     }
+
+@app.delete("/api/admin/detail-views/{log_id}")
+async def admin_delete_media_detail_view(
+    log_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+    log = db.query(MediaDetailAccessLog).filter(MediaDetailAccessLog.id == log_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="访问记录不存在")
+    db.delete(log)
+    db.commit()
+    return {"ok": True}
+
+@app.get("/api/admin/detail-views/export")
+async def admin_export_media_detail_views(
+    date: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    media_type: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    if date and (start_date or end_date):
+        raise HTTPException(status_code=400, detail="date 与 start_date/end_date 不能同时传")
+
+    if date:
+        start_dt = _parse_yyyy_mm_dd(date)
+        end_dt = start_dt + timedelta(days=1)
+    else:
+        start_dt = _parse_yyyy_mm_dd(start_date) if start_date else None
+        end_dt = (_parse_yyyy_mm_dd(end_date) + timedelta(days=1)) if end_date else None
+
+    if media_type is not None:
+        media_type = str(media_type).strip().lower()
+        if media_type not in ("movie", "tv"):
+            raise HTTPException(status_code=400, detail="media_type 必须是 movie 或 tv")
+
+    q = db.query(MediaDetailAccessLog)
+    if start_dt is not None:
+        q = q.filter(MediaDetailAccessLog.visited_at >= start_dt)
+    if end_dt is not None:
+        q = q.filter(MediaDetailAccessLog.visited_at < end_dt)
+    if media_type:
+        q = q.filter(MediaDetailAccessLog.media_type == media_type)
+
+    total = q.count()
+    max_rows = int(os.getenv("MAX_EXPORT_ROWS", "50000"))
+    if total > max_rows:
+        raise HTTPException(status_code=400, detail=f"数据过多（{total} 条），无法导出（限制 {max_rows} 条）")
+
+    rows = q.order_by(MediaDetailAccessLog.visited_at.asc()).all()
+
+    def csv_escape(value: Any) -> str:
+        s = "" if value is None else str(value)
+        s = s.replace('"', '""')
+        if any(ch in s for ch in [",", '"', "\n", "\r"]):
+            return f'"{s}"'
+        return s
+
+    def format_excel_dt(dt: Optional[datetime]) -> str:
+        iso = _to_shanghai_iso(dt)
+        if not iso:
+            return ""
+        return iso.replace("T", " ").replace("+08:00", "")
+
+    lines = ["访问时间,影视类型,影视名称"]
+    for r in rows:
+        media_label = "电影" if r.media_type == "movie" else "剧集"
+        lines.append(
+            ",".join(
+                [
+                    csv_escape(format_excel_dt(r.visited_at)),
+                    csv_escape(media_label),
+                    csv_escape(r.title),
+                ]
+            )
+        )
+
+    filename_base = "detail_views"
+    if date:
+        filename_base += f"_{date}"
+    else:
+        sd = start_date or ""
+        ed = end_date or ""
+        filename_base += f"_{sd}_to_{ed}"
+
+    filename_base = filename_base.replace("/", "-").replace("\\", "-")
+    filename = f"{filename_base}.xls"
+
+    content = "\ufeff" + "\n".join(lines) + "\n"
+    return Response(
+        content=content.encode("utf-8-sig"),
+        media_type="application/vnd.ms-excel",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 # ==========================================
 # 10. 手动评分与榜单
