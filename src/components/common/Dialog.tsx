@@ -15,9 +15,9 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-visible">
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative glass-card rounded-lg p-6 w-full max-w-md z-10">
+      <div className="relative glass-card overflow-visible rounded-lg p-6 w-full max-w-md z-10">
         <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-gray-200">{title}</h2>
         {children}
       </div>
