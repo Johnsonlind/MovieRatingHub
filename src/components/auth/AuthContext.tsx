@@ -104,11 +104,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string, rememberMe: boolean = false) => {
     try {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+
       const response = await fetch('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ email, password, remember_me: rememberMe }),
+        signal: controller.signal,
+      }).finally(() => {
+        window.clearTimeout(timeoutId);
       });
 
       if (!response.ok) {
@@ -116,7 +122,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(error.detail);
       }
 
-      const data = await response.json();
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch (_) {
+        data = null;
+      }
+
+      if (!data) {
+        throw new Error('登录失败：响应为空');
+      }
       const userData = data.user ?? {};
       if (userData.id == null) return;
 
@@ -137,6 +152,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const cacheData = { data: userData, timestamp: Date.now() };
       localStorage.setItem('cachedUserInfo', JSON.stringify(cacheData));
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new Error('登录超时，请稍后重试');
+      }
       console.error('登录失败:', error);
       throw error;
     }
