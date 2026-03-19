@@ -49,7 +49,7 @@ function TopSectionsFromBackend() {
   };
 
   const Section = ({ title, items }:{ title: string; items?: Array<{ id: number; type: 'movie' | 'tv'; title: string; poster: string }> }) => (
-    <div className="mb-8 glass p-5 sm:p-6">
+    <div className="mb-8 glass p-5 sm:p-6 transition-shadow duration-200 hover:shadow-xl">
       <h2 className="text-lg sm:text-xl lg:text-2xl font-bold mb-5 text-center text-gray-800 dark:text-gray-100">{title}</h2>
       {!items || isLoading ? (
         <div className="flex items-center justify-center py-8 text-gray-600 dark:text-gray-400">加载中...</div>
@@ -61,13 +61,13 @@ function TopSectionsFromBackend() {
               const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
               return (
                 <div key={`${item.type}-${item.id}`} className="group relative">
-                  <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                    <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
+                  <Link to={linkPath} target="_blank" rel="noopener noreferrer" className="block">
+                    <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800 transition-all duration-200 group-hover:shadow-lg" style={{ transform: 'translateZ(0)' }}>
                       {item.poster ? (
                         <img
                           src={resolvePosterUrl(item.poster)}
                           alt={item.title}
-                          className="w-full h-full object-cover transition-opacity duration-200"
+                          className="w-full h-full object-cover transition-all duration-200 group-hover:scale-105"
                           loading={idx === 0 ? 'eager' : 'lazy'}
                           fetchPriority={idx === 0 ? 'high' : 'auto'}
                           decoding="async"
@@ -121,13 +121,13 @@ function TopSectionsFromBackend() {
               const linkPath = item.type === 'movie' ? `/movie/${item.id}` : `/tv/${item.id}`;
               return (
                 <div key={`${item.type}-${item.id}`} className="group relative">
-                  <Link to={linkPath} target="_blank" rel="noopener noreferrer">
-                    <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800" style={{ transform: 'translateZ(0)' }}>
+                  <Link to={linkPath} target="_blank" rel="noopener noreferrer" className="block">
+                    <div className="aspect-[2/3] rounded-lg overflow-hidden relative bg-gray-200 dark:bg-gray-800 transition-all duration-200 group-hover:shadow-lg" style={{ transform: 'translateZ(0)' }}>
                       {item.poster ? (
                         <img
                           src={resolvePosterUrl(item.poster)}
                           alt={item.title}
-                          className="w-full h-full object-cover transition-opacity duration-200"
+                          className="w-full h-full object-cover transition-all duration-200 group-hover:scale-105"
                           loading="lazy"
                           fetchPriority="low"
                           decoding="async"
