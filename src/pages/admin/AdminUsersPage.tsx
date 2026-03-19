@@ -323,6 +323,8 @@ export default function AdminUsersPage() {
                         src={user.avatar || '/Profile.png'}
                         alt={user.username}
                         className="w-9 h-9 rounded-full object-cover bg-gray-100 dark:bg-gray-800 flex-shrink-0"
+                        loading="lazy"
+                        decoding="async"
                       />
                       <div className="min-w-0">
                         <div className="font-medium text-gray-900 dark:text-white truncate">
