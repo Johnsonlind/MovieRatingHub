@@ -1557,9 +1557,8 @@ async def admin_list_users(
 
     base = db.query(User)
     if q:
-        q_lower = q.lower()
-        like_any = f"%{q_lower}%"
-        base = base.filter(func.lower(User.username).like(like_any))
+        like_prefix = f"{q}%"
+        base = base.filter(User.username.like(like_prefix))
 
     if banned:
         banned = banned.strip().lower()
