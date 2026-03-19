@@ -668,7 +668,7 @@ export default function ProfilePage() {
     const favoritesToShow = sortedFavorites.slice(0, postersToShow);
 
     return (
-      <div ref={elementRef} className="glass-card no-lift rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div ref={elementRef} className="glass-card rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
         <div className="flex flex-col h-full">
           {/* 海报堆叠展示区域 */}
           <Link 
@@ -1155,9 +1155,9 @@ export default function ProfilePage() {
             )}
 
             {activeTab === 'following' && (
-              <div className="mt-6 space-y-6">
+              <div className="mt-6 space-y-6 pt-2">
                 {/* 用户搜索 */}
-                <div className="glass-card no-lift rounded-2xl p-5 shadow-sm ring-1 ring-white/10 dark:ring-white/5 bg-white/20 dark:bg-gray-900/20 backdrop-blur">
+                <div className="glass-card rounded-2xl p-5 pt-6 shadow-sm ring-1 ring-white/10 dark:ring-white/5 bg-white/20 dark:bg-gray-900/20 backdrop-blur">
                   <div className="flex items-center gap-3">
                     <input
                       value={userSearchInput}
@@ -1260,7 +1260,7 @@ export default function ProfilePage() {
                 ) : (
                   <div className="grid grid-cols-1 gap-4">
                     {following.map(follow => (
-                      <div key={follow.id} className="glass-card no-lift rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                      <div key={follow.id} className="glass-card rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
                         <div className="flex items-center gap-4">
                           <img
                             src={follow.avatar || '/default-avatar.png'}
@@ -1334,13 +1334,13 @@ export default function ProfilePage() {
                         multiple
                         accept="image/*"
                         onChange={(e) => setFeedbackImages(e.target.files)}
-                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 file:transition-colors file:cursor-pointer"
                       />
                       <p className="mt-1 text-xs text-gray-400">支持多张图片，每张不超过 5MB</p>
                     </div>
                   </div>
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={isSubmittingFeedback} className="no-hover-scale">
+                  <div className="flex justify-end pt-2 pr-2">
+                    <Button type="submit" disabled={isSubmittingFeedback}>
                       {isSubmittingFeedback ? '提交中...' : '提交反馈'}
                     </Button>
                   </div>
@@ -1367,7 +1367,7 @@ export default function ProfilePage() {
                             if (target?.closest('button, a, input, textarea, select, label')) return;
                             handleSelectFeedback(fb.id);
                           }}
-                          className={`glass-card no-lift w-full text-left p-4 rounded-2xl flex flex-col gap-1 text-sm shadow-sm hover:shadow-md transition-shadow ${
+                          className={`glass-card w-full text-left p-4 rounded-2xl flex flex-col gap-1 text-sm shadow-sm hover:shadow-md transition-shadow ${
                             activeFeedbackId === fb.id
                               ? 'ring-2 ring-blue-400/60 dark:ring-blue-400/40 bg-blue-50/20 dark:bg-blue-900/20'
                               : 'ring-1 ring-white/10 dark:ring-white/5 bg-white/20 dark:bg-gray-900/20'
