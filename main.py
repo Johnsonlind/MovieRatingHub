@@ -13,7 +13,6 @@ from pydantic import BaseModel
 import hashlib
 import httpx
 import logging
-import io
 import mimetypes
 from html import escape as html_escape, unescape as html_unescape
 
@@ -3019,12 +3018,6 @@ async def _send_telegram_message_for_feedback(
     if not text.strip():
         text = f"收到新的反馈（#{feedback.id}）"
 
-    mapping = (
-        db.query(TelegramFeedbackMapping)
-        .filter(TelegramFeedbackMapping.feedback_id == feedback.id)
-        .first()
-    )
-
     def _to_telegram_caption_plain(html_text: str, max_len: int = 1000) -> str:
         plain = re.sub(r"<[^>]*>", "", str(html_text or ""))
         plain = html_unescape(plain)
@@ -3033,73 +3026,31 @@ async def _send_telegram_message_for_feedback(
             return plain[: max_len - 3] + "..."
         return plain
 
-    plain_text = _to_telegram_caption_plain(text, max_len=3500).strip()
-    if not plain_text:
-        plain_text = f"收到新的反馈（#{feedback.id}）"
-
-    logger.info(
-        f"[telegram feedback] feedback_id={feedback.id} plain_len={len(plain_text)} plain_preview={plain_text[:60]!r}"
-    )
-
-    reply_to_message_id = None
-    if mapping and reply_to_root:
-        reply_to_message_id = mapping.telegram_message_id
-
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     url_photo = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     keyboard = {
         "inline_keyboard": [
             [
-                {
-                    "text": "标记为待处理",
-                    "callback_data": f"fb:{feedback.id}:status:pending",
-                },
-                {
-                    "text": "标记为已回复",
-                    "callback_data": f"fb:{feedback.id}:status:replied",
-                },
-                {
-                    "text": "关闭反馈",
-                    "callback_data": f"fb:{feedback.id}:status:closed",
-                },
+                {"text": "标记为待处理", "callback_data": f"fb:{feedback.id}:status:pending"},
+                {"text": "标记为已回复", "callback_data": f"fb:{feedback.id}:status:replied"},
+                {"text": "关闭反馈", "callback_data": f"fb:{feedback.id}:status:closed"},
             ]
         ]
     }
 
-    # 发送到 Telegram 时，`chat_id` 必须正确且 bot 必须对该 chat 有权限。
-    # 线上错误通常来自：
-    # - env 配错（尤其是群的 chat_id 需要负数）
-    # - bot 未加入群/未与用户建立会话
-    # 因此这里做“带日志”的候选重试：
-    # - 优先尝试 mapping.chat_id（若存在）
-    # - 再尝试 env 配置的 chat_id
-    # - 对每个候选再尝试符号位翻转版本
-    chat_ids_to_try: list[int] = []
-    _chat_id_seen: set[int] = set()
-
-    def _add_chat_id(cid: Any):
-        try:
-            c = int(cid)
-        except Exception:
-            return
-        if c in _chat_id_seen:
-            return
-        _chat_id_seen.add(c)
-        chat_ids_to_try.append(c)
-
-    mapping_chat_id: Optional[int] = int(getattr(mapping, "telegram_chat_id", None)) if mapping else None
-    if mapping_chat_id is not None:
-        _add_chat_id(mapping_chat_id)
-        _add_chat_id(-mapping_chat_id)
-
-    for cid in TELEGRAM_ADMIN_CHAT_IDS:
-        _add_chat_id(cid)
-        _add_chat_id(-cid)
-
-    logger.info(f"[telegram feedback] feedback_id={feedback.id} chat_ids_to_try={chat_ids_to_try}")
-
     async with httpx.AsyncClient(timeout=10.0) as client:
-        for chat_id in chat_ids_to_try:
+        for chat_id in TELEGRAM_ADMIN_CHAT_IDS:
+            # 当前 chat 的 mapping，用于 reply_to（追加回复时引用之前的消息）
+            mapping = (
+                db.query(TelegramFeedbackMapping)
+                .filter(
+                    TelegramFeedbackMapping.feedback_id == feedback.id,
+                    TelegramFeedbackMapping.telegram_chat_id == int(chat_id),
+                )
+                .first()
+            )
+            reply_to_message_id = mapping.telegram_message_id if (mapping and reply_to_root) else None
+
             image_records = list(getattr(feedback, "images", []) or [])
             if not image_records:
                 try:
@@ -3124,107 +3075,88 @@ async def _send_telegram_message_for_feedback(
                         try:
                             with open(abs_path, "rb") as f:
                                 img_bytes = f.read()
-
                             content_type, _ = mimetypes.guess_type(abs_path)
                             content_type = content_type or "image/jpeg"
                             filename = os.path.basename(abs_path)
-
-                            caption = plain_text
+                            caption = _to_telegram_caption_plain(text)
 
                             payload_photo: dict[str, Any] = {
                                 "chat_id": chat_id,
                                 "caption": caption,
                                 "reply_markup": json.dumps(keyboard),
                             }
-                            if reply_to_message_id and (mapping_chat_id is None or chat_id == mapping_chat_id):
+                            if reply_to_message_id:
                                 payload_photo["reply_to_message_id"] = reply_to_message_id
 
-                            logger.info(
-                                f"[telegram feedback] sendPhoto filename={filename} bytes={len(img_bytes)} content_type={content_type}"
+                            resp = await client.post(
+                                url_photo,
+                                data=payload_photo,
+                                files={"photo": (filename, img_bytes, content_type)},
                             )
-
-                            photo_ok = False
-                            tdata_for_mapping: dict[str, Any] = {}
-                            files_attempts: list[dict[str, Any]] = [
-                                {"photo": (filename, io.BytesIO(img_bytes), content_type)},
-                                {"photo": (filename, img_bytes, content_type)},
-                                {"photo": (filename, img_bytes)},
-                            ]
-                            for attempt_idx, files in enumerate(files_attempts, start=1):
-                                resp = await client.post(
-                                    url_photo,
-                                    data=payload_photo,
-                                    files=files,
-                                )
-                                try:
-                                    tdata = resp.json()
-                                except Exception:
-                                    tdata = {"raw": resp.text if hasattr(resp, "text") else None}
-
-                                if resp.status_code == 200 and tdata.get("ok"):
-                                    photo_ok = True
-                                    tdata_for_mapping = tdata
-                                    break
-
-                                logger.warning(
-                                    f"[telegram feedback] sendPhoto failed chat_id={chat_id} attempt={attempt_idx} status={resp.status_code} err={tdata}"
-                                )
-
-                            if photo_ok:
+                            tdata = resp.json() if resp.text else {}
+                            if resp.status_code == 200 and tdata.get("ok"):
                                 sent_photo_ok = True
-                                if mapping is None:
-                                    msg = tdata_for_mapping.get("result") or {}
-                                    chat = msg.get("chat") or {}
-                                    message_id = msg.get("message_id")
-                                    chat_id_resp = chat.get("id")
-                                    if chat_id_resp and message_id:
-                                        new_mapping = TelegramFeedbackMapping(
-                                            feedback_id=feedback.id,
-                                            telegram_chat_id=int(chat_id_resp),
-                                            telegram_message_id=int(message_id),
-                                            created_at=_now_utc_naive(),
-                                            updated_at=_now_utc_naive(),
-                                        )
-                                        db.add(new_mapping)
-                                        db.commit()
-                        except Exception as e:
-                            logger.exception(f"[telegram feedback] sendPhoto unexpected error: {e}")
+                                msg = tdata.get("result") or {}
+                                chat = msg.get("chat") or {}
+                                message_id = msg.get("message_id")
+                                chat_id_resp = chat.get("id")
+                                if chat_id_resp and message_id:
+                                    _upsert_telegram_mapping(
+                                        db, feedback.id, int(chat_id_resp), int(message_id)
+                                    )
+                        except Exception:
                             sent_photo_ok = False
 
             if not sent_photo_ok:
                 payload: dict[str, Any] = {
                     "chat_id": chat_id,
-                    "text": plain_text,
+                    "text": text,
+                    "parse_mode": "HTML",
                     "reply_markup": json.dumps(keyboard),
                 }
-                if reply_to_message_id and (mapping_chat_id is None or chat_id == mapping_chat_id):
+                if reply_to_message_id:
                     payload["reply_to_message_id"] = reply_to_message_id
-
                 try:
                     resp = await client.post(url, data=payload)
-                    data = resp.json()
-                    if mapping is None and resp.status_code == 200 and data.get("ok"):
+                    data = resp.json() if resp.text else {}
+                    if resp.status_code == 200 and data.get("ok"):
                         msg = data.get("result") or {}
                         chat = msg.get("chat") or {}
                         message_id = msg.get("message_id")
                         chat_id_resp = chat.get("id")
                         if chat_id_resp and message_id:
-                            new_mapping = TelegramFeedbackMapping(
-                                feedback_id=feedback.id,
-                                telegram_chat_id=int(chat_id_resp),
-                                telegram_message_id=int(message_id),
-                                created_at=_now_utc_naive(),
-                                updated_at=_now_utc_naive(),
+                            _upsert_telegram_mapping(
+                                db, feedback.id, int(chat_id_resp), int(message_id)
                             )
-                            db.add(new_mapping)
-                            db.commit()
-                    if not (resp.status_code == 200 and data.get("ok")):
-                        logger.warning(
-                            f"[telegram feedback] sendMessage failed chat_id={chat_id} status={resp.status_code} err={data} text_preview={plain_text[:60]!r}"
-                        )
-                except Exception as e:
-                    logger.exception(f"[telegram feedback] sendMessage unexpected error: {e}")
-                    continue
+                except Exception:
+                    pass
+
+
+def _upsert_telegram_mapping(db: Session, feedback_id: int, telegram_chat_id: int, telegram_message_id: int):
+    """为每个成功发送的 chat 创建或更新 mapping，确保任意管理员在 Telegram 回复时都能同步到网站"""
+    existing = (
+        db.query(TelegramFeedbackMapping)
+        .filter(
+            TelegramFeedbackMapping.feedback_id == feedback_id,
+            TelegramFeedbackMapping.telegram_chat_id == telegram_chat_id,
+        )
+        .first()
+    )
+    now = _now_utc_naive()
+    if existing:
+        existing.telegram_message_id = telegram_message_id
+        existing.updated_at = now
+    else:
+        db.add(
+            TelegramFeedbackMapping(
+                feedback_id=feedback_id,
+                telegram_chat_id=telegram_chat_id,
+                telegram_message_id=telegram_message_id,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    db.commit()
 
 def _serialize_feedback(feedback: Feedback, include_messages: bool = False, include_user: bool = False):
     data = {
