@@ -2810,7 +2810,6 @@ async def debug_feedback_image(filename: str):
 
 @app.get("/api/feedback-image")
 async def feedback_image_api(filename: str):
-    # 用显式的 API 路由返回图片，避免反代/缓存对 `/uploads/...` 路径的干扰。
     safe_filename = os.path.basename(filename)
     abs_base = os.path.abspath(FEEDBACK_UPLOAD_DIR)
     abs_target = os.path.abspath(os.path.join(FEEDBACK_UPLOAD_DIR, safe_filename))
@@ -2959,7 +2958,6 @@ def require_admin(user: User):
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
 
-
 _TZ_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 def _now_utc_naive() -> datetime:
@@ -3005,7 +3003,6 @@ def _add_status_event(
     )
     db.add(evt)
 
-
 async def _send_telegram_message_for_feedback(
     db: Session,
     feedback: Feedback,
@@ -3040,7 +3037,6 @@ async def _send_telegram_message_for_feedback(
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         for chat_id in TELEGRAM_ADMIN_CHAT_IDS:
-            # 当前 chat 的 mapping，用于 reply_to（追加回复时引用之前的消息）
             mapping = (
                 db.query(TelegramFeedbackMapping)
                 .filter(
@@ -3131,9 +3127,7 @@ async def _send_telegram_message_for_feedback(
                 except Exception:
                     pass
 
-
 def _upsert_telegram_mapping(db: Session, feedback_id: int, telegram_chat_id: int, telegram_message_id: int):
-    """为每个成功发送的 chat 创建或更新 mapping，确保任意管理员在 Telegram 回复时都能同步到网站"""
     existing = (
         db.query(TelegramFeedbackMapping)
         .filter(
@@ -3171,11 +3165,8 @@ def _serialize_feedback(feedback: Feedback, include_messages: bool = False, incl
         "created_at": _to_shanghai_iso(feedback.created_at),
         "updated_at": _to_shanghai_iso(feedback.updated_at),
         "last_message_at": _to_shanghai_iso(feedback.last_message_at),
-        # 将 DB 中的 `/uploads/feedback/<file>` URL 重写成走 API 的图片地址，
-        # 避免生产环境反代/缓存导致附件返回占位内容。
         "images": [
             (
-                # image_path 通常是 /uploads/feedback/<stored_name>
                 (
                     f"/api/feedback-image?filename={quote(img.image_path.split('/uploads/feedback/', 1)[1])}"
                     if str(getattr(img, "image_path", "")).startswith("/uploads/feedback/")
@@ -3345,6 +3336,7 @@ async def user_delete_feedback(
     if feedback.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权删除该反馈")
 
+    db.query(TelegramFeedbackMapping).filter(TelegramFeedbackMapping.feedback_id == feedback.id).delete()
     _delete_feedback_files(feedback)
     db.delete(feedback)
     db.commit()
@@ -3688,6 +3680,7 @@ async def admin_delete_feedback(
     if not feedback:
         raise HTTPException(status_code=404, detail="反馈不存在")
 
+    db.query(TelegramFeedbackMapping).filter(TelegramFeedbackMapping.feedback_id == feedback.id).delete()
     _delete_feedback_files(feedback)
     db.delete(feedback)
     db.commit()
@@ -4106,7 +4099,6 @@ async def admin_delete_media_detail_view(
     db.delete(log)
     db.commit()
     return {"ok": True}
-
 
 @app.post("/api/admin/detail-views/batch-delete")
 async def admin_batch_delete_media_detail_views(
