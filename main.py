@@ -13,6 +13,7 @@ from pydantic import BaseModel
 import hashlib
 import httpx
 import logging
+import io
 import mimetypes
 from html import escape as html_escape, unescape as html_unescape
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request, Depends, APIRouter, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
@@ -2760,22 +2762,7 @@ FEEDBACK_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "feedback")
 
 os.makedirs(FEEDBACK_UPLOAD_DIR, exist_ok=True)
 
-@app.get("/uploads/feedback/{filename}")
-async def get_feedback_image(filename: str):
-    safe_filename = os.path.basename(filename)
-    abs_base = os.path.abspath(FEEDBACK_UPLOAD_DIR)
-    abs_target = os.path.abspath(os.path.join(FEEDBACK_UPLOAD_DIR, safe_filename))
-    if not abs_target.startswith(abs_base + os.sep):
-        raise HTTPException(status_code=400, detail="非法文件名")
-    if not os.path.exists(abs_target):
-        raise HTTPException(status_code=404, detail="图片不存在")
-
-    media_type, _ = mimetypes.guess_type(abs_target)
-    return FileResponse(
-        abs_target,
-        media_type=media_type or "application/octet-stream",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
+app.mount("/uploads", StaticFiles(directory=UPLOAD_ROOT), name="uploads")
 
 class TelegramUpdate(BaseModel):
     update_id: int
@@ -2979,6 +2966,10 @@ async def _send_telegram_message_for_feedback(
             return plain[: max_len - 3] + "..."
         return plain
 
+    plain_text = _to_telegram_caption_plain(text, max_len=3500)
+    if not plain_text.strip():
+        plain_text = f"收到新的反馈（#{feedback.id}）"
+
     reply_to_message_id = None
     if mapping and reply_to_root:
         reply_to_message_id = mapping.telegram_message_id
@@ -3006,7 +2997,6 @@ async def _send_telegram_message_for_feedback(
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         for chat_id in TELEGRAM_ADMIN_CHAT_IDS:
-            # 先准备图片（只发送第一张，满足“带图片”需求）
             image_records = list(getattr(feedback, "images", []) or [])
             if not image_records:
                 try:
@@ -3024,7 +3014,6 @@ async def _send_telegram_message_for_feedback(
 
             if first_image:
                 p = str(getattr(first_image, "image_path", "") or "")
-                # 允许仅从 feedback 上传目录取文件
                 if p.startswith("/uploads/feedback/"):
                     stored_name = p.split("/uploads/feedback/", 1)[1]
                     abs_path = os.path.join(FEEDBACK_UPLOAD_DIR, stored_name)
@@ -3037,7 +3026,7 @@ async def _send_telegram_message_for_feedback(
                             content_type = content_type or "image/jpeg"
                             filename = os.path.basename(abs_path)
 
-                            caption = _to_telegram_caption_plain(text)
+                            caption = plain_text
 
                             payload_photo: dict[str, Any] = {
                                 "chat_id": chat_id,
@@ -3050,13 +3039,12 @@ async def _send_telegram_message_for_feedback(
                             resp = await client.post(
                                 url_photo,
                                 data=payload_photo,
-                                files={"photo": (filename, img_bytes, content_type)},
+                                files={"photo": (filename, io.BytesIO(img_bytes), content_type)},
                             )
                             tdata = resp.json()
                             if resp.status_code == 200 and tdata.get("ok"):
                                 sent_photo_ok = True
 
-                                # 新建映射：以“带按钮的那条消息”为准
                                 if mapping is None:
                                     msg = tdata.get("result") or {}
                                     chat = msg.get("chat") or {}
@@ -3075,12 +3063,10 @@ async def _send_telegram_message_for_feedback(
                         except Exception:
                             sent_photo_ok = False
 
-            # 如果图片发送失败/没有图片，则回退为纯文本消息
             if not sent_photo_ok:
                 payload: dict[str, Any] = {
                     "chat_id": chat_id,
-                    "text": text,
-                    "parse_mode": "HTML",
+                    "text": plain_text,
                     "reply_markup": json.dumps(keyboard),
                 }
                 if reply_to_message_id:
