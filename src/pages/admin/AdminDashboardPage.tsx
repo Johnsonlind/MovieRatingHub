@@ -29,12 +29,12 @@ export default function AdminDashboardPage() {
       <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm sm:text-base">
         选择左侧菜单或下方入口进入相应管理功能
       </p>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 py-2">
         {LINKS.map(({ path, label, desc, icon: Icon }) => (
           <Link
             key={path}
             to={path}
-            className="group flex items-start gap-3 p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition-all"
+            className="group flex items-start gap-3 p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-lg hover:-translate-y-0.5 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-all duration-200"
           >
             <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
               <Icon className="w-5 h-5" />
