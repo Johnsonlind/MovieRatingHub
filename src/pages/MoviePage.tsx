@@ -93,7 +93,21 @@ export default function MoviePage() {
     if (!id || !movie) return;
     if (trackedId === id) return;
 
+    const backendPlatforms = ['douban', 'imdb', 'letterboxd', 'rottentomatoes', 'metacritic'] as const;
+    const allBackendDone = backendPlatforms.every((p) => {
+      const st = platformStatuses[p]?.status;
+      return st && st !== 'pending' && st !== 'loading';
+    });
+    const allTmdbTraktDone =
+      tmdbStatus !== 'pending' &&
+      tmdbStatus !== 'loading' &&
+      traktStatus !== 'pending' &&
+      traktStatus !== 'loading';
+
+    if (!allBackendDone || !allTmdbTraktDone) return;
+
     const url = `${window.location.origin}/movie/${id}`;
+    setTrackedId(id);
     authFetch('/api/track/detail-view', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,14 +116,22 @@ export default function MoviePage() {
         tmdb_id: Number(id),
         title: movie.title,
         url,
+        platform_rating_fetch_statuses: {
+          douban: platformStatuses.douban.status,
+          imdb: platformStatuses.imdb.status,
+          letterboxd: platformStatuses.letterboxd.status,
+          rottentomatoes: platformStatuses.rottentomatoes.status,
+          metacritic: platformStatuses.metacritic.status,
+          tmdb: tmdbStatus,
+          trakt: traktStatus,
+        },
       }),
       withAuth: true,
     })
-      .then(() => setTrackedId(id))
       .catch(() => {
-        // ignore
+        setTrackedId((prev) => (prev === id ? null : prev));
       });
-  }, [id, movie, trackedId]);
+  }, [id, movie, trackedId, platformStatuses, tmdbStatus, traktStatus]);
 
   useEffect(() => {
     if (movie?.poster) {
