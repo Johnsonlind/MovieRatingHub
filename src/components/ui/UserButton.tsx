@@ -220,7 +220,7 @@ export function UserButton() {
                 navigate('/profile');
                 setShowDropdown(false);
               }}
-              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-gray-200/80 active:bg-gray-200/80 dark:hover:bg-white/10 dark:active:bg-white/10 focus:bg-gray-200/80 dark:focus:bg-white/10 rounded transition-colors"
               role="menuitem"
             >
               个人中心
@@ -231,7 +231,7 @@ export function UserButton() {
                   navigate('/admin');
                   setShowDropdown(false);
                 }}
-                className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+                className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-gray-200/80 active:bg-gray-200/80 dark:hover:bg-white/10 dark:active:bg-white/10 focus:bg-gray-200/80 dark:focus:bg-white/10 rounded transition-colors"
                 role="menuitem"
               >
                 管理后台
@@ -239,21 +239,21 @@ export function UserButton() {
             )}
             <button
               onClick={handleOpenFeedbackDialog}
-              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-gray-200/80 active:bg-gray-200/80 dark:hover:bg-white/10 dark:active:bg-white/10 focus:bg-gray-200/80 dark:focus:bg-white/10 rounded transition-colors"
               role="menuitem"
             >
               提交反馈
             </button>
             <button
               onClick={handleOpenCookieDialog}
-              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-gray-200/80 active:bg-gray-200/80 dark:hover:bg-white/10 dark:active:bg-white/10 focus:bg-gray-200/80 dark:focus:bg-white/10 rounded transition-colors"
               role="menuitem"
             >
               {hasCookie ? '✓ 豆瓣Cookie' : '设置豆瓣Cookie'}
             </button>
             <button
               onClick={handleLogout}
-              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-white/20 dark:hover:bg-white/10 rounded transition-colors"
+              className="no-hover-scale block w-full text-left px-3 py-1.5 text-xs text-gray-800 dark:text-gray-200 hover:bg-gray-200/80 active:bg-gray-200/80 dark:hover:bg-white/10 dark:active:bg-white/10 focus:bg-gray-200/80 dark:focus:bg-white/10 rounded transition-colors"
               role="menuitem"
             >
               退出登录
