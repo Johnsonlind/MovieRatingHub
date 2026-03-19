@@ -2,7 +2,7 @@
 // 管理员用户管理
 // ==========================================
 import { useEffect, useMemo, useState } from 'react';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Input } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { Pagination } from '../../components/ui/Pagination';
@@ -34,7 +34,6 @@ export default function AdminUsersPage() {
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['admin-users', { keyword, offset, limit: PAGE_SIZE, banned: bannedFilter }],
     queryFn: () => fetchAdminUsers({ q: keyword, offset, limit: PAGE_SIZE, banned: bannedFilter }),
-    placeholderData: keepPreviousData,
   });
 
   const total = data?.total ?? 0;
