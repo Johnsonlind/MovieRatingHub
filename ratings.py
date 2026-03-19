@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from fastapi import Request
 import unicodedata
 from datetime import datetime
+from typing import Optional
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from models import MediaPlatformStatus, MediaPlatformStatusLog
 from browser_pool import browser_pool
 from anthology_handler import anthology_handler
 
@@ -111,8 +115,126 @@ RATING_STATUS = {
     "NO_RATING": "No Rating",
     "RATE_LIMIT": "RateLimit",
     "TIMEOUT": "Timeout",
-    "SUCCESSFUL": "Successful"
+    "SUCCESSFUL": "Successful",
+    "LOCKED": "Locked",
 }
+
+AUTO_LOCK_THRESHOLD = 5
+
+def get_media_platform_status(
+    db: Session,
+    media_type: str,
+    tmdb_id: int,
+    platform: str,
+) -> Optional[MediaPlatformStatus]:
+    media_type = (media_type or "").lower()
+    platform = (platform or "").lower()
+    return (
+        db.query(MediaPlatformStatus)
+        .filter(
+            func.lower(MediaPlatformStatus.media_type) == media_type,
+            MediaPlatformStatus.tmdb_id == tmdb_id,
+            func.lower(MediaPlatformStatus.platform) == platform,
+        )
+        .one_or_none()
+    )
+
+def is_platform_locked(
+    db: Session,
+    media_type: str,
+    tmdb_id: int,
+    platform: str,
+) -> bool:
+    status = get_media_platform_status(db, media_type, tmdb_id, platform)
+    return bool(status and status.status == "locked")
+
+def update_platform_status_after_fetch(
+    db: Session,
+    media_type: str,
+    tmdb_id: int,
+    platform: str,
+    title: Optional[str],
+    status: str,
+    status_reason: Optional[str],
+) -> None:
+    media_type = (media_type or "").lower()
+    platform = (platform or "").lower()
+    record = get_media_platform_status(db, media_type, tmdb_id, platform)
+
+    if record is None:
+        record = MediaPlatformStatus(
+            media_type=media_type,
+            tmdb_id=tmdb_id,
+            platform=platform,
+            status="active",
+            failure_count=0,
+            title_snapshot=title,
+        )
+        db.add(record)
+        db.flush()
+
+    if status == RATING_STATUS["SUCCESSFUL"]:
+        if record.failure_count or record.status == "locked":
+            from_status = record.status
+            record.failure_count = 0
+            record.last_failure_status = None
+            record.last_status_changed_at = datetime.utcnow()
+            db.add(
+                MediaPlatformStatusLog(
+                    media_type=media_type,
+                    tmdb_id=tmdb_id,
+                    platform=platform,
+                    from_status=from_status,
+                    to_status=record.status,
+                    change_type="auto_update",
+                    reason="抓取成功，重置失败计数",
+                )
+            )
+        return
+
+    if status not in (
+        RATING_STATUS["NO_FOUND"],
+        RATING_STATUS["FETCH_FAILED"],
+        RATING_STATUS["TIMEOUT"],
+        RATING_STATUS["RATE_LIMIT"],
+    ):
+        return
+
+    record.failure_count = (record.failure_count or 0) + 1
+    record.last_failure_status = status
+    record.last_status_changed_at = datetime.utcnow()
+
+    db.add(
+        MediaPlatformStatusLog(
+            media_type=media_type,
+            tmdb_id=tmdb_id,
+            platform=platform,
+            from_status=record.status,
+            to_status=record.status,
+            change_type="auto_update",
+            reason=f"抓取失败一次：{status} - {status_reason or ''}",
+        )
+    )
+
+    if record.failure_count >= AUTO_LOCK_THRESHOLD and record.status != "locked":
+        from_status = record.status
+        record.status = "locked"
+        record.lock_source = "auto"
+        auto_remark = f"自动锁定：连续{AUTO_LOCK_THRESHOLD}次抓取失败（最后一次状态：{status} - {status_reason or ''}）"
+        record.remark = (record.remark + " | " if record.remark else "") + auto_remark
+        record.last_status_changed_at = datetime.utcnow()
+
+        db.add(
+            MediaPlatformStatusLog(
+                media_type=media_type,
+                tmdb_id=tmdb_id,
+                platform=platform,
+                from_status=from_status,
+                to_status="locked",
+                change_type="auto_lock",
+                reason=auto_remark,
+            )
+        )
 
 def create_rating_data(status, reason=None):
     """创建统一的评分数据结构"""
