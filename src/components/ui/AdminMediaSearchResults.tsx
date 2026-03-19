@@ -51,7 +51,7 @@ export function AdminMediaSearchResults({
   }
 
   return (
-    <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto scrollbar-gentle">
+    <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto scrollbar-gentle py-2 px-1">
       {items.length === 0 ? (
         emptyMessage ? (
           <div className="text-sm text-gray-500 dark:text-gray-400">{emptyMessage}</div>
@@ -62,7 +62,7 @@ export function AdminMediaSearchResults({
             key={`${item.type}-${item.id}`}
             type="button"
             onClick={() => onSelect(item)}
-            className="no-hover-scale flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800/60 text-gray-900 dark:text-gray-100 hover:bg-blue-50/70 dark:hover:bg-blue-900/20 transition-[background-color] text-left"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800/60 text-gray-900 dark:text-gray-100 hover:bg-blue-50/70 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-700 transition-colors duration-200 text-left"
           >
             {item.poster && (
               <img src={item.poster} alt="" className="w-8 h-12 object-cover rounded" />
