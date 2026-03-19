@@ -76,6 +76,7 @@ from browser_pool import browser_pool
 import traceback
 import fcntl
 from sqlalchemy import desc
+import re
 
 # ==========================================
 # 1. 配置和初始化
@@ -423,6 +424,27 @@ def sitemap():
 </urlset>"""
 
     return Response(content=sitemap_xml, media_type="application/xml")
+
+@app.get("/api/users/{user_id}/avatar")
+async def get_user_avatar(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    avatar = getattr(user, "avatar", None) if user else None
+    if not avatar:
+        raise HTTPException(status_code=404, detail="用户头像不存在")
+
+    try:
+        header, b64data = avatar.split(",", 1)
+        mime_match = re.match(r"data:(.*?);base64", header)
+        media_type = mime_match.group(1) if mime_match else "image/png"
+        img_bytes = base64.b64decode(b64data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"头像数据格式错误: {str(e)}")
+
+    return Response(
+        content=img_bytes,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 # ==========================================
 # 3. 用户认证
@@ -1530,7 +1552,7 @@ async def search_users(
             {
                 "id": u.id,
                 "username": u.username,
-                "avatar": u.avatar,
+                "avatar": f"/api/users/{u.id}/avatar" if getattr(u, "avatar", None) else None,
                 "is_following": follow_id is not None,
             }
             for (u, follow_id) in rows
@@ -1582,7 +1604,7 @@ async def admin_list_users(
                 "id": u.id,
                 "username": u.username,
                 "email": u.email,
-                "avatar": u.avatar,
+                "avatar": f"/api/users/{u.id}/avatar" if getattr(u, "avatar", None) else None,
                 "is_admin": getattr(u, "is_admin", False),
                 "is_banned": getattr(u, "is_banned", False),
                 "created_at": u.created_at.isoformat() if getattr(u, "created_at", None) else None,
@@ -1779,6 +1801,14 @@ async def follow_user(
         )
         
         db.add(new_follow)
+        
+        _create_notification(
+            db,
+            user_id=int(target_user.id),
+            type_="follow_user_new_follower",
+            content=f"{current_user.username} 关注了你",
+            link=f"/profile/{current_user.id}",
+        )
         db.commit()
         db.refresh(new_follow)
             
@@ -1826,7 +1856,9 @@ async def get_following(
             {
                 "id": follow.following.id,
                 "username": follow.following.username,
-                "avatar": follow.following.avatar,
+                "avatar": f"/api/users/{follow.following.id}/avatar"
+                if getattr(follow.following, "avatar", None)
+                else None,
                 "note": follow.note,
                 "created_at": _to_shanghai_iso(follow.created_at),
             }
