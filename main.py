@@ -9,6 +9,7 @@ import ssl
 from zoneinfo import ZoneInfo
 from datetime import timezone
 from typing import Optional, Any
+from pydantic import BaseModel
 import hashlib
 import httpx
 import logging
@@ -42,9 +43,22 @@ from models import (
     FeedbackImage,
     FeedbackStatusEvent,
     Notification,
+    MediaPlatformStatus,
+    MediaPlatformStatusLog,
+    TelegramFeedbackMapping,
 )
 from sqlalchemy.orm import Session, selectinload
-from ratings import extract_rating_info, get_tmdb_info, RATING_STATUS, search_platform, create_rating_data, get_tmdb_http_client, TMDB_API_BASE_URL
+from ratings import (
+    extract_rating_info,
+    get_tmdb_info,
+    RATING_STATUS,
+    search_platform,
+    create_rating_data,
+    get_tmdb_http_client,
+    TMDB_API_BASE_URL,
+    is_platform_locked,
+    update_platform_status_after_fetch,
+)
 from redis import asyncio as aioredis
 import json
 import base64
@@ -81,6 +95,16 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 REMEMBER_ME_TOKEN_EXPIRE_DAYS = 30
 
 FRONTEND_URL = "http://localhost:5173" if os.getenv("ENV") == "development" else "https://ratefuse.cn"
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_ADMIN_CHAT_IDS = [
+    int(x) for x in (os.getenv("TELEGRAM_ADMIN_CHAT_IDS") or "").split(",") if x.strip()
+]
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_ADMIN_CHAT_IDS = [
+    int(x) for x in (os.getenv("TELEGRAM_ADMIN_CHAT_IDS") or "").split(",") if x.strip()
+]
 
 app = FastAPI()
 app.add_middleware(
@@ -211,6 +235,8 @@ async def get_current_user(
         try:
             user = db.query(User).filter(User.id == cached_user.get("id")).first()
             if user is not None:
+                if getattr(user, "is_banned", False):
+                    raise HTTPException(status_code=403, detail="账号已被封禁，请联系管理员")
                 return user
         except Exception:
             pass
@@ -218,6 +244,8 @@ async def get_current_user(
     user = db.query(User).filter(User.email == email).first()
     if user is None:
         raise credentials_exception
+    if getattr(user, "is_banned", False):
+        raise HTTPException(status_code=403, detail="账号已被封禁，请联系管理员")
     await set_cache(user_cache_key, {"id": user.id}, expire=60)
     return user
 
@@ -238,7 +266,8 @@ async def get_current_user_optional(
         user = db.query(User).filter(User.email == email).first()
         if user is None:
             return None
-            
+        if getattr(user, "is_banned", False):
+            return None
         return user
     except JWTError:
         return None
@@ -453,6 +482,8 @@ def _login_verify_sync(email: str, password: str) -> tuple[Optional[User], Optio
         user = db.query(User).filter(User.email == email).first()
         if not user:
             return None, "此邮箱未注册"
+        if getattr(user, "is_banned", False):
+            return None, "账号已被封禁，请联系管理员"
         if not verify_password(password, user.hashed_password):
             return None, "邮箱或密码错误"
         return user, None
@@ -1507,6 +1538,124 @@ async def search_users(
         "total": int(total),
     }
 
+
+@app.get("/api/admin/users")
+async def admin_list_users(
+    q: str = "",
+    banned: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # 仅管理员可访问
+    require_admin(current_user)
+
+    q = (q or "").strip()
+    limit = max(1, min(int(limit), 100))
+    offset = max(0, int(offset))
+
+    base = db.query(User)
+    if q:
+        q_lower = q.lower()
+        like_any = f"%{q_lower}%"
+        base = base.filter(func.lower(User.username).like(like_any))
+
+    if banned:
+        banned = banned.strip().lower()
+        if banned == "banned":
+            base = base.filter(getattr(User, "is_banned") == True)
+        elif banned == "normal":
+            base = base.filter((getattr(User, "is_banned") == False) | (getattr(User, "is_banned") == None))
+
+    total = base.with_entities(func.count(User.id)).scalar() or 0
+
+    rows = (
+        base.order_by(User.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "list": [
+            {
+                "id": u.id,
+                "username": u.username,
+                "email": u.email,
+                "avatar": u.avatar,
+                "is_admin": getattr(u, "is_admin", False),
+                "is_banned": getattr(u, "is_banned", False),
+                "created_at": u.created_at.isoformat() if getattr(u, "created_at", None) else None,
+            }
+            for u in rows
+        ],
+        "total": int(total),
+    }
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="不能删除自己")
+    if getattr(user, "is_admin", False):
+        raise HTTPException(status_code=400, detail="不能删除管理员账号")
+
+    db.delete(user)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{user_id}/ban")
+async def admin_ban_user(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="不能封禁自己")
+    if getattr(user, "is_admin", False):
+        raise HTTPException(status_code=400, detail="不能封禁管理员账号")
+
+    if hasattr(user, "is_banned"):
+        user.is_banned = True
+        db.add(user)
+        db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{user_id}/unban")
+async def admin_unban_user(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if hasattr(user, "is_banned"):
+        user.is_banned = False
+        db.add(user)
+        db.commit()
+    return {"ok": True}
+
 @app.get("/api/users/{user_id}")
 async def get_user_info(
     user_id: int,
@@ -1803,11 +1952,12 @@ async def mark_notifications_read(
     updated = 0
 
     try:
+        now = datetime.utcnow()
         if mark_all:
             updated = (
                 db.query(Notification)
                 .filter(Notification.user_id == current_user.id, Notification.is_read == False)  # noqa: E712
-                .update({"is_read": True}, synchronize_session=False)
+                .update({"is_read": True, "read_at": now}, synchronize_session=False)
             )
         elif isinstance(ids, list) and ids:
             cleaned_ids: list[int] = []
@@ -1823,7 +1973,7 @@ async def mark_notifications_read(
                         Notification.user_id == current_user.id,
                         Notification.id.in_(cleaned_ids),
                     )
-                    .update({"is_read": True}, synchronize_session=False)
+                    .update({"is_read": True, "read_at": now}, synchronize_session=False)
                 )
         db.commit()
         return {"updated": int(updated or 0)}
@@ -2233,6 +2383,23 @@ async def get_platform_rating(
             else:
                 print("⚠️ 未登录用户，无法使用豆瓣Cookie")
         
+        media_type = type
+        tmdb_id: Optional[int] = None
+        try:
+            tmdb_id = int(id)
+        except Exception:
+            tmdb_id = None
+
+        if tmdb_id is not None and is_platform_locked(db, media_type, tmdb_id, platform):
+            rating_info = create_rating_data(RATING_STATUS["LOCKED"], "平台已锁定，停止抓取")
+            rating_info["_performance"] = {
+                "total_time": round(time.time() - start_time, 2),
+                "search_time": 0,
+                "extract_time": 0,
+                "cached": False,
+            }
+            return rating_info
+
         cache_key = f"rating:{platform}:{type}:{id}"
         cached_data = await get_cache(cache_key)
         if cached_data:
@@ -2249,6 +2416,10 @@ async def get_platform_rating(
         if await request.is_disconnected():
             print(f"{platform} 请求在获取TMDB信息后被取消")
             return None
+
+        media_type = tmdb_info.get("type") or media_type
+        if tmdb_id is None:
+            tmdb_id = tmdb_info.get("id")
 
         search_start_time = time.time()
         search_results = await search_platform(platform, tmdb_info, request, douban_cookie)
@@ -2267,6 +2438,17 @@ async def get_platform_rating(
                 "extract_time": 0,
                 "cached": False,
             }
+            if tmdb_id is not None:
+                update_platform_status_after_fetch(
+                    db,
+                    media_type=media_type,
+                    tmdb_id=tmdb_id,
+                    platform=platform,
+                    title=tmdb_info.get("title") or tmdb_info.get("name"),
+                    status=rating_info["status"],
+                    status_reason=rating_info.get("status_reason"),
+                )
+                db.commit()
             return rating_info
 
         if await request.is_disconnected():
@@ -2307,8 +2489,20 @@ async def get_platform_rating(
                 "total_time": round(total_time, 2),
                 "search_time": round(time.time() - search_start_time, 2),
                 "extract_time": round(time.time() - extract_start_time, 2),
-                "cached": False
+                "cached": False,
             }
+
+            if tmdb_id is not None:
+                update_platform_status_after_fetch(
+                    db,
+                    media_type=media_type,
+                    tmdb_id=tmdb_id,
+                    platform=platform,
+                    title=tmdb_info.get("title") or tmdb_info.get("name"),
+                    status=rating_info.get("status"),
+                    status_reason=rating_info.get("status_reason"),
+                )
+                db.commit()
 
         return rating_info
 
@@ -2533,6 +2727,132 @@ FEEDBACK_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "feedback")
 
 os.makedirs(FEEDBACK_UPLOAD_DIR, exist_ok=True)
 
+
+class TelegramUpdate(BaseModel):
+    update_id: int
+    message: Optional[dict] = None
+    callback_query: Optional[dict] = None
+
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(update: TelegramUpdate, db: Session = Depends(get_db)):
+    if not TELEGRAM_BOT_TOKEN:
+        return {"ok": False}
+
+    if update.callback_query:
+        cq = update.callback_query
+        data = cq.get("data") or ""
+        parts = str(data).split(":")
+        if len(parts) == 4 and parts[0] == "fb" and parts[2] == "status":
+            try:
+                feedback_id = int(parts[1])
+                new_status = parts[3]
+            except Exception:
+                return {"ok": True}
+
+            if new_status not in ("pending", "replied", "closed"):
+                return {"ok": True}
+
+            feedback = db.query(Feedback).filter(Feedback.id == feedback_id).first()
+            if not feedback:
+                return {"ok": True}
+
+            from_status = feedback.status
+            now = _now_utc_naive()
+            feedback.status = new_status
+            feedback.updated_at = now
+            if new_status == "closed":
+                feedback.closed_by = "telegram"
+                feedback.closed_at = now
+            else:
+                feedback.closed_by = None
+                feedback.closed_at = None
+            if new_status == "pending":
+                feedback.is_resolved_by_user = False
+                feedback.resolved_at = None
+
+            if from_status != new_status:
+                _add_status_event(
+                    db,
+                    feedback_id=feedback.id,
+                    from_status=from_status,
+                    to_status=new_status,
+                    changed_by_id=None,
+                    changed_by_type="telegram",
+                    reason="Telegram 按钮修改状态",
+                )
+            db.commit()
+        return {"ok": True}
+
+    msg = update.message or {}
+    if not msg:
+        return {"ok": True}
+
+    reply_to = msg.get("reply_to_message") or {}
+    if not reply_to:
+        return {"ok": True}
+
+    reply_message_id = reply_to.get("message_id")
+    chat = reply_to.get("chat") or {}
+    chat_id = chat.get("id")
+    if not reply_message_id or not chat_id:
+        return {"ok": True}
+
+    mapping = (
+        db.query(TelegramFeedbackMapping)
+        .filter(
+            TelegramFeedbackMapping.telegram_chat_id == int(chat_id),
+            TelegramFeedbackMapping.telegram_message_id == int(reply_message_id),
+        )
+        .first()
+    )
+    if not mapping:
+        return {"ok": True}
+
+    feedback = db.query(Feedback).filter(Feedback.id == mapping.feedback_id).first()
+    if not feedback:
+        return {"ok": True}
+
+    text = str(msg.get("text") or "").strip()
+    if not text:
+        return {"ok": True}
+
+    now = _now_utc_naive()
+    message = FeedbackMessage(
+        feedback_id=feedback.id,
+        sender_id=None,
+        sender_type="admin",
+        content=text,
+        created_at=now,
+    )
+    db.add(message)
+
+    from_status = feedback.status
+    feedback.status = "replied"
+    feedback.last_message_at = now
+    feedback.updated_at = now
+    if from_status != feedback.status:
+        _add_status_event(
+            db,
+            feedback_id=feedback.id,
+            from_status=from_status,
+            to_status=feedback.status,
+            changed_by_id=None,
+            changed_by_type="telegram",
+            reason="Telegram 管理员回复",
+        )
+
+    fb_title = (feedback.title or "").strip() or f"反馈#{feedback.id}"
+    _create_notification(
+        db,
+        user_id=feedback.user_id,
+        type_="feedback_reply",
+        content=f"管理员回复了你的反馈《{fb_title}》",
+        link=f"/profile?tab=feedbacks&feedback_id={feedback.id}",
+    )
+
+    db.commit()
+    return {"ok": True}
+
 def require_admin(user: User):
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="需要管理员权限")
@@ -2582,6 +2902,78 @@ def _add_status_event(
         created_at=_now_utc_naive(),
     )
     db.add(evt)
+
+
+async def _send_telegram_message_for_feedback(
+    db: Session,
+    feedback: Feedback,
+    text: str,
+    reply_to_root: bool = True,
+):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_ADMIN_CHAT_IDS:
+        return
+
+    mapping = (
+        db.query(TelegramFeedbackMapping)
+        .filter(TelegramFeedbackMapping.feedback_id == feedback.id)
+        .first()
+    )
+
+    reply_to_message_id = None
+    if mapping and reply_to_root:
+        reply_to_message_id = mapping.telegram_message_id
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "标记为待处理",
+                    "callback_data": f"fb:{feedback.id}:status:pending",
+                },
+                {
+                    "text": "标记为已回复",
+                    "callback_data": f"fb:{feedback.id}:status:replied",
+                },
+                {
+                    "text": "关闭反馈",
+                    "callback_data": f"fb:{feedback.id}:status:closed",
+                },
+            ]
+        ]
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for chat_id in TELEGRAM_ADMIN_CHAT_IDS:
+            payload: dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "reply_markup": json.dumps(keyboard),
+            }
+            if reply_to_message_id:
+                payload["reply_to_message_id"] = reply_to_message_id
+
+            try:
+                resp = await client.post(url, data=payload)
+                data = resp.json()
+                if mapping is None and resp.status_code == 200 and data.get("ok"):
+                    msg = data.get("result") or {}
+                    chat = msg.get("chat") or {}
+                    message_id = msg.get("message_id")
+                    chat_id_resp = chat.get("id")
+                    if chat_id_resp and message_id:
+                        new_mapping = TelegramFeedbackMapping(
+                            feedback_id=feedback.id,
+                            telegram_chat_id=int(chat_id_resp),
+                            telegram_message_id=int(message_id),
+                            created_at=_now_utc_naive(),
+                            updated_at=_now_utc_naive(),
+                        )
+                        db.add(new_mapping)
+                        db.commit()
+            except Exception:
+                continue
 
 def _serialize_feedback(feedback: Feedback, include_messages: bool = False, include_user: bool = False):
     data = {
@@ -2638,6 +3030,7 @@ def _delete_feedback_files(feedback: Feedback):
 async def create_feedback(
     content: str = Form(...),
     title: Optional[str] = Form(None),
+    page_url: Optional[str] = Form(None),
     images: list[UploadFile] = File(default_factory=list),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2716,6 +3109,23 @@ async def create_feedback(
 
     db.commit()
     db.refresh(feedback)
+
+    try:
+        fb_title = (feedback.title or "").strip() or f"反馈#{feedback.id}"
+        actor = (current_user.username or "").strip() or f"用户#{current_user.id}"
+        lines = [
+            f"<b>{fb_title}</b>",
+            f"来自用户：{actor} (ID: {current_user.id})",
+            "",
+            content.strip(),
+        ]
+        if page_url:
+            lines.append("")
+            lines.append(f"页面来源：{page_url}")
+        text = "\n".join(lines)
+        await _send_telegram_message_for_feedback(db, feedback, text, reply_to_root=False)
+    except Exception:
+        pass
 
     return _serialize_feedback(feedback, include_messages=True)
 
@@ -2800,6 +3210,13 @@ async def user_reply_feedback(
 
     db.commit()
     db.refresh(feedback)
+
+    try:
+        text = f"用户追加反馈 #{feedback.id}：\n{content}"
+        await _send_telegram_message_for_feedback(db, feedback, text)
+    except Exception:
+        pass
+
     return _serialize_feedback(
         db.query(Feedback)
         .options(selectinload(Feedback.messages), selectinload(Feedback.images))
@@ -3000,6 +3417,13 @@ async def admin_reply_feedback(
     db.commit()
     db.refresh(feedback)
 
+    try:
+        actor = (current_user.username or "").strip() or f"管理员#{current_user.id}"
+        text = f"管理员回复反馈 #{feedback.id}（{actor}）：\n{content}"
+        await _send_telegram_message_for_feedback(db, feedback, text)
+    except Exception:
+        pass
+
     return _serialize_feedback(feedback, include_messages=True, include_user=True)
 
 @app.put("/api/admin/feedbacks/{feedback_id}/status")
@@ -3071,7 +3495,243 @@ async def admin_delete_feedback(
     return {"ok": True}
 
 # ==========================================
-# 9. 访问记录
+# 9. 手动平台状态
+# ==========================================
+
+@app.get("/api/admin/platform-status")
+async def list_locked_platform_status(
+    media_type: Optional[str] = None,
+    platform: Optional[str] = None,
+    tmdb_id: Optional[int] = None,
+    title: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_admin(current_user)
+
+    query = db.query(MediaPlatformStatus).filter(MediaPlatformStatus.status == "locked")
+
+    if media_type:
+        query = query.filter(MediaPlatformStatus.media_type == media_type)
+    if platform:
+        query = query.filter(MediaPlatformStatus.platform == platform)
+    if tmdb_id is not None:
+        query = query.filter(MediaPlatformStatus.tmdb_id == tmdb_id)
+    if title:
+        query = query.filter(MediaPlatformStatus.title_snapshot.contains(title))
+
+    query = query.order_by(MediaPlatformStatus.last_status_changed_at.desc())
+    items = query.offset(skip).limit(limit).all()
+
+    return [
+        {
+            "id": item.id,
+            "media_type": item.media_type,
+            "tmdb_id": item.tmdb_id,
+            "title": item.title_snapshot,
+            "platform": item.platform,
+            "status": item.status,
+            "lock_source": item.lock_source,
+            "remark": item.remark,
+            "failure_count": item.failure_count,
+            "last_failure_status": item.last_failure_status,
+            "updated_at": _to_shanghai_iso(item.last_status_changed_at),
+        }
+        for item in items
+    ]
+
+class PlatformLockRequest(BaseModel):
+    media_type: str
+    tmdb_id: int
+    platform: str
+    remark: Optional[str] = None
+    title: Optional[str] = None
+
+@app.post("/api/admin/platform-status/lock")
+async def manual_lock_platform(
+    body: PlatformLockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_admin(current_user)
+
+    platform = (body.platform or "").lower()
+    media_type = (body.media_type or "").lower()
+
+    record = (
+        db.query(MediaPlatformStatus)
+        .filter(
+            func.lower(MediaPlatformStatus.media_type) == media_type,
+            MediaPlatformStatus.tmdb_id == body.tmdb_id,
+            func.lower(MediaPlatformStatus.platform) == platform,
+        )
+        .one_or_none()
+    )
+
+    if record is None:
+        record = MediaPlatformStatus(
+            media_type=media_type,
+            tmdb_id=body.tmdb_id,
+            platform=platform,
+            status="locked",
+            lock_source="manual",
+            remark=body.remark,
+            failure_count=0,
+            title_snapshot=body.title,
+            last_status_changed_at=_now_utc_naive(),
+            created_at=_now_utc_naive(),
+        )
+        db.add(record)
+        from_status = None
+    else:
+        from_status = record.status
+        record.status = "locked"
+        record.lock_source = "manual"
+        if body.remark is not None:
+            record.remark = body.remark
+        if body.title:
+            record.title_snapshot = body.title
+        record.last_status_changed_at = _now_utc_naive()
+
+    log = MediaPlatformStatusLog(
+        media_type=body.media_type,
+        tmdb_id=body.tmdb_id,
+        platform=body.platform,
+        from_status=from_status,
+        to_status="locked",
+        change_type="manual_lock",
+        reason=body.remark,
+        operator_id=current_user.id,
+        created_at=_now_utc_naive(),
+    )
+    db.add(log)
+
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "ok": True,
+        "record": {
+            "id": record.id,
+            "media_type": record.media_type,
+            "tmdb_id": record.tmdb_id,
+            "title": record.title_snapshot,
+            "platform": record.platform,
+            "status": record.status,
+            "lock_source": record.lock_source,
+            "remark": record.remark,
+            "failure_count": record.failure_count,
+            "last_failure_status": record.last_failure_status,
+            "updated_at": _to_shanghai_iso(record.last_status_changed_at),
+        },
+    }
+
+@app.post("/api/admin/platform-status/unlock")
+async def manual_unlock_platform(
+    body: PlatformLockRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_admin(current_user)
+
+    platform = (body.platform or "").lower()
+    media_type = (body.media_type or "").lower()
+
+    record = (
+        db.query(MediaPlatformStatus)
+        .filter(
+            func.lower(MediaPlatformStatus.media_type) == media_type,
+            MediaPlatformStatus.tmdb_id == body.tmdb_id,
+            func.lower(MediaPlatformStatus.platform) == platform,
+        )
+        .one_or_none()
+    )
+
+    if record is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    from_status = record.status
+    record.status = "active"
+    record.lock_source = "manual"
+    record.failure_count = 0
+    record.last_failure_status = None
+    if body.remark is not None:
+        record.remark = body.remark
+    record.last_status_changed_at = _now_utc_naive()
+
+    log = MediaPlatformStatusLog(
+        media_type=body.media_type,
+        tmdb_id=body.tmdb_id,
+        platform=body.platform,
+        from_status=from_status,
+        to_status="active",
+        change_type="manual_unlock",
+        reason=body.remark,
+        operator_id=current_user.id,
+        created_at=_now_utc_naive(),
+    )
+    db.add(log)
+
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "ok": True,
+        "record": {
+            "id": record.id,
+            "media_type": record.media_type,
+            "tmdb_id": record.tmdb_id,
+            "title": record.title_snapshot,
+            "platform": record.platform,
+            "status": record.status,
+            "lock_source": record.lock_source,
+            "remark": record.remark,
+            "failure_count": record.failure_count,
+            "last_failure_status": record.last_failure_status,
+            "updated_at": _to_shanghai_iso(record.last_status_changed_at),
+        },
+    }
+
+@app.get("/api/admin/platform-status/{status_id}/logs")
+async def list_platform_status_logs(
+    status_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_admin(current_user)
+
+    record = db.query(MediaPlatformStatus).filter(MediaPlatformStatus.id == status_id).one_or_none()
+    if record is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    logs = (
+        db.query(MediaPlatformStatusLog)
+        .filter(
+            MediaPlatformStatusLog.media_type == record.media_type,
+            MediaPlatformStatusLog.tmdb_id == record.tmdb_id,
+            MediaPlatformStatusLog.platform == record.platform,
+        )
+        .order_by(MediaPlatformStatusLog.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": log.id,
+            "from_status": log.from_status,
+            "to_status": log.to_status,
+            "change_type": log.change_type,
+            "reason": log.reason,
+            "operator_id": log.operator_id,
+            "created_at": _to_shanghai_iso(log.created_at),
+        }
+        for log in logs
+    ]
+
+# ==========================================
+# 10. 访问记录
 # ==========================================
 
 def _parse_yyyy_mm_dd(value: str) -> datetime:
@@ -3248,6 +3908,35 @@ async def admin_delete_media_detail_view(
     db.commit()
     return {"ok": True}
 
+
+@app.post("/api/admin/detail-views/batch-delete")
+async def admin_batch_delete_media_detail_views(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current_user)
+    ids = body.get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="ids 必须为非空数组")
+    # 去重并过滤非数字
+    cleaned_ids = []
+    for x in ids:
+        try:
+            v = int(x)
+        except Exception:
+            continue
+        if v not in cleaned_ids:
+            cleaned_ids.append(v)
+    if not cleaned_ids:
+        raise HTTPException(status_code=400, detail="ids 非法")
+
+    db.query(MediaDetailAccessLog).filter(
+        MediaDetailAccessLog.id.in_(cleaned_ids)
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True, "deleted": len(cleaned_ids)}
+
 @app.get("/api/admin/detail-views/export")
 async def admin_export_media_detail_views(
     date: Optional[str] = None,
@@ -3334,7 +4023,7 @@ async def admin_export_media_detail_views(
     )
 
 # ==========================================
-# 10. 手动评分与榜单
+# 11. 手动评分与榜单
 # ==========================================
 
 def _build_seasons_list(body: dict, platform: str, media_type: str) -> list:
