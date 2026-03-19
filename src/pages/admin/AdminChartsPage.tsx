@@ -994,8 +994,8 @@ export default function AdminChartsPage() {
       />
       {/* 反爬虫验证提示 */}
       {antiScrapingState && antiScrapingState.show && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className={`w-full max-w-md rounded-lg p-6 glass-card`}>
+        <div className="modal-root fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className={`modal-card w-full max-w-md rounded-lg p-6 glass-card`}>
             <div className="flex items-center justify-between mb-4">
               <div className={`text-lg font-semibold text-gray-800 dark:text-white`}>
                 遇到反爬虫机制，请验证
@@ -1071,7 +1071,7 @@ export default function AdminChartsPage() {
             )}
             
             {/* 全部更新和清空按钮 */}
-            <div className="flex gap-3">
+            <div className="flex gap-3 py-3 px-1">
               <button
                 onClick={handleClearAllPlatforms}
                 disabled={platformOperations['clear_all']}
@@ -1123,7 +1123,7 @@ export default function AdminChartsPage() {
               )}
             </div>
             
-            <div className="flex gap-2">
+            <div className="flex gap-2 py-3 px-1">
               {getCurrentSchedulerState()?.running ? (
                 <button
                   onClick={handleStopScheduler}
@@ -1164,7 +1164,7 @@ export default function AdminChartsPage() {
 
       {/* 平台卡片式标签 */}
 
-      <div className="glass-card rounded-2xl p-4 space-y-4">
+      <div className="glass-card overflow-visible rounded-2xl p-4 space-y-4">
         <CardTabs
           tabs={platforms.map((platform) => ({
             id: platform,
@@ -1204,7 +1204,7 @@ export default function AdminChartsPage() {
                     {platform}
                   </h2>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 py-3 px-1">
                   <button
                     onClick={() => handleClearPlatform(platform)}
                     disabled={platformOperations[`${platform}_clear`]}
@@ -1230,13 +1230,13 @@ export default function AdminChartsPage() {
                   const effectiveMediaType = isMetacriticTop250 ? 'both' : sec.media_type;
                   const key = `${platform}:${sec.name}:${effectiveMediaType}`;
                   return (
-                    <div key={key} className={`border rounded p-3 glass-card`}>
+                    <div key={key} className={`border rounded p-3 glass-card overflow-visible`}>
                       {/* 以下内容保持原有结构不变 */}
                       <div className="flex items-center justify-between mb-2">
                         <div className={`font-medium text-gray-800 dark:text-white`}>
                           {sec.name}
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 py-3 px-1">
                           {TOP_250_CHARTS.includes(sec.name) && (
                             <>
                               {!MANUAL_ONLY_CHARTS.includes(sec.name) && (
@@ -1624,8 +1624,8 @@ export default function AdminChartsPage() {
 
       {/* 选择器弹层 */}
       {pickerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className={`w-full max-w-3xl rounded-lg p-4 glass-card`}>
+        <div className="modal-root fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className={`modal-card w-full max-w-3xl rounded-lg p-4 glass-card overflow-visible`}>
             <div className="flex items-center justify-between mb-3">
               <div className={`text-lg font-semibold text-gray-800 dark:text-white`}>
                 {pickerContext?.chart_name} - 选择排名{pickerRank}
@@ -1645,7 +1645,7 @@ export default function AdminChartsPage() {
                 className="flex-1 border border-gray-300 dark:border-gray-600 rounded px-3 py-2 glass-dropdown text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400" 
               />
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-4 max-h-[50vh] overflow-auto scrollbar-gentle">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-4 max-h-[50vh] overflow-auto scrollbar-gentle py-2 px-1">
               {[...(pickerData?.movies.results||[]), ...(pickerData?.tvShows.results||[])].filter(i=>{
                 if (!pickerContext) return true;
                 if (pickerContext.media_type === 'both') return true;
@@ -1679,7 +1679,7 @@ export default function AdminChartsPage() {
                 </button>
               ))}
             </div>
-            <div className="flex justify-end gap-2 mt-4">
+            <div className="flex justify-end gap-2 mt-4 py-3 px-2">
               <button 
                 className={`px-3 py-2 rounded transition-colors bg-gray-700 text-gray-200 hover:bg-gray-600`} 
                 onClick={()=>setPickerOpen(false)}
