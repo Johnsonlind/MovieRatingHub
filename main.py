@@ -30,6 +30,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
+from urllib.parse import quote
 from models import (
     SQLALCHEMY_DATABASE_URL,
     User,
@@ -2808,6 +2809,28 @@ async def debug_feedback_image(filename: str):
         "head_hex": head_hex,
     }
 
+@app.get("/api/feedback-image")
+async def feedback_image_api(filename: str):
+    # 用显式的 API 路由返回图片，避免反代/缓存对 `/uploads/...` 路径的干扰。
+    safe_filename = os.path.basename(filename)
+    abs_base = os.path.abspath(FEEDBACK_UPLOAD_DIR)
+    abs_target = os.path.abspath(os.path.join(FEEDBACK_UPLOAD_DIR, safe_filename))
+    if not abs_target.startswith(abs_base + os.sep):
+        raise HTTPException(status_code=400, detail="非法文件名")
+    if not os.path.exists(abs_target) or not os.path.isfile(abs_target):
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    media_type, _ = mimetypes.guess_type(abs_target)
+    media_type = media_type or "application/octet-stream"
+    return FileResponse(
+        abs_target,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
 class TelegramUpdate(BaseModel):
     update_id: int
     message: Optional[dict] = None
@@ -3043,8 +3066,40 @@ async def _send_telegram_message_for_feedback(
         ]
     }
 
+    # 发送到 Telegram 时，`chat_id` 必须正确且 bot 必须对该 chat 有权限。
+    # 线上错误通常来自：
+    # - env 配错（尤其是群的 chat_id 需要负数）
+    # - bot 未加入群/未与用户建立会话
+    # 因此这里做“带日志”的候选重试：
+    # - 优先尝试 mapping.chat_id（若存在）
+    # - 再尝试 env 配置的 chat_id
+    # - 对每个候选再尝试符号位翻转版本
+    chat_ids_to_try: list[int] = []
+    _chat_id_seen: set[int] = set()
+
+    def _add_chat_id(cid: Any):
+        try:
+            c = int(cid)
+        except Exception:
+            return
+        if c in _chat_id_seen:
+            return
+        _chat_id_seen.add(c)
+        chat_ids_to_try.append(c)
+
+    mapping_chat_id: Optional[int] = int(getattr(mapping, "telegram_chat_id", None)) if mapping else None
+    if mapping_chat_id is not None:
+        _add_chat_id(mapping_chat_id)
+        _add_chat_id(-mapping_chat_id)
+
+    for cid in TELEGRAM_ADMIN_CHAT_IDS:
+        _add_chat_id(cid)
+        _add_chat_id(-cid)
+
+    logger.info(f"[telegram feedback] feedback_id={feedback.id} chat_ids_to_try={chat_ids_to_try}")
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        for chat_id in TELEGRAM_ADMIN_CHAT_IDS:
+        for chat_id in chat_ids_to_try:
             image_records = list(getattr(feedback, "images", []) or [])
             if not image_records:
                 try:
@@ -3081,7 +3136,7 @@ async def _send_telegram_message_for_feedback(
                                 "caption": caption,
                                 "reply_markup": json.dumps(keyboard),
                             }
-                            if reply_to_message_id:
+                            if reply_to_message_id and (mapping_chat_id is None or chat_id == mapping_chat_id):
                                 payload_photo["reply_to_message_id"] = reply_to_message_id
 
                             logger.info(
@@ -3112,7 +3167,7 @@ async def _send_telegram_message_for_feedback(
                                     break
 
                                 logger.warning(
-                                    f"[telegram feedback] sendPhoto failed attempt={attempt_idx} status={resp.status_code} err={tdata}"
+                                    f"[telegram feedback] sendPhoto failed chat_id={chat_id} attempt={attempt_idx} status={resp.status_code} err={tdata}"
                                 )
 
                             if photo_ok:
@@ -3142,7 +3197,7 @@ async def _send_telegram_message_for_feedback(
                     "text": plain_text,
                     "reply_markup": json.dumps(keyboard),
                 }
-                if reply_to_message_id:
+                if reply_to_message_id and (mapping_chat_id is None or chat_id == mapping_chat_id):
                     payload["reply_to_message_id"] = reply_to_message_id
 
                 try:
@@ -3165,7 +3220,7 @@ async def _send_telegram_message_for_feedback(
                             db.commit()
                     if not (resp.status_code == 200 and data.get("ok")):
                         logger.warning(
-                            f"[telegram feedback] sendMessage failed status={resp.status_code} err={data} text_preview={plain_text[:60]!r}"
+                            f"[telegram feedback] sendMessage failed chat_id={chat_id} status={resp.status_code} err={data} text_preview={plain_text[:60]!r}"
                         )
                 except Exception as e:
                     logger.exception(f"[telegram feedback] sendMessage unexpected error: {e}")
@@ -3184,7 +3239,20 @@ def _serialize_feedback(feedback: Feedback, include_messages: bool = False, incl
         "created_at": _to_shanghai_iso(feedback.created_at),
         "updated_at": _to_shanghai_iso(feedback.updated_at),
         "last_message_at": _to_shanghai_iso(feedback.last_message_at),
-        "images": [img.image_path for img in getattr(feedback, "images", [])],
+        # 将 DB 中的 `/uploads/feedback/<file>` URL 重写成走 API 的图片地址，
+        # 避免生产环境反代/缓存导致附件返回占位内容。
+        "images": [
+            (
+                # image_path 通常是 /uploads/feedback/<stored_name>
+                (
+                    f"/api/feedback-image?filename={quote(img.image_path.split('/uploads/feedback/', 1)[1])}"
+                    if str(getattr(img, "image_path", "")).startswith("/uploads/feedback/")
+                    else str(getattr(img, "image_path", ""))
+                )
+            )
+            for img in (getattr(feedback, "images", []) or [])
+            if getattr(img, "image_path", None)
+        ],
     }
 
     if include_user and getattr(feedback, "user", None):
