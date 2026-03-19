@@ -2762,7 +2762,51 @@ FEEDBACK_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "feedback")
 
 os.makedirs(FEEDBACK_UPLOAD_DIR, exist_ok=True)
 
-app.mount("/uploads", StaticFiles(directory=UPLOAD_ROOT), name="uploads")
+@app.get("/uploads/feedback/{filename}")
+async def get_feedback_image(filename: str):
+    safe_filename = os.path.basename(filename)
+    abs_base = os.path.abspath(FEEDBACK_UPLOAD_DIR)
+    abs_target = os.path.abspath(os.path.join(FEEDBACK_UPLOAD_DIR, safe_filename))
+    if not abs_target.startswith(abs_base + os.sep):
+        raise HTTPException(status_code=400, detail="非法文件名")
+    if not os.path.exists(abs_target) or not os.path.isfile(abs_target):
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    media_type, _ = mimetypes.guess_type(abs_target)
+    media_type = media_type or "application/octet-stream"
+    return FileResponse(
+        abs_target,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+@app.get("/api/debug/feedback-image")
+async def debug_feedback_image(filename: str):
+    safe_filename = os.path.basename(filename)
+    abs_base = os.path.abspath(FEEDBACK_UPLOAD_DIR)
+    abs_target = os.path.abspath(os.path.join(FEEDBACK_UPLOAD_DIR, safe_filename))
+    exists = os.path.exists(abs_target) and os.path.isfile(abs_target)
+    size = os.path.getsize(abs_target) if exists else None
+    media_type, _ = mimetypes.guess_type(abs_target) if exists else (None, None)
+    head_hex = None
+    if exists:
+        try:
+            with open(abs_target, "rb") as f:
+                head_hex = f.read(8).hex()
+        except Exception:
+            head_hex = None
+    return {
+        "filename": filename,
+        "safe_filename": safe_filename,
+        "abs_target": abs_target,
+        "exists": exists,
+        "size": size,
+        "guessed_media_type": media_type,
+        "head_hex": head_hex,
+    }
 
 class TelegramUpdate(BaseModel):
     update_id: int
@@ -2966,9 +3010,13 @@ async def _send_telegram_message_for_feedback(
             return plain[: max_len - 3] + "..."
         return plain
 
-    plain_text = _to_telegram_caption_plain(text, max_len=3500)
-    if not plain_text.strip():
+    plain_text = _to_telegram_caption_plain(text, max_len=3500).strip()
+    if not plain_text:
         plain_text = f"收到新的反馈（#{feedback.id}）"
+
+    logger.info(
+        f"[telegram feedback] feedback_id={feedback.id} plain_len={len(plain_text)} plain_preview={plain_text[:60]!r}"
+    )
 
     reply_to_message_id = None
     if mapping and reply_to_root:
@@ -3036,17 +3084,41 @@ async def _send_telegram_message_for_feedback(
                             if reply_to_message_id:
                                 payload_photo["reply_to_message_id"] = reply_to_message_id
 
-                            resp = await client.post(
-                                url_photo,
-                                data=payload_photo,
-                                files={"photo": (filename, io.BytesIO(img_bytes), content_type)},
+                            logger.info(
+                                f"[telegram feedback] sendPhoto filename={filename} bytes={len(img_bytes)} content_type={content_type}"
                             )
-                            tdata = resp.json()
-                            if resp.status_code == 200 and tdata.get("ok"):
-                                sent_photo_ok = True
 
+                            photo_ok = False
+                            tdata_for_mapping: dict[str, Any] = {}
+                            files_attempts: list[dict[str, Any]] = [
+                                {"photo": (filename, io.BytesIO(img_bytes), content_type)},
+                                {"photo": (filename, img_bytes, content_type)},
+                                {"photo": (filename, img_bytes)},
+                            ]
+                            for attempt_idx, files in enumerate(files_attempts, start=1):
+                                resp = await client.post(
+                                    url_photo,
+                                    data=payload_photo,
+                                    files=files,
+                                )
+                                try:
+                                    tdata = resp.json()
+                                except Exception:
+                                    tdata = {"raw": resp.text if hasattr(resp, "text") else None}
+
+                                if resp.status_code == 200 and tdata.get("ok"):
+                                    photo_ok = True
+                                    tdata_for_mapping = tdata
+                                    break
+
+                                logger.warning(
+                                    f"[telegram feedback] sendPhoto failed attempt={attempt_idx} status={resp.status_code} err={tdata}"
+                                )
+
+                            if photo_ok:
+                                sent_photo_ok = True
                                 if mapping is None:
-                                    msg = tdata.get("result") or {}
+                                    msg = tdata_for_mapping.get("result") or {}
                                     chat = msg.get("chat") or {}
                                     message_id = msg.get("message_id")
                                     chat_id_resp = chat.get("id")
@@ -3060,7 +3132,8 @@ async def _send_telegram_message_for_feedback(
                                         )
                                         db.add(new_mapping)
                                         db.commit()
-                        except Exception:
+                        except Exception as e:
+                            logger.exception(f"[telegram feedback] sendPhoto unexpected error: {e}")
                             sent_photo_ok = False
 
             if not sent_photo_ok:
@@ -3090,7 +3163,12 @@ async def _send_telegram_message_for_feedback(
                             )
                             db.add(new_mapping)
                             db.commit()
-                except Exception:
+                    if not (resp.status_code == 200 and data.get("ok")):
+                        logger.warning(
+                            f"[telegram feedback] sendMessage failed status={resp.status_code} err={data} text_preview={plain_text[:60]!r}"
+                        )
+                except Exception as e:
+                    logger.exception(f"[telegram feedback] sendMessage unexpected error: {e}")
                     continue
 
 def _serialize_feedback(feedback: Feedback, include_messages: bool = False, include_user: bool = False):
