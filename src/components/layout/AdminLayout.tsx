@@ -1,7 +1,7 @@
 // ==========================================
 // 管理员布局
 // ==========================================
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { ThemeToggle } from '../ui/ThemeToggle';
@@ -14,6 +14,8 @@ import {
   MoreHorizontal,
   Home,
   MessageCircle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '../../utils/utils';
 
@@ -30,10 +32,32 @@ const SIDEBAR_ITEMS = [
 export default function AdminLayout() {
   const { user, isLoading } = useAuth();
   const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      if (typeof window === 'undefined') return false;
+      return localStorage.getItem('admin_sidebar_collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     document.title = '管理后台 - RateFuse';
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('admin_sidebar_collapsed', collapsed ? '1' : '0');
+    } catch {
+    }
+  }, [collapsed]);
+
+  const sidebarClassName = useMemo(() => {
+    return cn(
+      'flex-shrink-0 border-b sm:border-b-0 sm:border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/50 transition-all duration-200 ease-in-out',
+      collapsed ? 'w-full sm:w-16 lg:w-16' : 'w-full sm:w-56 lg:w-64'
+    );
+  }, [collapsed]);
 
   if (isLoading) {
     return (
@@ -61,12 +85,26 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen flex flex-col sm:flex-row bg-gray-50 dark:bg-gray-900">
       {/* 侧边栏 */}
-      <aside className="w-full sm:w-56 lg:w-64 flex-shrink-0 border-b sm:border-b-0 sm:border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800/50">
+      <aside className={sidebarClassName}>
         <div className="p-4 flex items-center justify-between sm:flex-col sm:items-stretch sm:gap-4">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-gray-900 dark:text-white">管理后台</span>
+            <span className={cn('font-bold text-gray-900 dark:text-white', collapsed && 'hidden')}>管理后台</span>
             <ThemeToggle />
           </div>
+
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            className={cn(
+              'mt-2 inline-flex items-center justify-center rounded-lg border transition-colors',
+              'w-9 h-9 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/50'
+            )}
+            aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+            title={collapsed ? '展开侧边栏' : '收起侧边栏'}
+          >
+            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
+
           <nav className="flex gap-2 overflow-x-auto sm:flex-col sm:overflow-visible pb-2 sm:pb-0 -mx-2 sm:mx-0 px-2 sm:px-0">
             {SIDEBAR_ITEMS.map(({ id, path, label, icon: Icon }) => (
               <NavLink
@@ -76,6 +114,7 @@ export default function AdminLayout() {
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors',
+                    collapsed && 'px-2 justify-center',
                     isActive
                       ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white'
@@ -83,16 +122,19 @@ export default function AdminLayout() {
                 }
               >
                 <Icon className="w-4 h-4 flex-shrink-0" />
-                {label}
+                <span className={cn(collapsed && 'hidden')}>{label}</span>
               </NavLink>
             ))}
           </nav>
           <NavLink
             to="/"
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white mt-auto hidden sm:flex"
+            className={cn(
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white mt-auto hidden sm:flex',
+              collapsed && 'px-2 justify-center'
+            )}
           >
             <Home className="w-4 h-4" />
-            返回前台
+            <span className={cn(collapsed && 'hidden')}>返回前台</span>
           </NavLink>
         </div>
       </aside>
