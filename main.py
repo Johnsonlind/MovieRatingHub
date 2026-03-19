@@ -13,6 +13,8 @@ from pydantic import BaseModel
 import hashlib
 import httpx
 import logging
+import mimetypes
+from html import escape as html_escape, unescape as html_unescape
 
 load_dotenv()
 
@@ -20,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, HTTPException, Request, Depends, APIRouter, Response, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
@@ -538,7 +540,7 @@ async def login(request: Request):
             "id": user.id,
             "email": user.email,
             "username": user.username,
-            "avatar": user.avatar,
+            "avatar": f"/api/users/{user.id}/avatar" if getattr(user, "avatar", None) else None,
             "is_admin": getattr(user, "is_admin", False),
         }
         
@@ -2758,6 +2760,22 @@ FEEDBACK_UPLOAD_DIR = os.path.join(UPLOAD_ROOT, "feedback")
 
 os.makedirs(FEEDBACK_UPLOAD_DIR, exist_ok=True)
 
+@app.get("/uploads/feedback/{filename}")
+async def get_feedback_image(filename: str):
+    safe_filename = os.path.basename(filename)
+    abs_base = os.path.abspath(FEEDBACK_UPLOAD_DIR)
+    abs_target = os.path.abspath(os.path.join(FEEDBACK_UPLOAD_DIR, safe_filename))
+    if not abs_target.startswith(abs_base + os.sep):
+        raise HTTPException(status_code=400, detail="非法文件名")
+    if not os.path.exists(abs_target):
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    media_type, _ = mimetypes.guess_type(abs_target)
+    return FileResponse(
+        abs_target,
+        media_type=media_type or "application/octet-stream",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 class TelegramUpdate(BaseModel):
     update_id: int
@@ -2943,6 +2961,9 @@ async def _send_telegram_message_for_feedback(
 ):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_ADMIN_CHAT_IDS:
         return
+    text = str(text or "")
+    if not text.strip():
+        text = f"收到新的反馈（#{feedback.id}）"
 
     mapping = (
         db.query(TelegramFeedbackMapping)
@@ -2950,11 +2971,20 @@ async def _send_telegram_message_for_feedback(
         .first()
     )
 
+    def _to_telegram_caption_plain(html_text: str, max_len: int = 1000) -> str:
+        plain = re.sub(r"<[^>]*>", "", str(html_text or ""))
+        plain = html_unescape(plain)
+        plain = plain.strip()
+        if len(plain) > max_len:
+            return plain[: max_len - 3] + "..."
+        return plain
+
     reply_to_message_id = None
     if mapping and reply_to_root:
         reply_to_message_id = mapping.telegram_message_id
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url_photo = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
     keyboard = {
         "inline_keyboard": [
             [
@@ -2976,35 +3006,106 @@ async def _send_telegram_message_for_feedback(
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         for chat_id in TELEGRAM_ADMIN_CHAT_IDS:
-            payload: dict[str, Any] = {
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "reply_markup": json.dumps(keyboard),
-            }
-            if reply_to_message_id:
-                payload["reply_to_message_id"] = reply_to_message_id
+            # 先准备图片（只发送第一张，满足“带图片”需求）
+            image_records = list(getattr(feedback, "images", []) or [])
+            if not image_records:
+                try:
+                    image_records = (
+                        db.query(FeedbackImage)
+                        .filter(FeedbackImage.feedback_id == feedback.id)
+                        .order_by(FeedbackImage.id.asc())
+                        .all()
+                    )
+                except Exception:
+                    image_records = []
 
-            try:
-                resp = await client.post(url, data=payload)
-                data = resp.json()
-                if mapping is None and resp.status_code == 200 and data.get("ok"):
-                    msg = data.get("result") or {}
-                    chat = msg.get("chat") or {}
-                    message_id = msg.get("message_id")
-                    chat_id_resp = chat.get("id")
-                    if chat_id_resp and message_id:
-                        new_mapping = TelegramFeedbackMapping(
-                            feedback_id=feedback.id,
-                            telegram_chat_id=int(chat_id_resp),
-                            telegram_message_id=int(message_id),
-                            created_at=_now_utc_naive(),
-                            updated_at=_now_utc_naive(),
-                        )
-                        db.add(new_mapping)
-                        db.commit()
-            except Exception:
-                continue
+            first_image = image_records[0] if image_records else None
+            sent_photo_ok = False
+
+            if first_image:
+                p = str(getattr(first_image, "image_path", "") or "")
+                # 允许仅从 feedback 上传目录取文件
+                if p.startswith("/uploads/feedback/"):
+                    stored_name = p.split("/uploads/feedback/", 1)[1]
+                    abs_path = os.path.join(FEEDBACK_UPLOAD_DIR, stored_name)
+                    if os.path.exists(abs_path) and os.path.isfile(abs_path):
+                        try:
+                            with open(abs_path, "rb") as f:
+                                img_bytes = f.read()
+
+                            content_type, _ = mimetypes.guess_type(abs_path)
+                            content_type = content_type or "image/jpeg"
+                            filename = os.path.basename(abs_path)
+
+                            caption = _to_telegram_caption_plain(text)
+
+                            payload_photo: dict[str, Any] = {
+                                "chat_id": chat_id,
+                                "caption": caption,
+                                "reply_markup": json.dumps(keyboard),
+                            }
+                            if reply_to_message_id:
+                                payload_photo["reply_to_message_id"] = reply_to_message_id
+
+                            resp = await client.post(
+                                url_photo,
+                                data=payload_photo,
+                                files={"photo": (filename, img_bytes, content_type)},
+                            )
+                            tdata = resp.json()
+                            if resp.status_code == 200 and tdata.get("ok"):
+                                sent_photo_ok = True
+
+                                # 新建映射：以“带按钮的那条消息”为准
+                                if mapping is None:
+                                    msg = tdata.get("result") or {}
+                                    chat = msg.get("chat") or {}
+                                    message_id = msg.get("message_id")
+                                    chat_id_resp = chat.get("id")
+                                    if chat_id_resp and message_id:
+                                        new_mapping = TelegramFeedbackMapping(
+                                            feedback_id=feedback.id,
+                                            telegram_chat_id=int(chat_id_resp),
+                                            telegram_message_id=int(message_id),
+                                            created_at=_now_utc_naive(),
+                                            updated_at=_now_utc_naive(),
+                                        )
+                                        db.add(new_mapping)
+                                        db.commit()
+                        except Exception:
+                            sent_photo_ok = False
+
+            # 如果图片发送失败/没有图片，则回退为纯文本消息
+            if not sent_photo_ok:
+                payload: dict[str, Any] = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "reply_markup": json.dumps(keyboard),
+                }
+                if reply_to_message_id:
+                    payload["reply_to_message_id"] = reply_to_message_id
+
+                try:
+                    resp = await client.post(url, data=payload)
+                    data = resp.json()
+                    if mapping is None and resp.status_code == 200 and data.get("ok"):
+                        msg = data.get("result") or {}
+                        chat = msg.get("chat") or {}
+                        message_id = msg.get("message_id")
+                        chat_id_resp = chat.get("id")
+                        if chat_id_resp and message_id:
+                            new_mapping = TelegramFeedbackMapping(
+                                feedback_id=feedback.id,
+                                telegram_chat_id=int(chat_id_resp),
+                                telegram_message_id=int(message_id),
+                                created_at=_now_utc_naive(),
+                                updated_at=_now_utc_naive(),
+                            )
+                            db.add(new_mapping)
+                            db.commit()
+                except Exception:
+                    continue
 
 def _serialize_feedback(feedback: Feedback, include_messages: bool = False, include_user: bool = False):
     data = {
@@ -3144,15 +3245,18 @@ async def create_feedback(
     try:
         fb_title = (feedback.title or "").strip() or f"反馈#{feedback.id}"
         actor = (current_user.username or "").strip() or f"用户#{current_user.id}"
+        safe_fb_title = html_escape(fb_title)
+        safe_actor = html_escape(actor)
+        safe_content = html_escape(content.strip())
         lines = [
-            f"<b>{fb_title}</b>",
-            f"来自用户：{actor} (ID: {current_user.id})",
+            f"<b>{safe_fb_title}</b>",
+            f"来自用户：{safe_actor} (ID: {current_user.id})",
             "",
-            content.strip(),
+            safe_content,
         ]
         if page_url:
             lines.append("")
-            lines.append(f"页面来源：{page_url}")
+            lines.append(f"页面来源：{html_escape(page_url)}")
         text = "\n".join(lines)
         await _send_telegram_message_for_feedback(db, feedback, text, reply_to_root=False)
     except Exception:
@@ -3243,7 +3347,7 @@ async def user_reply_feedback(
     db.refresh(feedback)
 
     try:
-        text = f"用户追加反馈 #{feedback.id}：\n{content}"
+        text = f"用户追加反馈 #{feedback.id}：\n{html_escape(content)}"
         await _send_telegram_message_for_feedback(db, feedback, text)
     except Exception:
         pass
@@ -3450,7 +3554,7 @@ async def admin_reply_feedback(
 
     try:
         actor = (current_user.username or "").strip() or f"管理员#{current_user.id}"
-        text = f"管理员回复反馈 #{feedback.id}（{actor}）：\n{content}"
+        text = f"管理员回复反馈 #{feedback.id}（{html_escape(actor)}）：\n{html_escape(content)}"
         await _send_telegram_message_for_feedback(db, feedback, text)
     except Exception:
         pass
