@@ -22,7 +22,7 @@ export function CardTabs({ tabs, activeId, onChange, className }: CardTabsProps)
   return (
     <div
       className={cn(
-        'overflow-x-auto px-1 pb-1 scrollbar-gentle',
+        'overflow-x-auto px-1 pt-1 pb-1 scrollbar-gentle',
         className,
       )}
     >
@@ -35,7 +35,7 @@ export function CardTabs({ tabs, activeId, onChange, className }: CardTabsProps)
               type="button"
               onClick={() => onChange(tab.id)}
               className={cn(
-                'flex-shrink-0 px-3 py-2 sm:px-4 text-sm font-medium rounded-t-xl transition-all duration-150',
+                'flex-shrink-0 px-3 py-2 sm:px-4 text-sm font-medium rounded-t-xl transition-colors duration-150',
                 'border border-b-0',
               isActive
                 ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-sm -mb-0.5 border-gray-300 dark:border-gray-600 border-b-white dark:border-b-gray-900'
