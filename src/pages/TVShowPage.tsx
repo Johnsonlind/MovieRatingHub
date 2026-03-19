@@ -107,7 +107,21 @@ export default function TVShowPage() {
     if (!id || !tvShow) return;
     if (trackedId === id) return;
 
+    const backendPlatforms = ['douban', 'imdb', 'letterboxd', 'rottentomatoes', 'metacritic'] as const;
+    const allBackendDone = backendPlatforms.every((p) => {
+      const st = platformStatuses[p]?.status;
+      return st && st !== 'pending' && st !== 'loading';
+    });
+    const allTmdbTraktDone =
+      tmdbStatus !== 'pending' &&
+      tmdbStatus !== 'loading' &&
+      traktStatus !== 'pending' &&
+      traktStatus !== 'loading';
+
+    if (!allBackendDone || !allTmdbTraktDone) return;
+
     const url = `${window.location.origin}/tv/${id}`;
+    setTrackedId(id);
     authFetch('/api/track/detail-view', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -116,14 +130,22 @@ export default function TVShowPage() {
         tmdb_id: Number(id),
         title: tvShow.title,
         url,
+        platform_rating_fetch_statuses: {
+          douban: platformStatuses.douban.status,
+          imdb: platformStatuses.imdb.status,
+          letterboxd: platformStatuses.letterboxd.status,
+          rottentomatoes: platformStatuses.rottentomatoes.status,
+          metacritic: platformStatuses.metacritic.status,
+          tmdb: tmdbStatus,
+          trakt: traktStatus,
+        },
       }),
       withAuth: true,
     })
-      .then(() => setTrackedId(id))
       .catch(() => {
-        // ignore
+        setTrackedId((prev) => (prev === id ? null : prev));
       });
-  }, [id, tvShow, trackedId]);
+  }, [id, tvShow, trackedId, platformStatuses, tmdbStatus, traktStatus]);
 
   useEffect(() => {
     if (tvShow?.poster) {
