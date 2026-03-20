@@ -36,7 +36,7 @@ export function Credits({ cast, crew, className }: CreditsProps) {
       <section className={crew.length > 0 ? "mb-8" : undefined}>
         <h2 className="text-2xl font-bold mb-4 dark:text-white">演员阵容(部分)</h2>
         <div className="relative">
-          <div className="overflow-y-auto max-h-[600px] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 py-2">
+          <div className="py-2">
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-6">
               {cast.map((member, index) => (
                 <div key={index} className="flex flex-col items-center text-center space-y-2 p-3 rounded-lg glass-card group cursor-default">
